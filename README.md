@@ -29,3 +29,10 @@ Requirements for a rewrite:
 Both Swift and Rust match these. Rust won't play well with my brain, despite many tries. So
 Swift it is.
 
+## Development
+
+### Windows
+
+1. Install [Swift 5.9](https://www.swift.org/download/)
+2. Launch a Developer PowerShell For Visual Studio 2019 in Windows Terminal
+3. `swift build`
