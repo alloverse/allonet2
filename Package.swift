@@ -10,15 +10,39 @@ let package = Package(
         .library(
             name: "allonet2",
             type: .dynamic,
-            targets: ["allonet2"]),
+            targets: ["allonet2"]
+        ),
+        .executable(name: "server",
+            targets: ["server"]
+        ),
+        .executable(name: "democlient",
+            targets: ["democlient"]
+        )
+    ],
+    dependencies: [
+        .package(url: "https://github.com/christophhagen/BinaryCodable", from: "3.0.0"),
+        //.package(url: "https://github.com/apple/swift-protobuf.git", .upToNextMajor(from: "1.25.1")),
+        .package(url: "https://github.com/stasel/WebRTC.git", .upToNextMajor(from: "123.0.0"))
+
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
-            name: "allonet2"),
+            name: "allonet2",
+            dependencies: ["WebRTC"]
+        ),
         .testTarget(
             name: "allonet2Tests",
-            dependencies: ["allonet2"]),
+            dependencies: ["allonet2"]
+        ),
+        .executableTarget(
+            name: "server",
+            dependencies: ["allonet2"]
+        ),
+        .executableTarget(
+            name: "democlient",
+            dependencies: ["allonet2"]
+        ),
     ]
 )

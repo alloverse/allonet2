@@ -1,0 +1,23 @@
+{
+  "pins" : [
+    {
+      "identity" : "binarycodable",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/christophhagen/BinaryCodable",
+      "state" : {
+        "revision" : "e433bb084be30fbd402b2bdc8f36b7c8e083d310",
+        "version" : "3.0.0"
+      }
+    },
+    {
+      "identity" : "webrtc",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/stasel/WebRTC.git",
+      "state" : {
+        "revision" : "cdf22dbb602fd268ab60fccc647d62892b8bb7ed",
+        "version" : "123.0.0"
+      }
+    }
+  ],
+  "version" : 2
+}
