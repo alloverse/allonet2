@@ -12,7 +12,7 @@ Allonet allows the writing of three different kinds of software:
   web browser.
 * Place: The "simulation server"/network hub that users and apps connect to.
 
-## Rationale
+## Rationale of language choice
 
 Allonet 1 was written in C, because I have decades of experience in C, and I know how to make
 it work on pretty much any platform. However, the constant memory corruption, lack of abstraction,
@@ -28,6 +28,28 @@ Requirements for a rewrite:
 
 Both Swift and Rust match these. Rust won't play well with my brain, despite many tries. So
 Swift it is.
+
+
+## Design changes from allonet 1
+
+Allonet was always supposed to use a web-compatible udp-like protocol, probably **WebRTC**.
+Now years later, I'm more keen on QUIC or WebTransport, but there are no working libraries 
+for them for Swift, so I'll lean on WebRTC once again.
+
+Thoughts on WebRTC signalling. We'll ignore p2p for now and use a server-client model. This means
+that the server's sdp will never change, and renegotiation is not as important. So,
+we don't need an active signalling channel, but instead use a single HTTPS call to exchange
+handshakes.
+
+The worst part about Allonet 1 was **JSON**. It was horribly inefficient. We'll aim for
+**ProtoBuf** this time, but lean on BinaryCodable as a stop-gap to just prototype before 
+we start messing with schemas. 
+
+One fun thing we could do is dynamic schemas: each agent shares the schemas
+it will publish data using (i e, which components it supports); placeserv merges to one large
+schema, and publishes that back to agents as the authoritative.
+
+
 
 ## Development
 
