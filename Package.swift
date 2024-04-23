@@ -22,15 +22,15 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/christophhagen/BinaryCodable", from: "3.0.0"),
         //.package(url: "https://github.com/apple/swift-protobuf.git", .upToNextMajor(from: "1.25.1")),
-        .package(url: "https://github.com/stasel/WebRTC.git", .upToNextMajor(from: "123.0.0"))
-
+        .package(url: "https://github.com/stasel/WebRTC.git", .upToNextMajor(from: "123.0.0")),
+        .package(url: "https://github.com/httpswift/swifter.git", .upToNextMajor(from: "1.5.0"))
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
             name: "allonet2",
-            dependencies: ["WebRTC"]
+            dependencies: ["WebRTC", "BinaryCodable"]
         ),
         .testTarget(
             name: "allonet2Tests",
@@ -38,7 +38,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "server",
-            dependencies: ["allonet2"]
+            dependencies: ["allonet2", .product(name: "Swifter", package: "swifter")]
         ),
         .executableTarget(
             name: "democlient",

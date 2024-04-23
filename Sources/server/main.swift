@@ -7,12 +7,29 @@
 
 import Foundation
 import allonet2
+import Swifter
+import WebRTC
 
-print("alloserver swift")
+class ClientSession {
+    let rtc: WebRTCClient
+    
+    init() {
+        self.rtc = WebRTCClient(iceServers: [])
+    }
+}
+var sessions : [ClientSession] = []
 
 // Start a web server
+let server = HttpServer()
+try server.start(9080, forceIPv4: true)
+print("alloserver swift gateway: http://localhost:\(try server.port())/")
 
 // On incoming connection, create a WebRTC socket.
+server["/"] = { req in
+    
+    return .ok(.text("hello"))
+}
+
 // Feed it the offer
 // Respond with answer
 
