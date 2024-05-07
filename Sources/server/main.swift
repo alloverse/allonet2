@@ -12,6 +12,7 @@ import WebRTC
 
 let port:UInt16 = 9080
 
+@MainActor
 class PlaceServer {
     var sessions : [RTCSession] = []
 
@@ -23,25 +24,29 @@ class PlaceServer {
         print("alloserver swift gateway: http://localhost:\(port)/")
 
         // On incoming connection, create a WebRTC socket.
-        await http.appendRoute("/") { request in
-            let session = RTCSession()
+        await http.appendRoute("/", handler: self.handleIncomingClient)
             
-            self.sessions.append(session)
-            // TODO: rescind offer if not taken within some timeout.
-            // TODO: This should be an answer, picking up the offer from the request!!!
-            let response = OfferResponse(
-            	sdp: await session.generateOffer(),
-                candidates: (await session.gatherCandidates()).map { OfferResponseIceCandidate(candidate: $0) },
-                clientId: session.clientId!
-            )
-            return HTTPResponse(
-                statusCode: .ok,
-                headers: [.contentType: "application/json"],
-                body: try! JSONEncoder().encode(response)
-            )
-        }
-        
         try await http.start()
+    }
+    
+    @Sendable
+    func handleIncomingClient(_ request: HTTPRequest) async throws -> HTTPResponse
+    {
+        let offer = try await JSONDecoder().decode(SignallingPayload.self, from: request.bodyData)
+            
+        let session = RTCSession()
+        self.sessions.append(session)
+        
+        let response = SignallingPayload(
+            sdp: try await session.generateAnswer(offer: offer.desc(for: .offer), remoteCandidates: offer.rtcCandidates()),
+            candidates: (await session.gatherCandidates()).map { SignallingIceCandidate(candidate: $0) },
+            clientId: session.clientId!
+        )
+        return HTTPResponse(
+            statusCode: .ok,
+            headers: [.contentType: "application/json"],
+            body: try! JSONEncoder().encode(response)
+        )
     }
 }
 

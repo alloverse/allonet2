@@ -11,7 +11,7 @@ import WebRTC
 // TODO: Replace WebRTCClient with this instead
 
 public class RTCSession: WebRTCClientDelegate {
-    public private(set) var clientId: UUID?
+    public var clientId: UUID?
     private let rtc: WebRTCClient
     private var localCandidates : [RTCIceCandidate] = []
     private var candidatesLocked = false
@@ -23,7 +23,6 @@ public class RTCSession: WebRTCClientDelegate {
     
     public func generateOffer() async -> String
     {
-        clientId = UUID()
         return await withCheckedContinuation { cont in
             rtc.offer { sdp in
                 cont.resume(returning: sdp.sdp)
@@ -33,7 +32,7 @@ public class RTCSession: WebRTCClientDelegate {
     
     public func generateAnswer(offer: RTCSessionDescription, remoteCandidates: [RTCIceCandidate]) async throws -> String
     {
-        
+        clientId = UUID()
         try await set(remoteSdp: offer)
         for cand in remoteCandidates
         {
@@ -50,20 +49,20 @@ public class RTCSession: WebRTCClientDelegate {
     {
         return try await withCheckedThrowingContinuation() { cont in
             rtc.set(remoteSdp: remoteSdp) { err in
-                guard let err = err else {
-                    cont.resume(throwing: err!)
+                if let err2 = err {
+                    cont.resume(throwing: err2)
                     return
                 }
                 cont.resume()
             }
         }
     }
-    private func set(remoteCandidate: RTCIceCandidate) async throws
+    public func set(remoteCandidate: RTCIceCandidate) async throws
     {
         return try await withCheckedThrowingContinuation() { cont in
             rtc.set(remoteCandidate: remoteCandidate) { err in
-                guard let err = err else {
-                    cont.resume(throwing: err!)
+                if let err2 = err {
+                    cont.resume(throwing: err2)
                     return
                 }
                 cont.resume()
@@ -74,7 +73,7 @@ public class RTCSession: WebRTCClientDelegate {
     public func gatherCandidates() async -> [RTCIceCandidate]
     {
         // TODO: Is there another callback for "all relevant local candidates found for now" we can use instead of a timer?
-        try! await Task.sleep(nanoseconds: 500*1000*1000)
+        try! await Task.sleep(nanoseconds: 800*1000*1000)
         candidatesLocked = true
         return localCandidates
     }

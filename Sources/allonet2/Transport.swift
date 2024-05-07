@@ -8,19 +8,29 @@
 import Foundation
 import WebRTC
 
-public struct OfferResponse: Codable
+public struct SignallingPayload: Codable
 {
     let sdp: String
-    let candidates: [OfferResponseIceCandidate]
-    let clientId: UUID
-    public init(sdp: String, candidates: [OfferResponseIceCandidate], clientId: UUID) {
+    let candidates: [SignallingIceCandidate]
+    public let clientId: UUID?
+    public init(sdp: String, candidates: [SignallingIceCandidate], clientId: UUID?)
+    {
         self.sdp = sdp
         self.candidates = candidates
         self.clientId = clientId
     }
+    
+    public func desc(for type: RTCSdpType) -> RTCSessionDescription
+    {
+        return RTCSessionDescription(type: type, sdp: self.sdp)
+    }
+    public func rtcCandidates() -> [RTCIceCandidate]
+    {
+        return candidates.map { $0.candidate() }
+    }
 }
 
-public struct OfferResponseIceCandidate: Codable
+public struct SignallingIceCandidate: Codable
 {
     let sdpMid: String
     let sdpMLineIndex: Int32
@@ -32,5 +42,10 @@ public struct OfferResponseIceCandidate: Codable
         sdpMLineIndex = candidate.sdpMLineIndex
         sdp = candidate.sdp
         serverUrl = candidate.serverUrl
+    }
+    
+    public func candidate() -> RTCIceCandidate
+    {
+        return RTCIceCandidate(sdp: sdp, sdpMLineIndex: sdpMLineIndex, sdpMid: sdpMid)
     }
 }
