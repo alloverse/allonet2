@@ -8,6 +8,17 @@
 import Foundation
 import allonet2
 
+class AlloClient
+{
+    let session = RTCSession()
+    
+    init()
+    {
+        
+    }
+}
+
+
 let url = URL(string: CommandLine.arguments[1])!
 
 print("Connecting to alloverse swift place ", url)
