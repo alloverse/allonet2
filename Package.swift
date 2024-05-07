@@ -5,6 +5,9 @@ import PackageDescription
 
 let package = Package(
     name: "allonet2",
+    platforms: [
+        .macOS(.v10_15)
+    ],
     products: [
         // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
@@ -23,7 +26,7 @@ let package = Package(
         .package(url: "https://github.com/christophhagen/BinaryCodable", from: "3.0.0"),
         //.package(url: "https://github.com/apple/swift-protobuf.git", .upToNextMajor(from: "1.25.1")),
         .package(url: "https://github.com/stasel/WebRTC.git", .upToNextMajor(from: "123.0.0")),
-        .package(url: "https://github.com/httpswift/swifter.git", .upToNextMajor(from: "1.5.0"))
+        .package(url: "https://github.com/swhitty/FlyingFox.git", .upToNextMajor(from: "0.14.0"))
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -38,7 +41,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "server",
-            dependencies: ["allonet2", .product(name: "Swifter", package: "swifter")]
+            dependencies: ["allonet2", "FlyingFox"]
         ),
         .executableTarget(
             name: "democlient",

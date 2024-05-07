@@ -7,7 +7,7 @@
 
 import Foundation
 import allonet2
-import Swifter
+import FlyingFox
 import WebRTC
 
 class ClientSession {
@@ -16,18 +16,41 @@ class ClientSession {
     init() {
         self.rtc = WebRTCClient(iceServers: [])
     }
-}
-var sessions : [ClientSession] = []
-
-// Start a web server
-let server = HttpServer()
-try server.start(9080, forceIPv4: true)
-print("alloserver swift gateway: http://localhost:\(try server.port())/")
-
-// On incoming connection, create a WebRTC socket.
-server["/"] = { req in
     
-    return .ok(.text("hello"))
+    func generateOffer() async -> String
+    {
+        await withCheckedContinuation { cont in
+            rtc.offer { sdp in
+                cont.resume(returning: sdp.sdp)
+            }
+        }
+    }
+}
+
+let port:UInt16 = 9080
+
+class PlaceServer {
+    var sessions : [ClientSession] = []
+
+    // Start a web server
+    
+    let http = HTTPServer(port: port)
+    func start() async throws
+    {
+        print("alloserver swift gateway: http://localhost:\(port)/")
+
+        // On incoming connection, create a WebRTC socket.
+        await http.appendRoute("/") { request in
+            let session = ClientSession()
+            
+            self.sessions.append(session)
+            // TODO: rescind offer if not taken within 30s.
+            let sdp = await session.generateOffer()
+            return HTTPResponse(statusCode: .ok, body: sdp.data(using: .utf8)!)
+        }
+        
+        try await http.start()
+    }
 }
 
 // Feed it the offer
@@ -37,7 +60,6 @@ server["/"] = { req in
 
 // once handshaken, hand the socket over to a worldmanager that will be its delegate
 // and send it world updates etc.
-
-RunLoop.current.run()
-
+let server = PlaceServer()
+try await server.start()
 
