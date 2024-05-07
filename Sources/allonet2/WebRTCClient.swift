@@ -26,7 +26,7 @@ public class WebRTCClient: NSObject {
         return RTCPeerConnectionFactory(encoderFactory: videoEncoderFactory, decoderFactory: videoDecoderFactory)
     }()
     
-    weak var delegate: WebRTCClientDelegate?
+    public weak var delegate: WebRTCClientDelegate?
     private let peerConnection: RTCPeerConnection
     private let audioQueue = DispatchQueue(label: "audio")
     private let mediaConstrains = [kRTCMediaConstraintsOfferToReceiveAudio: kRTCMediaConstraintsValueTrue,
