@@ -45,6 +45,15 @@ public class RTCSession: WebRTCClientDelegate {
         }
     }
     
+    public func receive(answer: RTCSessionDescription, candidates: [RTCIceCandidate]) async throws
+    {
+        try await set(remoteSdp: answer)
+        for cand in candidates
+        {
+            try await set(remoteCandidate: cand)
+        }
+    }
+    
     private func set(remoteSdp: RTCSessionDescription) async throws
     {
         return try await withCheckedThrowingContinuation() { cont in

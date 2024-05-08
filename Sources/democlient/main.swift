@@ -31,7 +31,7 @@ class AlloClient
         let answer = try JSONDecoder().decode(SignallingPayload.self, from: data)
         
         session.clientId = answer.clientId!
-        // TODO: do I need to set remote candidates?
+        try await session.receive(answer: answer.desc(for: .answer), candidates: answer.rtcCandidates())
         // await connection state 'connected'
         // send or receive hello world
         
