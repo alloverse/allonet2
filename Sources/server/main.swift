@@ -61,10 +61,12 @@ class PlaceServer : RTCSessionDelegate
         sess.write(data: "Hello world".data(using: .utf8)!)
     }
     
-    func session(didDisconnect sess: allonet2.RTCSession)
+    nonisolated func session(didDisconnect sess: allonet2.RTCSession)
     {
         print("Lost client \(sess.clientId!)")
-        sessions.removeAll { $0 == sess }
+        DispatchQueue.main.async {
+            self.sessions.removeAll { $0 == sess }
+        }
     }
     
     nonisolated func session(_: allonet2.RTCSession, didReceiveData: Data)
