@@ -13,7 +13,8 @@ import WebRTC
 let port:UInt16 = 9080
 
 @MainActor
-class PlaceServer {
+class PlaceServer : RTCSessionDelegate
+{
     var sessions : [RTCSession] = []
 
     // Start a web server
@@ -47,6 +48,21 @@ class PlaceServer {
             headers: [.contentType: "application/json"],
             body: try! JSONEncoder().encode(response)
         )
+    }
+    
+    nonisolated func session(didConnect sess: allonet2.RTCSession)
+    {
+        sess.write(data: "Hello world".data(using: .utf8)!)
+    }
+    
+    func session(didDisconnect sess: allonet2.RTCSession)
+    {
+        sessions.removeAll { $0 == sess }
+    }
+    
+    nonisolated func session(_: allonet2.RTCSession, didReceiveData: Data)
+    {
+        
     }
 }
 

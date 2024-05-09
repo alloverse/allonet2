@@ -8,7 +8,7 @@
 import Foundation
 import allonet2
 
-class AlloClient
+class AlloClient : RTCSessionDelegate
 {
     let session = RTCSession()
     
@@ -19,7 +19,7 @@ class AlloClient
     func connect(to url: URL) async throws
     {
         let offer = SignallingPayload(
-        	sdp: await session.generateOffer(),
+        	sdp: try await session.generateOffer(),
         	candidates: (await session.gatherCandidates()).map { SignallingIceCandidate(candidate: $0) },
             clientId: nil
         )
@@ -30,11 +30,21 @@ class AlloClient
         let (data, _) = try await URLSession.shared.data(for: request as URLRequest)
         let answer = try JSONDecoder().decode(SignallingPayload.self, from: data)
         
-        session.clientId = answer.clientId!
-        try await session.receive(answer: answer.desc(for: .answer), candidates: answer.rtcCandidates())
+        try await session.receive(client: answer.clientId!, answer: answer.desc(for: .answer), candidates: answer.rtcCandidates())
         // await connection state 'connected'
         // send or receive hello world
+    }
+    
+    func session(didConnect sess: allonet2.RTCSession) {
         
+    }
+    
+    func session(didDisconnect sess: allonet2.RTCSession) {
+        
+    }
+    
+    func session(_ sess: allonet2.RTCSession, didReceiveData data: Data) {
+        print("Received \(String(data: data, encoding: .utf8)!)")
     }
 }
 
