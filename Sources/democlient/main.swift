@@ -29,7 +29,6 @@ class AlloClient : RTCSessionDelegate
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(offer)
         let (data, _) = try await URLSession.shared.data(for: request as URLRequest)
-        print("Received handshake")
         let answer = try JSONDecoder().decode(SignallingPayload.self, from: data)
         
         try await session.receive(

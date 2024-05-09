@@ -169,7 +169,6 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     private var didFullyConnect = false
     private func maybeConnected()
     {
-        print("Yo maybe full \(didFullyConnect), ICE \(peer.iceConnectionState), egress \(egress?.readyState.debugDescription ?? "null"), ingress \(ingress.readyState)")
         // TODO: actually I think I could JUST look for 'completed'
         if let egress = egress, didFullyConnect == false && (peer.iceConnectionState == .connected || peer.iceConnectionState == .completed) && egress.readyState == .open && ingress.readyState == .open
         {
@@ -181,7 +180,7 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     //MARK: - Peer connection delegates
     public func peerConnection(_ peerConnection: RTCPeerConnection, didChange stateChanged: RTCSignalingState)
     {
-        print("Session \(String(describing: clientId)) signaling state \(stateChanged)")
+        
     }
     
     public func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream)
@@ -201,7 +200,7 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     
     public func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState)
     {
-        print("Session \(String(describing: clientId)) ICE state \(newState)")
+        print("Session \(clientId?.debugDescription ?? "unknown") ICE state \(newState)")
         if newState == .connected || newState == .completed
         {
             self.maybeConnected()
@@ -219,7 +218,6 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     
     public func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState)
     {
-        print("Session \(String(describing: clientId)) gathering state \(newState.rawValue)")
         if newState == .complete {
             candidatesLocked = true
             if let candidatesContinuation = candidatesContinuation {
@@ -245,15 +243,14 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     
     public func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel)
     {
-        print("Session \(String(describing:clientId)) got data channel")
         egress = dataChannel
+        dataChannel.delegate = self
         self.maybeConnected()
     }
     
     //MARK: - Data channel delegate
     public func dataChannelDidChangeState(_ dataChannel: RTCDataChannel)
     {
-        print("Session \(String(describing:clientId)) data channel \(dataChannel.channelId) state \(dataChannel.readyState)")
         maybeConnected()
     }
     
