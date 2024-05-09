@@ -14,6 +14,7 @@ class AlloClient : RTCSessionDelegate
     
     init()
     {
+        session.delegate = self
     }
     
     func connect(to url: URL) async throws
@@ -28,23 +29,29 @@ class AlloClient : RTCSessionDelegate
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(offer)
         let (data, _) = try await URLSession.shared.data(for: request as URLRequest)
+        print("Received handshake")
         let answer = try JSONDecoder().decode(SignallingPayload.self, from: data)
         
-        try await session.receive(client: answer.clientId!, answer: answer.desc(for: .answer), candidates: answer.rtcCandidates())
-        // await connection state 'connected'
-        // send or receive hello world
+        try await session.receive(
+            client: answer.clientId!,
+            answer: answer.desc(for: .answer),
+            candidates: answer.rtcCandidates()
+        )
     }
     
-    func session(didConnect sess: allonet2.RTCSession) {
-        
+    func session(didConnect sess: allonet2.RTCSession)
+    {
+        print("Connected as \(sess.clientId!)")
     }
     
-    func session(didDisconnect sess: allonet2.RTCSession) {
-        
+    func session(didDisconnect sess: allonet2.RTCSession)
+    {
+        print("Disconnected")
+        exit(0)
     }
     
     func session(_ sess: allonet2.RTCSession, didReceiveData data: Data) {
-        print("Received \(String(data: data, encoding: .utf8)!)")
+        print("Received data: \(String(data: data, encoding: .utf8)!)")
     }
 }
 

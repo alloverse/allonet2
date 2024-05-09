@@ -36,13 +36,18 @@ class PlaceServer : RTCSessionDelegate
         let offer = try await JSONDecoder().decode(SignallingPayload.self, from: request.bodyData)
             
         let session = RTCSession()
+        session.delegate = self
         self.sessions.append(session)
+        
+        print("Received new client")
         
         let response = SignallingPayload(
             sdp: try await session.generateAnswer(offer: offer.desc(for: .offer), remoteCandidates: offer.rtcCandidates()),
             candidates: (await session.gatherCandidates()).map { SignallingIceCandidate(candidate: $0) },
             clientId: session.clientId!
         )
+        print("Client is \(session.clientId!), shaking hands...")
+        
         return HTTPResponse(
             statusCode: .ok,
             headers: [.contentType: "application/json"],
@@ -52,11 +57,13 @@ class PlaceServer : RTCSessionDelegate
     
     nonisolated func session(didConnect sess: allonet2.RTCSession)
     {
+        print("Connected to client \(sess.clientId!), saying hi")
         sess.write(data: "Hello world".data(using: .utf8)!)
     }
     
     func session(didDisconnect sess: allonet2.RTCSession)
     {
+        print("Lost client \(sess.clientId!)")
         sessions.removeAll { $0 == sess }
     }
     
