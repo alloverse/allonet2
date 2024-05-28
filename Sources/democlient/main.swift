@@ -41,7 +41,13 @@ class AlloClient : RTCSessionDelegate
     func session(didConnect sess: allonet2.RTCSession)
     {
         print("Connected as \(sess.clientId!)")
-        sess.write(data: "Hello world".data(using: .utf8)!, on: .interaction)
+        sess.send(interaction: Interaction(
+            type: .request,
+            senderEntityId: "",
+            receiverEntityId: "place",
+            requestId: "ANN0",
+            body: ["announce", "version", "0.1"]
+        ))
     }
     
     func session(didDisconnect sess: allonet2.RTCSession)

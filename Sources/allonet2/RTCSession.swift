@@ -46,13 +46,11 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
         peer.close()
     }
     
-    public func write(data: Data, on channel: RTCSessionChannel)
+    let encoder = with(PropertyListEncoder()) { $0.outputFormat = .binary }
+    public func send(interaction: Interaction)
     {
-        let chan = switch channel {
-            case .interaction: interactionChannel
-            case .worldstate: worldstateChannel
-        }
-        chan!.sendData(RTCDataBuffer(data: data, isBinary: true))
+        let data = try! encoder.encode(interaction)
+        interactionChannel.sendData(RTCDataBuffer(data: data, isBinary: true))
     }
     
     public func generateOffer() async throws -> String
@@ -300,6 +298,9 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     
     public func dataChannel(_ dataChannel: RTCDataChannel, didReceiveMessageWith buffer: RTCDataBuffer)
     {
+        // TODO: Figure out which channel, and decode correctly based
+        // on channel type. BUT, this has nothing to do with RTC.
+        // Use a subclass, or encapsulation?
         delegate?.session(self, didReceiveData: buffer.data)
     }
 }
