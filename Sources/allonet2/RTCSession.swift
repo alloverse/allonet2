@@ -8,6 +8,11 @@
 import Foundation
 import WebRTC
 
+public enum RTCSessionChannel {
+    case interaction
+    case worldstate
+}
+
 public protocol RTCSessionDelegate: AnyObject
 {
     func session(didConnect: RTCSession)
@@ -18,8 +23,10 @@ public protocol RTCSessionDelegate: AnyObject
 public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDelegate {
     public private(set) var clientId: UUID?
     private let peer: RTCPeerConnection
-    private let ingress: RTCDataChannel
-    private var egress: RTCDataChannel?
+    
+    private var interactionChannel: RTCDataChannel!
+    private var worldstateChannel: RTCDataChannel!
+    public private(set) var channels: [RTCDataChannel] = []
     
     public weak var delegate: RTCSessionDelegate?
     
@@ -29,16 +36,9 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     
     public override init() {
         peer = RTCSession.createPeerConnection()
-        ingress = peer.dataChannel(forLabel: "WebRTCData", configuration: RTCDataChannelConfiguration())!
         
         super.init()
         peer.delegate = self
-        ingress.delegate = self
-    }
-    
-    public func write(data: Data)
-    {
-        egress!.sendData(RTCDataBuffer(data: data, isBinary: true))
     }
     
     public func disconnect()
@@ -46,8 +46,19 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
         peer.close()
     }
     
+    public func write(data: Data, on channel: RTCSessionChannel)
+    {
+        let chan = switch channel {
+            case .interaction: interactionChannel
+            case .worldstate: worldstateChannel
+        }
+        chan!.sendData(RTCDataBuffer(data: data, isBinary: true))
+    }
+    
     public func generateOffer() async throws -> String
     {
+        setupDataChannels()
+        
         return try await withCheckedThrowingContinuation { cont in
             peer.offer(for: mediaConstraints) { (sdp, error) in
                 guard let sdp = sdp else {
@@ -67,7 +78,8 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     
     public func generateAnswer(offer: RTCSessionDescription, remoteCandidates: [RTCIceCandidate]) async throws -> String
     {
-        clientId = UUID()
+        setupDataChannels()
+        
         try await set(remoteSdp: offer)
         for cand in remoteCandidates
         {
@@ -140,6 +152,27 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     
     //MARK: - Internals
     
+    private func setupDataChannels()
+    {
+        clientId = UUID()
+        interactionChannel = peer.dataChannel(forLabel: "interactions", configuration: with(RTCDataChannelConfiguration()) {
+            $0.isNegotiated = true
+            $0.isOrdered = true
+            $0.maxRetransmits = -1
+            $0.channelId = 1
+        })
+        interactionChannel.delegate = self
+        worldstateChannel = peer.dataChannel(forLabel: "worldstate", configuration: with(RTCDataChannelConfiguration()) {
+            $0.isNegotiated = true
+            $0.isOrdered = false
+            $0.maxRetransmits = 0
+            $0.channelId = 2
+        })
+        worldstateChannel.delegate = self
+        
+        channels = [interactionChannel, worldstateChannel]
+    }
+    
     private static func createPeerConnection() -> RTCPeerConnection
     {
         let config = RTCConfiguration()
@@ -169,8 +202,10 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     private var didFullyConnect = false
     private func maybeConnected()
     {
-        // TODO: actually I think I could JUST look for 'completed'
-        if let egress = egress, didFullyConnect == false && (peer.iceConnectionState == .connected || peer.iceConnectionState == .completed) && egress.readyState == .open && ingress.readyState == .open
+        if
+            peer.iceConnectionState == .connected &&
+            channels.count > 0 &&
+            channels.allSatisfy({$0.readyState == .open})
         {
             didFullyConnect = true
             self.delegate?.session(didConnect: self)
@@ -203,6 +238,7 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
         print("Session \(clientId?.debugDescription ?? "unknown") ICE state \(newState)")
         if newState == .connected || newState == .completed
         {
+            // actually, just checking the data channels is enough?
             self.maybeConnected()
         }
         else if newState == .failed || newState == .disconnected
@@ -243,7 +279,14 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     
     public func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel)
     {
-        egress = dataChannel
+        if dataChannel.label == "interactions"
+        {
+            print("Got interaction channel")
+        }
+        else if dataChannel.label == "worldstate"
+        {
+            print("Got worldstate channel")
+        }
         dataChannel.delegate = self
         self.maybeConnected()
     }
@@ -251,6 +294,7 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     //MARK: - Data channel delegate
     public func dataChannelDidChangeState(_ dataChannel: RTCDataChannel)
     {
+        print("Data channel \(dataChannel.label) state \(dataChannel.readyState)")
         maybeConnected()
     }
     

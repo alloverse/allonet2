@@ -57,8 +57,7 @@ class PlaceServer : RTCSessionDelegate
     
     nonisolated func session(didConnect sess: allonet2.RTCSession)
     {
-        print("Connected to client \(sess.clientId!), saying hi")
-        sess.write(data: "Hello world".data(using: .utf8)!)
+        print("Got connection from \(sess.clientId!)")
     }
     
     nonisolated func session(didDisconnect sess: allonet2.RTCSession)
@@ -69,9 +68,9 @@ class PlaceServer : RTCSessionDelegate
         }
     }
     
-    nonisolated func session(_: allonet2.RTCSession, didReceiveData: Data)
+    nonisolated func session(_: allonet2.RTCSession, didReceiveData data: Data)
     {
-        
+        print("Received data: \(String(data: data, encoding: .utf8)!)")
     }
 }
 
