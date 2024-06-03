@@ -18,16 +18,14 @@ public protocol RTCSessionDelegate: AnyObject
 {
     func session(didConnect: RTCSession)
     func session(didDisconnect: RTCSession)
-    func session(_: RTCSession, didReceiveData: Data)
+    func session(_: RTCSession, didReceiveData data: Data, on channel: RTCDataChannel)
 }
 
+/// Wrapper of RTCPeerConnection with Alloverse-specific peer semantics
 public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDelegate {
     public private(set) var clientId: UUID?
-    private let peer: RTCPeerConnection
-    
-    private var interactionChannel: RTCDataChannel!
-    private var worldstateChannel: RTCDataChannel!
-    public private(set) var channels: [RTCDataChannel] = []
+    public let peer: RTCPeerConnection
+    private var channels: [RTCDataChannel] = []
     
     public weak var delegate: RTCSessionDelegate?
     
@@ -47,17 +45,8 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
         peer.close()
     }
     
-    let encoder = BinaryEncoder()
-    public func send(interaction: Interaction)
-    {
-        let data = try! encoder.encode(interaction)
-        interactionChannel.sendData(RTCDataBuffer(data: data, isBinary: true))
-    }
-    
     public func generateOffer() async throws -> String
     {
-        setupDataChannels()
-        
         return try await withCheckedThrowingContinuation { cont in
             peer.offer(for: mediaConstraints) { (sdp, error) in
                 guard let sdp = sdp else {
@@ -77,8 +66,7 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     
     public func generateAnswer(offer: RTCSessionDescription, remoteCandidates: [RTCIceCandidate]) async throws -> String
     {
-        setupDataChannels()
-        
+        clientId = UUID()
         try await set(remoteSdp: offer)
         for cand in remoteCandidates
         {
@@ -149,29 +137,18 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
         return localCandidates
     }
     
-    //MARK: - Internals
-    
-    private func setupDataChannels()
+    public func createDataChannel(as label: String, configuration: RTCDataChannelConfiguration) -> RTCDataChannel?
     {
-        clientId = UUID()
-        interactionChannel = peer.dataChannel(forLabel: "interactions", configuration: with(RTCDataChannelConfiguration()) {
-            $0.isNegotiated = true
-            $0.isOrdered = true
-            $0.maxRetransmits = -1
-            $0.channelId = 1
-        })
-        interactionChannel.delegate = self
-        worldstateChannel = peer.dataChannel(forLabel: "worldstate", configuration: with(RTCDataChannelConfiguration()) {
-            $0.isNegotiated = true
-            $0.isOrdered = false
-            $0.maxRetransmits = 0
-            $0.channelId = 2
-        })
-        worldstateChannel.delegate = self
-        
-        channels = [interactionChannel, worldstateChannel]
+        guard let chan = peer.dataChannel(forLabel: label, configuration: configuration)
+            else { return nil }
+        chan.delegate = self
+        self.channels.append(chan)
+        return chan
     }
     
+    //MARK: - Internals
+    
+
     private static func createPeerConnection() -> RTCPeerConnection
     {
         let config = RTCConfiguration()
@@ -202,9 +179,11 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     private func maybeConnected()
     {
         if
+            !didFullyConnect &&
             peer.iceConnectionState == .connected &&
-            channels.count > 0 &&
+             channels.count > 0 &&
             channels.allSatisfy({$0.readyState == .open})
+            
         {
             didFullyConnect = true
             self.delegate?.session(didConnect: self)
@@ -299,9 +278,6 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     
     public func dataChannel(_ dataChannel: RTCDataChannel, didReceiveMessageWith buffer: RTCDataBuffer)
     {
-        // TODO: Figure out which channel, and decode correctly based
-        // on channel type. BUT, this has nothing to do with RTC.
-        // Use a subclass, or encapsulation?
-        delegate?.session(self, didReceiveData: buffer.data)
+        delegate?.session(self, didReceiveData: buffer.data, on: dataChannel)
     }
 }

@@ -8,9 +8,9 @@
 import Foundation
 import allonet2
 
-class AlloClient : RTCSessionDelegate
+class AlloClient : AlloSessionDelegate
 {
-    let session = RTCSession()
+    let session = AlloSession()
     
     init()
     {
@@ -20,8 +20,8 @@ class AlloClient : RTCSessionDelegate
     func connect(to url: URL) async throws
     {
         let offer = SignallingPayload(
-        	sdp: try await session.generateOffer(),
-        	candidates: (await session.gatherCandidates()).map { SignallingIceCandidate(candidate: $0) },
+        	sdp: try await session.rtc.generateOffer(),
+        	candidates: (await session.rtc.gatherCandidates()).map { SignallingIceCandidate(candidate: $0) },
             clientId: nil
         )
         let request = NSMutableURLRequest(url: url)
@@ -31,16 +31,16 @@ class AlloClient : RTCSessionDelegate
         let (data, _) = try await URLSession.shared.data(for: request as URLRequest)
         let answer = try JSONDecoder().decode(SignallingPayload.self, from: data)
         
-        try await session.receive(
+        try await session.rtc.receive(
             client: answer.clientId!,
             answer: answer.desc(for: .answer),
             candidates: answer.rtcCandidates()
         )
     }
     
-    func session(didConnect sess: allonet2.RTCSession)
+    func session(didConnect sess: AlloSession)
     {
-        print("Connected as \(sess.clientId!)")
+        print("Connected as \(sess.rtc.clientId!)")
         sess.send(interaction: Interaction(
             type: .request,
             senderEntityId: "",
@@ -50,14 +50,15 @@ class AlloClient : RTCSessionDelegate
         ))
     }
     
-    func session(didDisconnect sess: allonet2.RTCSession)
+    func session(didDisconnect sess: AlloSession)
     {
         print("Disconnected")
         exit(0)
     }
     
-    func session(_ sess: allonet2.RTCSession, didReceiveData data: Data) {
-        print("Received data: \(String(data: data, encoding: .utf8)!)")
+    func session(_: AlloSession, didReceiveInteraction inter: Interaction)
+    {
+        print("Received interaction: \(inter)")
     }
 }
 

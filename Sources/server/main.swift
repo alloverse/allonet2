@@ -13,9 +13,9 @@ import WebRTC
 let port:UInt16 = 9080
 
 @MainActor
-class PlaceServer : RTCSessionDelegate
+class PlaceServer : AlloSessionDelegate
 {
-    var sessions : [RTCSession] = []
+    var sessions : [AlloSession] = []
 
     // Start a web server
     
@@ -35,18 +35,18 @@ class PlaceServer : RTCSessionDelegate
     {
         let offer = try await JSONDecoder().decode(SignallingPayload.self, from: request.bodyData)
             
-        let session = RTCSession()
+        let session = AlloSession()
         session.delegate = self
         self.sessions.append(session)
         
         print("Received new client")
         
         let response = SignallingPayload(
-            sdp: try await session.generateAnswer(offer: offer.desc(for: .offer), remoteCandidates: offer.rtcCandidates()),
-            candidates: (await session.gatherCandidates()).map { SignallingIceCandidate(candidate: $0) },
-            clientId: session.clientId!
+            sdp: try await session.rtc.generateAnswer(offer: offer.desc(for: .offer), remoteCandidates: offer.rtcCandidates()),
+            candidates: (await session.rtc.gatherCandidates()).map { SignallingIceCandidate(candidate: $0) },
+            clientId: session.rtc.clientId!
         )
-        print("Client is \(session.clientId!), shaking hands...")
+        print("Client is \(session.rtc.clientId!), shaking hands...")
         
         return HTTPResponse(
             statusCode: .ok,
@@ -55,22 +55,22 @@ class PlaceServer : RTCSessionDelegate
         )
     }
     
-    nonisolated func session(didConnect sess: allonet2.RTCSession)
+    nonisolated func session(didConnect sess: AlloSession)
     {
-        print("Got connection from \(sess.clientId!)")
+        print("Got connection from \(sess.rtc.clientId!)")
     }
     
-    nonisolated func session(didDisconnect sess: allonet2.RTCSession)
+    nonisolated func session(didDisconnect sess: AlloSession)
     {
-        print("Lost client \(sess.clientId!)")
+        print("Lost client \(sess.rtc.clientId!)")
         DispatchQueue.main.async {
             self.sessions.removeAll { $0 == sess }
         }
     }
     
-    nonisolated func session(_: allonet2.RTCSession, didReceiveData data: Data)
+    nonisolated func session(_: AlloSession, didReceiveInteraction inter: Interaction)
     {
-        print("Received data: \(String(data: data, encoding: .utf8)!)")
+        print("Received interaction: \(inter)")
     }
 }
 
