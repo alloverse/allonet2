@@ -7,6 +7,7 @@
 
 import Foundation
 import WebRTC
+import BinaryCodable
 
 public enum RTCSessionChannel {
     case interaction
@@ -46,7 +47,7 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
         peer.close()
     }
     
-    let encoder = with(PropertyListEncoder()) { $0.outputFormat = .binary }
+    let encoder = BinaryEncoder()
     public func send(interaction: Interaction)
     {
         let data = try! encoder.encode(interaction)

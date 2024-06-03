@@ -46,7 +46,7 @@ class AlloClient : RTCSessionDelegate
             senderEntityId: "",
             receiverEntityId: "place",
             requestId: "ANN0",
-            body: ["announce", "version", "0.1"]
+            body: .announce(version: "0.1")
         ))
     }
     
