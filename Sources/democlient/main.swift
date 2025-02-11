@@ -8,60 +8,6 @@
 import Foundation
 import allonet2
 
-class AlloClient : AlloSessionDelegate
-{
-    let session = AlloSession()
-    
-    init()
-    {
-        session.delegate = self
-    }
-    
-    func connect(to url: URL) async throws
-    {
-        let offer = SignallingPayload(
-        	sdp: try await session.rtc.generateOffer(),
-        	candidates: (await session.rtc.gatherCandidates()).map { SignallingIceCandidate(candidate: $0) },
-            clientId: nil
-        )
-        let request = NSMutableURLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(offer)
-        let (data, _) = try await URLSession.shared.data(for: request as URLRequest)
-        let answer = try JSONDecoder().decode(SignallingPayload.self, from: data)
-        
-        try await session.rtc.receive(
-            client: answer.clientId!,
-            answer: answer.desc(for: .answer),
-            candidates: answer.rtcCandidates()
-        )
-    }
-    
-    func session(didConnect sess: AlloSession)
-    {
-        print("Connected as \(sess.rtc.clientId!)")
-        sess.send(interaction: Interaction(
-            type: .request,
-            senderEntityId: "",
-            receiverEntityId: "place",
-            requestId: "ANN0",
-            body: .announce(version: "0.1")
-        ))
-    }
-    
-    func session(didDisconnect sess: AlloSession)
-    {
-        print("Disconnected")
-        exit(0)
-    }
-    
-    func session(_: AlloSession, didReceiveInteraction inter: Interaction)
-    {
-        print("Received interaction: \(inter)")
-    }
-}
-
 
 let url = URL(string: CommandLine.arguments[1])!
 

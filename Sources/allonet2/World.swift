@@ -1,20 +1,20 @@
 import Foundation
 
-class World: Codable
+public struct World: Codable, Equatable
 {
-    var revision: Int64 = 0
-    var components: Dictionary<String, [Component]> = [:]
-    var entities: Array<Entity> = []
+    public var revision: Int64 = 0
+    public var components: Dictionary<String, [Component]> = [:]
+    public var entities: Dictionary<String, Entity> = [:]
 }
 
-struct Component: Codable
+public struct Component: Codable, Equatable
 {
-    let eid: String;
+    public let eid: String;
 }
 
-struct Entity: Codable
+public struct Entity: Codable, Equatable
 {
-    let eid: String
-    let ownerAgentId: String
+    public let eid: String
+    public let ownerAgentId: String
 }
 

@@ -34,7 +34,7 @@ let package = Package(
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
             name: "allonet2",
-            dependencies: ["WebRTC", "BinaryCodable", "AnyCodable"]
+            dependencies: ["WebRTC", "BinaryCodable", "AnyCodable", "FlyingFox"]
         ),
         .testTarget(
             name: "allonet2Tests",
@@ -42,7 +42,7 @@ let package = Package(
         ),
         .executableTarget(
             name: "server",
-            dependencies: ["allonet2", "FlyingFox"]
+            dependencies: ["allonet2"]
         ),
         .executableTarget(
             name: "democlient",
