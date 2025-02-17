@@ -7,12 +7,6 @@
 
 import Foundation
 import WebRTC
-import BinaryCodable
-
-public enum RTCSessionChannel {
-    case interaction
-    case worldstate
-}
 
 public protocol RTCSessionDelegate: AnyObject
 {
@@ -21,7 +15,7 @@ public protocol RTCSessionDelegate: AnyObject
     func session(_: RTCSession, didReceiveData data: Data, on channel: RTCDataChannel)
 }
 
-/// Wrapper of RTCPeerConnection with Alloverse-specific peer semantics
+/// Wrapper of RTCPeerConnection with Alloverse-specific peer semantics, but no business logic
 public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDelegate {
     public private(set) var clientId: UUID?
     public let peer: RTCPeerConnection

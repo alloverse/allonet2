@@ -13,9 +13,9 @@ let url = URL(string: CommandLine.arguments[1])!
 
 print("Connecting to alloverse swift place ", url)
 
-let client = AlloClient()
+let client = AlloClient(url: url)
 
-try await client.connect(to: url)
+try await client.connect()
 
 
 // once connected, send announce

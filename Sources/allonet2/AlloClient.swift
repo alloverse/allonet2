@@ -9,8 +9,10 @@ import Foundation
 
 public class AlloClient : AlloSessionDelegate, Identifiable
 {
+    let url: URL
     let session = AlloSession()
     public let world = World()
+    public var state = ConnectionState.disconnected
     
     public var id: String? {
         get
@@ -19,13 +21,20 @@ public class AlloClient : AlloSessionDelegate, Identifiable
         }
     }
     
-    public init()
+    public init(url: URL)
     {
+        self.url = url
         session.delegate = self
     }
     
-    public func connect(to url: URL) async throws
+    public func connect() async throws
     {
+        guard state.allowConnecting() else
+        {
+            throw ConnectionError.alreadyConnected
+        }
+        state = .connecting
+        
         let offer = SignallingPayload(
         	sdp: try await session.rtc.generateOffer(),
         	candidates: (await session.rtc.gatherCandidates()).map { SignallingIceCandidate(candidate: $0) },
@@ -47,6 +56,8 @@ public class AlloClient : AlloSessionDelegate, Identifiable
     
     public func session(didConnect sess: AlloSession)
     {
+        state = .connected
+        
         print("Connected as \(sess.rtc.clientId!)")
         sess.send(interaction: Interaction(
             type: .request,
@@ -59,12 +70,35 @@ public class AlloClient : AlloSessionDelegate, Identifiable
     
     public func session(didDisconnect sess: AlloSession)
     {
+        state = .disconnected
         print("Disconnected")
-        exit(0)
     }
     
     public func session(_: AlloSession, didReceiveInteraction inter: Interaction)
     {
         print("Received interaction: \(inter)")
     }
+}
+
+public enum ConnectionState : Equatable
+{
+    case disconnected
+    case connecting
+    case connected
+    case error(Bool) // true = permanent, will not reconnect
+    
+    func allowConnecting() -> Bool
+    {
+        switch self {
+        case .disconnected, .error(let _):
+            return true
+        default:
+            return false
+        }
+    }
+}
+
+public enum ConnectionError : Error
+{
+    case alreadyConnected
 }
