@@ -6,13 +6,24 @@
 //
 
 import Foundation
+import Combine
 
-public class AlloClient : AlloSessionDelegate, Identifiable
+public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
 {
     let url: URL
     let session = AlloSession()
     public let world = World()
-    public var state = ConnectionState.disconnected
+    
+    @Published public var state = ConnectionState.idle
+    // What was the last connection error?
+    // If state is now .idle, it was a permanent error and we're wholly disconnected.
+    // If state is now .waitingToReconnect, it was a temporary error and we're about to reconnect.
+    @Published public var lastError: Error?
+    @Published public private(set) var willReconnectAt: Date?
+    
+    private var connectTask: Task<Void, Never>? = nil
+    private var reconnectionAttempts = 0
+
     
     public var id: String? {
         get
@@ -27,38 +38,121 @@ public class AlloClient : AlloSessionDelegate, Identifiable
         session.delegate = self
     }
     
-    public func connect() async throws
+    private var connectionLoopCancellable: AnyCancellable?
+    /// Connect, and stay connected until a permanent connection error happens, or user disconnects.
+    public func stayConnected()
     {
-        guard state.allowConnecting() else
-        {
-            throw ConnectionError.alreadyConnected
+        guard connectionLoopCancellable == nil else { return }
+        
+        // Move out of the idle state since we've been asked to get going.
+        if state == .idle {
+            print("Going from .idle to .waitingForReconnect")
+            state = .waitingForReconnect
         }
-        state = .connecting
         
-        let offer = SignallingPayload(
-        	sdp: try await session.rtc.generateOffer(),
-        	candidates: (await session.rtc.gatherCandidates()).map { SignallingIceCandidate(candidate: $0) },
-            clientId: nil
-        )
-        let request = NSMutableURLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(offer)
-        let (data, _) = try await URLSession.shared.data(for: request as URLRequest)
-        let answer = try JSONDecoder().decode(SignallingPayload.self, from: data)
+        connectionLoopCancellable = $state.receive(on: DispatchQueue.main).sink
+        { [weak self] nextState in
+            guard let self = self else { return }
+            print("state: \(nextState), error: \(String(describing: self.lastError)), willReconnectAt: \(String(describing: self.willReconnectAt))")
+            switch nextState {
+            case .waitingForReconnect:
+                self.handleWaitingForReconnect()
+            case let .idle:
+                disconnect()
+            default:
+                break
+            }
+        }
+    }
+    
+    private func handleWaitingForReconnect()
+    {
+        // Prevent concurrent connection attempts.
+        guard connectTask == nil else { return }
         
-        try await session.rtc.receive(
-            client: answer.clientId!,
-            answer: answer.desc(for: .answer),
-            candidates: answer.rtcCandidates()
-        )
+        // Reconnection backoff with exponential delay and a cap at 1m/try
+        let delaySeconds = min(60, pow(2.0, Double(reconnectionAttempts)))
+        willReconnectAt = delaySeconds > 0 ? Date().addingTimeInterval(delaySeconds) : nil
+        reconnectionAttempts += 1
+        print("connection attempt \(reconnectionAttempts) in \(delaySeconds) seconds")
+        
+        // Schedule connect() to be called at willReconnectAt.
+        connectTask = Task { [weak self] in
+            guard let self = self else { return }
+            
+            let delay = self.willReconnectAt?.timeIntervalSinceNow ?? 0
+            print(String(format: "waiting for reconnect in %.1f seconds", delay))
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            }
+            
+            // Clear the task and reconnectDate before connecting.
+            await MainActor.run {
+                self.connectTask = nil
+                self.willReconnectAt = nil
+            }
+            print("connecting...")
+            await self.connect()
+        }
+    }
+
+    
+    /// Disconnect from peers and remain disconnected until asked to connect again by user
+    public func disconnect()
+    {
+        connectTask?.cancel()
+        connectTask = nil
+        connectionLoopCancellable?.cancel()
+        connectionLoopCancellable = nil
+        willReconnectAt = nil
+        reconnectionAttempts = 0
+        session.rtc.disconnect()
+    }
+    
+    private func connect() async
+    {
+        precondition(state == .waitingForReconnect, "Trying to connect while \(state)")
+        DispatchQueue.main.async {
+            self.state = .connecting
+        }
+        
+        do {
+            print("Trying to connect...")
+            let offer = SignallingPayload(
+                sdp: try await session.rtc.generateOffer(),
+                candidates: (await session.rtc.gatherCandidates()).map { SignallingIceCandidate(candidate: $0) },
+                clientId: nil
+            )
+            let request = NSMutableURLRequest(url: url)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try JSONEncoder().encode(offer)
+            let (data, _) = try await URLSession.shared.data(for: request as URLRequest)
+            let answer = try JSONDecoder().decode(SignallingPayload.self, from: data)
+            
+            try await session.rtc.receive(
+                client: answer.clientId!,
+                answer: answer.desc(for: .answer),
+                candidates: answer.rtcCandidates()
+            )
+            print("All the RTC stuff should be done now")
+        } catch (let e) {
+            print("failed to connect: \(e)")
+            DispatchQueue.main.async {
+                self.lastError = e
+                self.state = .idle
+            }
+        }
     }
     
     public func session(didConnect sess: AlloSession)
     {
-        state = .connected
-        
-        print("Connected as \(sess.rtc.clientId!)")
+        DispatchQueue.main.async {
+            self.reconnectionAttempts = 0
+            self.state = .connected
+            
+            print("Connected as \(sess.rtc.clientId!)")
+        }
         sess.send(interaction: Interaction(
             type: .request,
             senderEntityId: "",
@@ -70,8 +164,22 @@ public class AlloClient : AlloSessionDelegate, Identifiable
     
     public func session(didDisconnect sess: AlloSession)
     {
-        state = .disconnected
         print("Disconnected")
+        DispatchQueue.main.async {
+            if(false)
+            {
+                // TODO: Propagate disconnection reason, and notice if it's permanent
+                // state = .error ...
+            }
+            else if(self.connectionLoopCancellable != nil)
+            {
+                self.state = .waitingForReconnect
+            }
+            else
+            {
+                self.state = .idle
+            }
+        }
     }
     
     public func session(_: AlloSession, didReceiveInteraction inter: Interaction)
@@ -82,23 +190,9 @@ public class AlloClient : AlloSessionDelegate, Identifiable
 
 public enum ConnectionState : Equatable
 {
-    case disconnected
+    case idle
+    case waitingForReconnect
+    
     case connecting
     case connected
-    case error(Bool) // true = permanent, will not reconnect
-    
-    func allowConnecting() -> Bool
-    {
-        switch self {
-        case .disconnected, .error(let _):
-            return true
-        default:
-            return false
-        }
-    }
-}
-
-public enum ConnectionError : Error
-{
-    case alreadyConnected
 }
