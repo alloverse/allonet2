@@ -123,7 +123,15 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
                 candidates: (await session.rtc.gatherCandidates()).map { SignallingIceCandidate(candidate: $0) },
                 clientId: nil
             )
-            let request = NSMutableURLRequest(url: url)
+            
+            // Original schema is alloplace2://. We call this with HTTP(S) to establish a WebRTC connection, which means we need to rewrite the
+            // schema to be http(s).
+            guard var httpcomps = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw URLError(.badURL) }
+            guard let scheme = url.scheme else { throw URLError(.badURL) }
+            httpcomps.scheme = scheme.last == "s" ? "https" : "http"
+            guard let httpUrl = httpcomps.url else { throw URLError(.badURL) }
+            
+            let request = NSMutableURLRequest(url: httpUrl)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONEncoder().encode(offer)
