@@ -15,7 +15,7 @@ print("Connecting to alloverse swift place ", url)
 
 let client = AlloClient(url: url)
 
-try await client.connect()
+client.stayConnected()
 
 
 // once connected, send announce

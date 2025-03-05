@@ -187,7 +187,7 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     //MARK: - Peer connection delegates
     public func peerConnection(_ peerConnection: RTCPeerConnection, didChange stateChanged: RTCSignalingState)
     {
-        
+        print("Session \(clientId?.debugDescription ?? "unknown") signaling state \(stateChanged)")
     }
     
     public func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream)
@@ -202,7 +202,7 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     
     public func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection)
     {
-        
+        // TODO: This probably needs something...
     }
     
     public func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState)
