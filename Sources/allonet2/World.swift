@@ -1,9 +1,10 @@
 import Foundation
+import Combine
 
 public struct World
 {
     public var revision: Int64 = 0
-    public var components: Dictionary<String, [any Component]> = [:]
+    public var components: Dictionary<String, [any Component]> = [:] // = ComponentsContainer()
     public var entities: Dictionary<String, Entity> = [:]
     
     public init()
@@ -20,9 +21,9 @@ public protocol Component: Codable, Equatable
 
 public extension Component
 {
-    func register()
+    static func register()
     {
-        ComponentRegistry.shared.register(self.self as! any Component.Type)
+        ComponentRegistry.shared.register(self.self as any Component.Type)
     }
 }
 
@@ -32,16 +33,66 @@ public struct Entity: Codable, Equatable, Identifiable
     public let ownerAgentId: String
 }
 
-
 public class WorldState
 {
     public var current: World? = nil
     public var history: [World] = []
 }
 
+public class ComponentsContainer
+{
+    public subscript<T>(componentType: T.Type) -> ComponentList<T> where T : Component
+    {
+        return sets[componentType.componentTypeId, default: ComponentList<T>()] as! ComponentList<T>
+    }
+    
+    private var sets: Dictionary<String, Any> = [:]
+}
 
+public class ComponentList<T: Component>
+{
+    func add(_ component: T)
+    {
+        let eid = component.entityID
+        assert(components[eid] == nil, "An entity can't have two of the same component type")
+        components[eid] = component
+        addedSubject.send(component)
+        updatedSubject.send(component)
+    }
+    
+    func update(_ component: T)
+    {
+        let eid = component.entityID
+        assert(components[eid] != nil, "Can't update non-existing component")
+        components[eid] = component
+        updatedSubject.send(component)
+    }
+    
+    func remove(for entityId: String)
+    {
+        let comp = components[entityId]
+        assert(comp != nil, "Can't remove non-existing")
+        components[entityId] = nil
+        removedSubject.send(comp!)
+    }
+    
+    public var added: AnyPublisher<T, Never> { addedSubject.eraseToAnyPublisher() }
+    public var updated: AnyPublisher<T, Never> { updatedSubject.eraseToAnyPublisher() }
+    public var removed: AnyPublisher<T, Never> { removedSubject.eraseToAnyPublisher() }
+    
+    private let addedSubject = PassthroughSubject<T, Never>()
+    private let updatedSubject = PassthroughSubject<T, Never>()
+    private let removedSubject = PassthroughSubject<T, Never>()
+    private var components: [String: T] = [:] // eid -> comp
+}
 
 // MARK: Internals
+
+
+extension Component
+{
+    public static var componentTypeId: String { String(describing: self) }
+}
 
 public final class ComponentRegistry {
     public static let shared = ComponentRegistry()
