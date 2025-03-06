@@ -12,7 +12,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
 {
     let url: URL
     let session = AlloSession()
-    public let world = World()
+    public let place = PlaceState()
     
     @Published public var state = ConnectionState.idle
     // What was the last connection error?

@@ -1,131 +1,223 @@
 import Foundation
 import Combine
 
-public struct World
+public typealias EntityID = String
+public typealias ComponentTypeID = String
+
+/// The current and historical state of the place.
+public class PlaceState
 {
+    /// Immutable representation of the world, as known by this server or client right now.
+    internal(set) public var current = PlaceContents()
+    
+    /// Changes in this world between the latest historic entry and current. Use this as a "callback list" of events to apply to react to changes in the world.
+    internal(set) public var delta: PlaceDelta?
+    
+    /// Convenience for listening to relevant changes each time a new delta comes in. Useful when you have a subsystem that only cares about a specific component type, for example.
+    public var deltaCallbacks = PlaceDeltaCallbacks()
+    
+    /// Previous versions of the world. Mostly useful to calculate deltas internally.
+    public var history: [PlaceContents] = []
+    
+    internal func sendDeltaCallbacks()
+    {
+        for event in delta?.events ?? []
+        {
+            switch event
+            {
+            case .entityAdded(let entity):
+                deltaCallbacks.entityAddedSubject.send(entity)
+            case .entityRemoved(let entity):
+                deltaCallbacks.entityRemovedSubject.send(entity)
+            case .componentAdded(let entityID, let comp):
+                deltaCallbacks[type(of: comp).componentTypeId].sendAdded(entityID: entityID, component: comp)
+            case .componentUpdated(let entityID, let comp):
+                deltaCallbacks[type(of: comp).componentTypeId].sendUpdated(entityID: entityID, component: comp)
+            case .componentRemoved(let entityID, let comp):
+                deltaCallbacks[type(of: comp).componentTypeId].sendRemoved(entityID: entityID, component: comp)
+            }
+        }
+    }
+}
+
+/// A full representation of the world in the connected Place. Everything in a Place is represented as an Entity, but an Entity itself is only an ID; all its attributes are described by its child Components of various types.
+public struct PlaceContents
+{
+    /// What revision of the place is this? Every tick in the server bumps this by 1. Due to network conditions, a client might miss a few revisions here and there and it might not see every sequential revision.
     public var revision: Int64 = 0
-    public var components: Dictionary<String, [any Component]> = [:] // = ComponentsContainer()
-    public var entities: Dictionary<String, Entity> = [:]
+    /// The list of entities; basically just a list of IDs of things in the Place.
+    public var entities: Dictionary<EntityID, Entity> = [:]
+    /// All the attributes for the entities, as various typed components.
+    public var components = Components()
+    
     
     public init()
     {
     }
 }
 
+/// An entity: a Thing in a Place.
+public struct Entity: Codable, Equatable, Identifiable
+{
+    /// Unique ID within this Place
+    public let id: EntityID
+    
+    /// ID of the user/process that owns this ID. Only available server-side.
+    public let ownerAgentId: String
+}
+
+/// Base for all component types.
 public protocol Component: Codable, Equatable
 {
-    static var componentTypeId: String { get }
+    /// Internals: how to disambiguate this component on the wire protocol
+    static var componentTypeId: ComponentTypeID { get }
     
-    var entityID: String { get };
+    /// What entity is this component an aspect of?
+    var entityID: EntityID { get };
 }
 
 public extension Component
 {
+    /// Every component type must be registered early in the process lifetime for it to work.
     static func register()
     {
-        ComponentRegistry.shared.register(self.self as any Component.Type)
+        ComponentRegistry.shared.register(self.self)
     }
 }
 
-public struct Entity: Codable, Equatable, Identifiable
-{
-    public let id: String
-    public let ownerAgentId: String
-}
-
-public class WorldState
-{
-    public var current: World? = nil
-    public var history: [World] = []
-}
-
-public class ComponentsContainer
+public struct Components
 {
     public subscript<T>(componentType: T.Type) -> ComponentList<T> where T : Component
     {
-        return sets[componentType.componentTypeId, default: ComponentList<T>()] as! ComponentList<T>
+        mutating get {
+            return lists[componentType.componentTypeId, setDefault: ComponentList<T>()] as! ComponentList<T>
+        }
     }
     
-    private var sets: Dictionary<String, Any> = [:]
+    internal var lists: Dictionary<ComponentTypeID, Any> = [:]
 }
 
-public class ComponentList<T: Component>
+public struct ComponentList<T: Component>
 {
-    func add(_ component: T)
+    var components: [EntityID: T] = [:] // eid -> comp
+}
+
+/// List of changes in a Place since the last time it got an update. Useful as a list of what to react to. For example, if a TransformComponent has changed, this means an Entity has changed its spatial location.
+public struct PlaceDelta
+{
+    /// This is the list of changes. They will always be in the same order as the enum cases; in other words, all the entityAdded events will come first, then all the entityRemoved events, then all the componentAdded events, and so on.
+    let events: [PlaceDeltaEvent]
+}
+
+/// The different kinds of changes that can happen to a Place state
+public enum PlaceDeltaEvent
+{
+    case entityAdded(Entity)
+    case entityRemoved(Entity)
+    case componentAdded(EntityID, any Component)
+    case componentUpdated(EntityID, any Component)
+    case componentRemoved(EntityID, any Component)
+}
+
+/// Convenience callbacks, including per-component-typed callbacks for when entities and components change in the place.
+public struct PlaceDeltaCallbacks
+{
+    /// There's a new entity.
+    public var entityAdded: AnyPublisher<Entity, Never> { entityAddedSubject.eraseToAnyPublisher() }
+    /// An entity has been removed.
+    public var entityRemoved: AnyPublisher<Entity, Never> { entityRemovedSubject.eraseToAnyPublisher() }
+    internal let entityAddedSubject = PassthroughSubject<Entity, Never>()
+    internal let entityRemovedSubject = PassthroughSubject<Entity, Never>()
+    
+    /// Get a type-safe set of callbacks for a specific Component type
+    public subscript<T>(componentType: T.Type) -> ComponentCallbacks<T> where T : Component
     {
-        let eid = component.entityID
-        assert(components[eid] == nil, "An entity can't have two of the same component type")
-        components[eid] = component
-        addedSubject.send(component)
-        updatedSubject.send(component)
+        mutating get {
+            return lists[componentType.componentTypeId, setDefault: ComponentCallbacks<T>()] as! ComponentCallbacks<T>
+        }
+    }
+    internal subscript(componentTypeID: ComponentTypeID) -> AnyComponentCallbacksProtocol
+    {
+        mutating get {
+            return lists[componentTypeID, setDefault: ComponentRegistry.shared.createCallbacks(for: componentTypeID)!]
+        }
     }
     
-    func update(_ component: T)
-    {
-        let eid = component.entityID
-        assert(components[eid] != nil, "Can't update non-existing component")
-        components[eid] = component
-        updatedSubject.send(component)
-    }
-    
-    func remove(for entityId: String)
-    {
-        let comp = components[entityId]
-        assert(comp != nil, "Can't remove non-existing")
-        components[entityId] = nil
-        removedSubject.send(comp!)
-    }
-    
+    private var lists: Dictionary<ComponentTypeID, AnyComponentCallbacksProtocol> = [:]
+}
+
+public struct ComponentCallbacks<T: Component>  : AnyComponentCallbacksProtocol
+{
+    /// An entity has received a new component of this type
     public var added: AnyPublisher<T, Never> { addedSubject.eraseToAnyPublisher() }
+    /// An entity has received an update to a component with the following contents.
     public var updated: AnyPublisher<T, Never> { updatedSubject.eraseToAnyPublisher() }
+    /// A component has been removed from an entity.
     public var removed: AnyPublisher<T, Never> { removedSubject.eraseToAnyPublisher() }
-    
+
+    internal func sendAdded  (entityID: String, component: any Component) { addedSubject.send(component as! T) }
+    internal func sendUpdated(entityID: String, component: any Component) { updatedSubject.send(component as! T) }
+    internal func sendRemoved(entityID: String, component: any Component) { removedSubject.send(component as! T) }
     private let addedSubject = PassthroughSubject<T, Never>()
     private let updatedSubject = PassthroughSubject<T, Never>()
     private let removedSubject = PassthroughSubject<T, Never>()
-    private var components: [String: T] = [:] // eid -> comp
 }
+
 
 // MARK: Internals
 
+protocol AnyComponentCallbacksProtocol {
+    func sendAdded(entityID: String, component: any Component)
+    func sendUpdated(entityID: String, component: any Component)
+    func sendRemoved(entityID: String, component: any Component)
+}
 
 extension Component
 {
-    public static var componentTypeId: String { String(describing: self) }
+    public static var componentTypeId: ComponentTypeID { String(describing: self) }
 }
 
-public final class ComponentRegistry {
+public final class ComponentRegistry
+{
     public static let shared = ComponentRegistry()
     
-    private var registry: [String: any Component.Type] = [:]
+    private var registry: [ComponentTypeID: any Component.Type] = [:]
+    private var factories: [ComponentTypeID: () -> AnyComponentCallbacksProtocol] = [:]
     
-    public func register(_ type: any Component.Type) {
-        // You can use the static componentType if you want:
+    public func register<T: Component>(_ type: T.Type)
+    {
         registry[type.componentTypeId] = type
-        // Or simply use the type name:
-        registry[String(describing: type)] = type
+        factories[type.componentTypeId] = { ComponentCallbacks<T>() }
     }
     
-    public func component(for typeName: String) -> (any Component.Type)? {
+    public func component(for typeName: String) -> (any Component.Type)?
+    {
         registry[typeName]
+    }
+    
+    internal func createCallbacks(for typeID: ComponentTypeID) -> AnyComponentCallbacksProtocol?
+    {
+        return factories[typeID]?()
     }
 }
 
 extension Component
 {
-    func isEqualTo(_ other: any Component) -> Bool {
+    func isEqualTo(_ other: any Component) -> Bool
+    {
         // They must be of the same type to be equal.
         guard let other = other as? Self else { return false }
         return self == other
     }
 }
 
-extension World: Equatable
+/*
+extension PlaceContents: Equatable
 {
-    public static func == (lhs: World, rhs: World) -> Bool {
+    public static func == (lhs: PlaceContents, rhs: PlaceContents) -> Bool {
         guard lhs.revision == rhs.revision,
               lhs.entities == rhs.entities,
-              lhs.components.keys == rhs.components.keys
+              lhs.components.lists.keys == rhs.components.lists.keys
         else { return false }
         
         for key in lhs.components.keys {
@@ -147,7 +239,7 @@ extension World: Equatable
     }
 }
 
-extension World: Codable
+extension PlaceContents: Codable
 {
     public init(from decoder: Decoder) throws
     {
@@ -205,50 +297,4 @@ enum ComponentGroupCodingKeys: String, CodingKey
     case type, components
 }
 
-/*
-public struct ComponentSet {
-
-        /// Gets or sets the component of the specified type.
-        public subscript<T>(componentType: T.Type) -> T? where T : Component
-        {
-        
-        }
-
-        /// Gets or sets the component with a specific dynamically supplied type.
-        //public subscript(componentType: any Component.Type) -> (any Component)?
-
-        /// Adds a new component to the set, or overrides an existing one.
-        ///
-        /// - Parameter component: The component to add.
-        //public func set<T>(_ component: T) where T : Component
-
-        /// Adds multiple components to the set,
-        /// overriding any existing components of the same type.
-        ///
-        /// If the input array includes multiple components of the same type,
-        /// the set adds the component with the highest index.
-        /// This is because the set can only hold one component of each type.
-        ///
-        /// - Parameter components: An array of components to add.
-        //public func set(_ components: [any Component])
-
-        /// Returns a Boolean value that indicates whether the set contains a
-        /// component of the given type.
-        ///
-        /// - Parameters:
-        ///   - componentType: A component type, like `ModelComponent.Self`.
-        ///
-        /// - Returns: A Boolean value that’s `true` if the set contains a component
-        /// of the given type.
-        //@MainActor @preconcurrency public func has(_ componentType: any Component.Type) -> Bool
-
-        /// Removes the component of the specified type from the collection.
-        @MainActor @preconcurrency public func remove(_ componentType: any Component.Type)
-
-        /// Removes all components from the collection.
-        @MainActor @preconcurrency public func removeAll()
-
-        /// The number of components in the collection.
-        @MainActor @preconcurrency public var count: Int { get }
-    }
 */

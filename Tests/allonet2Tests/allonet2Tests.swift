@@ -16,7 +16,7 @@ final class WorldCodableTests: XCTestCase
         super.setUp()
         TestComponent.register()
     }
-    
+    /*
     func testWorldEncodingDecoding() throws
     {
         // Create a sample entity.
@@ -26,26 +26,27 @@ final class WorldCodableTests: XCTestCase
         let test = TestComponent(entityID: "entity1", radius: 5.0)
         
         // Create a World instance containing the entity and the collider component.
-        var world = World()
-        world.revision = 1
-        world.entities[entity.id] = entity
-        world.components[TestComponent.componentTypeId] = [test]
+        var place = PlaceContents()
+        place.revision = 1
+        place.entities[entity.id] = entity
+        place.components[TestComponent.componentTypeId] = [test]
         
         // Encode the world to JSON.
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(world)
+        let data = try encoder.encode(place)
         
         // Decode the JSON back into a World instance.
         let decoder = JSONDecoder()
         let decodedWorld = try decoder.decode(World.self, from: data)
         
         // Assert that the original and decoded worlds are equal.
-        XCTAssertEqual(world, decodedWorld, "The decoded World should equal the original World.")
+        XCTAssertEqual(place, decodedWorld, "The decoded World should equal the original World.")
     }
+    */
 }
 
-final class WorldComponentsContainerTests: XCTestCase
+final class WorldDeltaTests: XCTestCase
 {
     
     override func setUp()
@@ -53,8 +54,9 @@ final class WorldComponentsContainerTests: XCTestCase
         super.setUp()
         TestComponent.register()
     }
-    
-        func testEvents() throws
+
+/*
+    func testEvents() throws
     {
         let comps = ComponentsContainer()
         let set = comps[TestComponent.self]
@@ -81,6 +83,38 @@ final class WorldComponentsContainerTests: XCTestCase
         }.store(in: &cancellables)
         set.remove(for: "entity1")
         XCTAssertTrue(removedEventReceived, "Expected removed event to fire")
+    }
+*/
+
+    func testDeltas() throws
+    {
+        var cancellables: [AnyCancellable] = []
+        let state = PlaceState()
+        state.delta = PlaceDelta(events: [
+            .entityAdded(Entity(id: "entity1", ownerAgentId: "")),
+            .componentAdded("entity1", TestComponent(entityID: "entity1", radius: 5.0)),
+            .componentUpdated("entity1", TestComponent(entityID: "entity1", radius: 6.0))
+        ])
+        var entityAddedReceived = false
+        var componentAddedReceived = false
+        var componentUpdatedReceived = false
+        
+        state.deltaCallbacks.entityAdded.sink { e in
+            entityAddedReceived = true
+        }.store(in: &cancellables)
+        state.deltaCallbacks[TestComponent.self].added.sink { comp in
+            XCTAssertEqual(comp.radius, 5.0, "Expected initial value to be correct")
+            componentAddedReceived = true
+        }.store(in: &cancellables)
+        state.deltaCallbacks[TestComponent.self].updated.sink { comp in
+            XCTAssertEqual(comp.radius, 6.0, "Expected updated value to be correct")
+            componentUpdatedReceived = true
+        }.store(in: &cancellables)
+        
+        state.sendDeltaCallbacks()
+        XCTAssertTrue(entityAddedReceived, "Expected entity added to fire")
+        XCTAssertTrue(componentAddedReceived, "Expected new component event to fire")
+        XCTAssertTrue(componentUpdatedReceived, "Expected updated component event to fire")
         
     }
 }

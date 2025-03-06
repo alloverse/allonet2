@@ -12,3 +12,15 @@ func with<T>(_ value: T, using closure: (inout T) -> Void) -> T {
     closure(&copy)
     return copy
 }
+
+extension Dictionary {
+    subscript(key: Key, setDefault defaultValue: @autoclosure () -> Value) -> Value {
+        mutating get {
+            return self[key] ?? {
+                let value = defaultValue()
+                self[key] = value
+                return value
+            }()
+        }
+    }
+}
