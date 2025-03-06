@@ -87,19 +87,14 @@ public extension Component
 
 public struct Components
 {
-    public subscript<T>(componentType: T.Type) -> ComponentList<T> where T : Component
+    public subscript<T>(componentType: T.Type) -> [EntityID: T] where T : Component
     {
         mutating get {
-            return lists[componentType.componentTypeId, setDefault: ComponentList<T>()] as! ComponentList<T>
+            return lists[componentType.componentTypeId, setDefault: [:] ] as! [EntityID: T]
         }
     }
     
-    internal var lists: Dictionary<ComponentTypeID, Any> = [:]
-}
-
-public struct ComponentList<T: Component>
-{
-    var components: [EntityID: T] = [:] // eid -> comp
+    internal var lists: Dictionary<ComponentTypeID, [EntityID: any Component]> = [:]
 }
 
 /// List of changes in a Place since the last time it got an update. Useful as a list of what to react to. For example, if a TransformComponent has changed, this means an Entity has changed its spatial location.
@@ -211,7 +206,7 @@ extension Component
     }
 }
 
-/*
+
 extension PlaceContents: Equatable
 {
     public static func == (lhs: PlaceContents, rhs: PlaceContents) -> Bool {
@@ -220,9 +215,9 @@ extension PlaceContents: Equatable
               lhs.components.lists.keys == rhs.components.lists.keys
         else { return false }
         
-        for key in lhs.components.keys {
-            let lhsComponents = lhs.components[key]!
-            let rhsComponents = rhs.components[key]!
+        for key in lhs.components.lists.keys {
+            let lhsComponents = lhs.components.lists[key]!
+            let rhsComponents = rhs.components.lists[key]!
             
             if lhsComponents.count != rhsComponents.count {
                 return false
@@ -230,7 +225,7 @@ extension PlaceContents: Equatable
             
             // Compare each component using the helper method.
             for (l, r) in zip(lhsComponents, rhsComponents) {
-                if !l.isEqualTo(r) {
+                if !l.value.isEqualTo(r.value) {
                     return false
                 }
             }
@@ -258,12 +253,12 @@ extension PlaceContents: Codable
             }
             
             var componentsContainer = try groupContainer.nestedUnkeyedContainer(forKey: .components)
-            var decodedComponents: [any Component] = []
+            var decodedComponents: [EntityID : any Component] = [:]
             while !componentsContainer.isAtEnd {
                 let comp = try componentType.init(from: componentsContainer.superDecoder())
-                decodedComponents.append(comp)
+                decodedComponents[comp.entityID] = comp
             }
-            components[typeId] = decodedComponents
+            components.lists[typeId] = decodedComponents
         }
     }
     
@@ -274,12 +269,12 @@ extension PlaceContents: Codable
         try container.encode(entities, forKey: .entities)
     
         var groupsContainer = container.nestedUnkeyedContainer(forKey: .componentGroups)
-        for (typeId, comps) in components {
+        for (typeId, comps) in components.lists {
             var groupContainer = groupsContainer.nestedContainer(keyedBy: ComponentGroupCodingKeys.self)
             try groupContainer.encode(typeId, forKey: .type)
             
             var componentsContainer = groupContainer.nestedUnkeyedContainer(forKey: .components)
-            for comp in comps {
+            for (_, comp) in comps {
                 try comp.encode(to: componentsContainer.superEncoder())
             }
         }
@@ -297,4 +292,4 @@ enum ComponentGroupCodingKeys: String, CodingKey
     case type, components
 }
 
-*/
+
