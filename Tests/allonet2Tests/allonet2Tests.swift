@@ -58,7 +58,7 @@ final class WorldDeltaTests: XCTestCase
     {
         var cancellables: [AnyCancellable] = []
         let state = PlaceState()
-        state.delta = PlaceDelta(events: [
+        state.changeSet = PlaceChangeSet(changes: [
             .entityAdded(Entity(id: "entity1", ownerAgentId: "")),
             .componentAdded("entity1", TestComponent(entityID: "entity1", radius: 5.0)),
             .componentUpdated("entity1", TestComponent(entityID: "entity1", radius: 6.0))
@@ -67,19 +67,19 @@ final class WorldDeltaTests: XCTestCase
         var componentAddedReceived = false
         var componentUpdatedReceived = false
         
-        state.deltaCallbacks.entityAdded.sink { e in
+        state.observers.entityAdded.sink { e in
             entityAddedReceived = true
         }.store(in: &cancellables)
-        state.deltaCallbacks[TestComponent.self].added.sink { comp in
+        state.observers[TestComponent.self].added.sink { comp in
             XCTAssertEqual(comp.radius, 5.0, "Expected initial value to be correct")
             componentAddedReceived = true
         }.store(in: &cancellables)
-        state.deltaCallbacks[TestComponent.self].updated.sink { comp in
+        state.observers[TestComponent.self].updated.sink { comp in
             XCTAssertEqual(comp.radius, 6.0, "Expected updated value to be correct")
             componentUpdatedReceived = true
         }.store(in: &cancellables)
         
-        state.sendDeltaCallbacks()
+        state.callChangeObservers()
         XCTAssertTrue(entityAddedReceived, "Expected entity added to fire")
         XCTAssertTrue(componentAddedReceived, "Expected new component event to fire")
         XCTAssertTrue(componentUpdatedReceived, "Expected updated component event to fire")

@@ -11,30 +11,30 @@ public class PlaceState
     internal(set) public var current = PlaceContents()
     
     /// Changes in this world between the latest historic entry and current. Use this as a "callback list" of events to apply to react to changes in the world.
-    internal(set) public var delta: PlaceDelta?
+    internal(set) public var changeSet: PlaceChangeSet?
     
     /// Convenience for listening to relevant changes each time a new delta comes in. Useful when you have a subsystem that only cares about a specific component type, for example.
-    public var deltaCallbacks = PlaceDeltaCallbacks()
+    public var observers = PlaceObservers()
     
     /// Previous versions of the world. Mostly useful to calculate deltas internally.
     public var history: [PlaceContents] = []
     
-    internal func sendDeltaCallbacks()
+    internal func callChangeObservers()
     {
-        for event in delta?.events ?? []
+        for event in changeSet?.changes ?? []
         {
             switch event
             {
             case .entityAdded(let entity):
-                deltaCallbacks.entityAddedSubject.send(entity)
+                observers.entityAddedSubject.send(entity)
             case .entityRemoved(let entity):
-                deltaCallbacks.entityRemovedSubject.send(entity)
+                observers.entityRemovedSubject.send(entity)
             case .componentAdded(let entityID, let comp):
-                deltaCallbacks[type(of: comp).componentTypeId].sendAdded(entityID: entityID, component: comp)
+                observers[type(of: comp).componentTypeId].sendAdded(entityID: entityID, component: comp)
             case .componentUpdated(let entityID, let comp):
-                deltaCallbacks[type(of: comp).componentTypeId].sendUpdated(entityID: entityID, component: comp)
+                observers[type(of: comp).componentTypeId].sendUpdated(entityID: entityID, component: comp)
             case .componentRemoved(let entityID, let comp):
-                deltaCallbacks[type(of: comp).componentTypeId].sendRemoved(entityID: entityID, component: comp)
+                observers[type(of: comp).componentTypeId].sendRemoved(entityID: entityID, component: comp)
             }
         }
     }
@@ -98,14 +98,14 @@ public struct Components
 }
 
 /// List of changes in a Place since the last time it got an update. Useful as a list of what to react to. For example, if a TransformComponent has changed, this means an Entity has changed its spatial location.
-public struct PlaceDelta
+public struct PlaceChangeSet
 {
     /// This is the list of changes. They will always be in the same order as the enum cases; in other words, all the entityAdded events will come first, then all the entityRemoved events, then all the componentAdded events, and so on.
-    let events: [PlaceDeltaEvent]
+    let changes: [PlaceChange]
 }
 
 /// The different kinds of changes that can happen to a Place state
-public enum PlaceDeltaEvent
+public enum PlaceChange
 {
     case entityAdded(Entity)
     case entityRemoved(Entity)
@@ -115,7 +115,7 @@ public enum PlaceDeltaEvent
 }
 
 /// Convenience callbacks, including per-component-typed callbacks for when entities and components change in the place.
-public struct PlaceDeltaCallbacks
+public struct PlaceObservers
 {
     /// There's a new entity.
     public var entityAdded: AnyPublisher<Entity, Never> { entityAddedSubject.eraseToAnyPublisher() }
