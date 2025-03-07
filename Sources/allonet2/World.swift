@@ -44,15 +44,23 @@ public class PlaceState
 public struct PlaceContents
 {
     /// What revision of the place is this? Every tick in the server bumps this by 1. Due to network conditions, a client might miss a few revisions here and there and it might not see every sequential revision.
-    public var revision: Int64 = 0
+    public let revision: Int64
     /// The list of entities; basically just a list of IDs of things in the Place.
-    public var entities: Dictionary<EntityID, Entity> = [:]
+    public let entities: Dictionary<EntityID, Entity>
     /// All the attributes for the entities, as various typed components.
-    public var components = Components()
-    
+    public let components : Components
     
     public init()
     {
+        revision = 0
+        entities = [:]
+        components = Components()
+    }
+    public init(revision: Int64, entities: Dictionary<EntityID, Entity>, components: Components)
+    {
+        self.revision = revision
+        self.entities = entities
+        self.components = components
     }
 }
 
@@ -89,12 +97,19 @@ public struct Components
 {
     public subscript<T>(componentType: T.Type) -> [EntityID: T] where T : Component
     {
-        mutating get {
-            return lists[componentType.componentTypeId, setDefault: [:] ] as! [EntityID: T]
-        }
+        return lists[componentType.componentTypeId] as! [EntityID: T]
     }
     
-    internal var lists: Dictionary<ComponentTypeID, [EntityID: any Component]> = [:]
+    public init()
+    {
+        lists = [:]
+    }
+    
+    internal let lists: Dictionary<ComponentTypeID, [EntityID: any Component]>
+    internal init(lists: Dictionary<ComponentTypeID, [EntityID: any Component]>)
+    {
+        self.lists = lists
+    }
 }
 
 /// List of changes in a Place since the last time it got an update. Useful as a list of what to react to. For example, if a TransformComponent has changed, this means an Entity has changed its spatial location.
@@ -243,6 +258,7 @@ extension PlaceContents: Codable
         entities = try container.decode([String: Entity].self, forKey: .entities)
 
         var groupsContainer = try container.nestedUnkeyedContainer(forKey: .componentGroups)
+        var lists: Dictionary<ComponentTypeID, [EntityID: any Component]> = [:]
         while !groupsContainer.isAtEnd {
             let groupContainer = try groupsContainer.nestedContainer(keyedBy: ComponentGroupCodingKeys.self)
             let typeId = try groupContainer.decode(String.self, forKey: .type)
@@ -258,8 +274,9 @@ extension PlaceContents: Codable
                 let comp = try componentType.init(from: componentsContainer.superDecoder())
                 decodedComponents[comp.entityID] = comp
             }
-            components.lists[typeId] = decodedComponents
+            lists[typeId] = decodedComponents
         }
+        components = Components(lists: lists)
     }
     
     public func encode(to encoder: Encoder) throws

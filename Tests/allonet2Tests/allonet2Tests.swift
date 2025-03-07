@@ -26,10 +26,13 @@ final class WorldCodableTests: XCTestCase
         let test = TestComponent(entityID: "entity1", radius: 5.0)
         
         // Create a World instance containing the entity and the collider component.
-        var place = PlaceContents()
-        place.revision = 1
-        place.entities[entity.id] = entity
-        place.components.lists[TestComponent.componentTypeId] = ["entity1": test]
+        var place = PlaceContents(
+            revision: 1,
+            entities: [ entity.id: entity],
+            components: Components(lists:[
+                TestComponent.componentTypeId: [test.entityID: test]
+            ])
+        )
         
         // Encode the world to JSON.
         let encoder = JSONEncoder()
