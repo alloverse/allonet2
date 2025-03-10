@@ -15,9 +15,11 @@ public protocol RTCSessionDelegate: AnyObject
     func session(_: RTCSession, didReceiveData data: Data, on channel: RTCDataChannel)
 }
 
+public typealias RTCClientId = UUID
+
 /// Wrapper of RTCPeerConnection with Alloverse-specific peer semantics, but no business logic
 public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDelegate {
-    public private(set) var clientId: UUID?
+    public private(set) var clientId: RTCClientId?
     public let peer: RTCPeerConnection
     private var channels: [RTCDataChannel] = []
     

@@ -166,7 +166,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
             senderEntityId: "",
             receiverEntityId: "place",
             requestId: "ANN0",
-            body: .announce(version: "0.1")
+            body: .announce(version: "2.0")
         ))
     }
     

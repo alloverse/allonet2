@@ -13,7 +13,9 @@ let port:UInt16 = 9080
 @MainActor
 public class PlaceServer : AlloSessionDelegate
 {
-    var sessions : [AlloSession] = []
+    var clients : [RTCClientId: ConnectedClient] = [:]
+    let place = PlaceState()
+    var outstandingPlaceChanges: [PlaceChange] = []
     
     public init()
     {
@@ -37,7 +39,7 @@ public class PlaceServer : AlloSessionDelegate
             
         let session = AlloSession()
         session.delegate = self
-        self.sessions.append(session)
+        let client = ConnectedClient(session: session)
         
         print("Received new client")
         
@@ -46,6 +48,7 @@ public class PlaceServer : AlloSessionDelegate
             candidates: (await session.rtc.gatherCandidates()).map { SignallingIceCandidate(candidate: $0) },
             clientId: session.rtc.clientId!
         )
+        self.clients[session.rtc.clientId!] = client
         print("Client is \(session.rtc.clientId!), shaking hands...")
         
         return HTTPResponse(
@@ -62,14 +65,40 @@ public class PlaceServer : AlloSessionDelegate
     
     nonisolated public func session(didDisconnect sess: AlloSession)
     {
-        print("Lost client \(sess.rtc.clientId!)")
+        let cid = sess.rtc.clientId!
+        print("Lost client \(cid)")
         DispatchQueue.main.async {
-            self.sessions.removeAll { $0 == sess }
+            self.clients[cid] = nil
         }
     }
     
-    nonisolated public func session(_: AlloSession, didReceiveInteraction inter: Interaction)
+    nonisolated public func session(_ sess: AlloSession, didReceiveInteraction inter: Interaction)
     {
-        print("Received interaction: \(inter)")
+        let cid = sess.rtc.clientId!
+        print("Received interaction from \(cid): \(inter)")
+        Task { @MainActor in
+            let client = clients[cid]!
+            if case .announce(let version) = inter.body
+            {
+                guard version == "2.0" else {
+                    print("Client \(cid) has incompatible version, disconnecting.")
+                    sess.rtc.disconnect()
+                    return
+                }
+                client.announced = true
+            }
+        }
     }
+}
+
+internal class ConnectedClient
+{
+    let session: AlloSession
+    var announced = false
+    
+    init(session: AlloSession)
+    {
+        self.session = session
+    }
+    
 }
