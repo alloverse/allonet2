@@ -127,11 +127,10 @@ final class WorldChangeSetTests: XCTestCase
         var cAdded = false
         var cCompAdded = false
         
-        print("New: \(new)\nOld: \(old)\nDiff: \(diff)\n")
-        
         for change in diff.changes
         {
-            switch change {
+            switch change
+            {
             case .entityRemoved(let e) where e.id == "b":
                 bRemoved = true
             case .componentRemoved(let eid, let comp as TestComponent) where eid == "b" :
@@ -159,4 +158,39 @@ final class WorldChangeSetTests: XCTestCase
         XCTAssertTrue(cAdded)
         XCTAssertTrue(cCompAdded)
     }
+    
+    func testChangeSetApplication()
+    {
+        let old = PlaceContents(revision: 1, entities: [
+            "a": Entity(id: "a", ownerAgentId: ""),
+            "b": Entity(id: "b", ownerAgentId: "")
+        ], components: Components(lists: [
+            TestComponent.componentTypeId: [
+                "a": TestComponent(entityID: "a", radius: 5.0),
+                "b": TestComponent(entityID: "b", radius: 5.0)
+            ]
+        ]))
+        
+        let changeSet = PlaceChangeSet(changes: [
+            .entityAdded(Entity(id: "c", ownerAgentId: "")),
+            .entityRemoved(Entity(id: "b", ownerAgentId: "")),
+            .componentAdded("c", TestComponent(entityID: "c", radius: 6.0)),
+            .componentAdded("c", Test2Component(entityID: "c", thingie: 3)),
+            .componentUpdated("a", TestComponent(entityID: "a", radius: 7.0)),
+            .componentRemoved("b", TestComponent(entityID: "b", radius: 5.0))
+        ])
+        
+        let new = old.applyChangeSet(changeSet, for: 2)
+        
+        dump(old)
+        dump(changeSet)
+        dump(new)
+        
+        XCTAssertTrue(new.entities["b"] == nil, "Changeset should have removed entity 'b'")
+        XCTAssertTrue(new.entities["c"] != nil, "Changeset should have created entity 'c'")
+        XCTAssertEqual(new.components[TestComponent.self]["a"]!.radius, 7.0, "Changeset should have updated component 'a'")
+        XCTAssertEqual(new.components[TestComponent.self]["c"]!.radius, 6.0, "Changeset should have added component 'c'")
+        XCTAssertNil(new.components[TestComponent.self]["b"], "Changeset should have removed component for entity 'b'")
+    }
+
 }

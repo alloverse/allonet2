@@ -113,8 +113,27 @@ extension PlaceContents
     
     internal func applyChangeSet(_ changeSet: PlaceChangeSet, for newRevision: Int64) -> PlaceContents
     {
-        // TODO: Implement
-        return PlaceContents(revision: newRevision, entities: [:], components: Components())
+        var entities: [EntityID: Entity] = self.entities
+        var lists = self.components.lists
+        for change in changeSet.changes
+        {
+            switch change
+            {
+            case .entityAdded(let e):
+                entities[e.id] = e
+            case .entityRemoved(let e):
+                entities[e.id] = nil
+            case .componentAdded(let eid, let component):
+                let key = type(of:component).componentTypeId
+                lists[key, default: [:]][eid] = component
+            case .componentUpdated(let eid, let component):
+                let key = type(of:component).componentTypeId
+                lists[key]![eid]! = component
+            case .componentRemoved(let eid, let component):
+                lists[type(of:component).componentTypeId]![eid] = nil
+            }
+        }
+        return PlaceContents(revision: newRevision, entities: entities, components: Components(lists: lists))
     }
 }
 
