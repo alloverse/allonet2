@@ -7,6 +7,11 @@ public struct TestComponent: Component
     public var entityID: String
     public var radius: Double
 }
+public struct Test2Component: Component
+{
+    public var entityID: String
+    public var thingie: Int
+}
 
 final class WorldCodableTests: XCTestCase
 {
@@ -48,7 +53,7 @@ final class WorldCodableTests: XCTestCase
     }
 }
 
-final class WorldDeltaTests: XCTestCase
+final class WorldChangeSetTests: XCTestCase
 {
     
     override func setUp()
@@ -57,7 +62,7 @@ final class WorldDeltaTests: XCTestCase
         TestComponent.register()
     }
 
-    func testDeltas() throws
+    func testChangeSetCallbacks() throws
     {
         var cancellables: [AnyCancellable] = []
         let state = PlaceState()
@@ -86,6 +91,72 @@ final class WorldDeltaTests: XCTestCase
         XCTAssertTrue(entityAddedReceived, "Expected entity added to fire")
         XCTAssertTrue(componentAddedReceived, "Expected new component event to fire")
         XCTAssertTrue(componentUpdatedReceived, "Expected updated component event to fire")
+    }
+    
+    func testChangeSetCreation()
+    {
+        let old = PlaceContents(revision: 1, entities: [
+            "a": Entity(id: "a", ownerAgentId: ""),
+            "b": Entity(id: "b", ownerAgentId: "")
+        ], components: Components(lists: [
+            TestComponent.componentTypeId: [
+                "a": TestComponent(entityID: "a", radius: 5.0),
+                "b": TestComponent(entityID: "b", radius: 5.0)
+            ],
+            Test2Component.componentTypeId: [
+                "a": Test2Component(entityID: "a", thingie: 4)
+            ]
+        ]))
         
+        let new = PlaceContents(revision: 2, entities: [
+            "a": Entity(id: "a", ownerAgentId: ""),
+            "c": Entity(id: "c", ownerAgentId: "")
+        ], components: Components(lists: [
+            TestComponent.componentTypeId: [
+                "a": TestComponent(entityID: "a", radius: 6.0),
+                "c": TestComponent(entityID: "c", radius: 7.0)
+            ]
+        ]))
+        
+        let diff = new.changeSet(from: old)
+        
+        var bRemoved = false
+        var bCompRemoved = false
+        var componentCategoryRemoved = false
+        var aCompChanged = false
+        var cAdded = false
+        var cCompAdded = false
+        
+        print("New: \(new)\nOld: \(old)\nDiff: \(diff)\n")
+        
+        for change in diff.changes
+        {
+            switch change {
+            case .entityRemoved(let e) where e.id == "b":
+                bRemoved = true
+            case .componentRemoved(let eid, let comp as TestComponent) where eid == "b" :
+                XCTAssertEqual(comp.radius, 5.0)
+                bCompRemoved = true
+            case .componentRemoved(let eid, let comp as Test2Component) where eid == "a" :
+                XCTAssertEqual(comp.thingie, 4)
+                componentCategoryRemoved = true
+            case .componentUpdated(let eid, let comp as TestComponent) where eid == "a":
+                XCTAssertEqual(comp.radius, 6.0, "Component update didn't generate the expected change")
+                aCompChanged = true
+            case .entityAdded(let e) where e.id == "c":
+                cAdded = true
+            case .componentAdded(let eid, let comp as TestComponent) where eid == "c":
+                XCTAssertEqual(comp.radius, 7.0, "Component update didn't generate the expected change")
+                cCompAdded = true
+            default: continue
+            }
+        }
+        
+        XCTAssertTrue(bRemoved)
+        XCTAssertTrue(bCompRemoved)
+        XCTAssertTrue(componentCategoryRemoved)
+        XCTAssertTrue(aCompChanged)
+        XCTAssertTrue(cAdded)
+        XCTAssertTrue(cCompAdded)
     }
 }

@@ -38,46 +38,6 @@ public class PlaceState
             }
         }
     }
-    
-    /// Client: Find the historical state at the given revision, and apply the given changeset to it, and use it as the freshly updated current state.
-    /// Server: Apply the accumulated changes from interactions since last tick, and create a new state that we can broadcast to clients.
-    internal func applyChangeSet(_ changeSet: PlaceChangeSet, from oldRevision: Int64, to newRevision: Int64) -> Bool
-    {
-        guard let old = getHistory(at: oldRevision) else { return false }
-        
-        let new = old.applyChangeSet(changeSet, for: newRevision)
-        self.changeSet = changeSet
-        setCurrent(contents: new)
-        callChangeObservers()
-        return true
-    }
-    
-    /// Client: When server can't give us a delta, use this full snapshot instead. This is e g true for the first delta.
-    internal func applyFullSnapshot(_ snapshot: PlaceContents)
-    {
-        // Derive a delta so we can use it for calling callbacks
-        self.changeSet = current.changeSet(from: self.current)
-        setCurrent(contents: snapshot)
-        
-        callChangeObservers()
-    }
-    
-    private func getHistory(at revision: Int64) -> PlaceContents?
-    {
-        return history.reversed().first {
-            return $0.revision == revision
-        }
-    }
-    
-    // Also adds the new current state to history
-    private func setCurrent(contents: PlaceContents)
-    {
-        history.append(contents)
-        // maybe go by age in wall time instead?
-        if history.count > 100 { history.removeFirst() }
-        current = contents
-    }
-    
 }
 
 /// A full representation of the world in the connected Place. Everything in a Place is represented as an Entity, but an Entity itself is only an ID; all its attributes are described by its child Components of various types.
@@ -101,19 +61,6 @@ public struct PlaceContents
         self.revision = revision
         self.entities = entities
         self.components = components
-    }
-    
-    
-    public func changeSet(from previous: PlaceContents) -> PlaceChangeSet
-    {
-        // TODO: Implement
-        return PlaceChangeSet(changes: [])
-    }
-    
-    public func applyChangeSet(_ changeSet: PlaceChangeSet, for newRevision: Int64) -> PlaceContents
-    {
-        // TODO: Implement
-        return PlaceContents(revision: newRevision, entities: [:], components: Components())
     }
 }
 
@@ -168,7 +115,7 @@ public struct Components
 /// List of changes in a Place since the last time it got an update. Useful as a list of what to react to. For example, if a TransformComponent has changed, this means an Entity has changed its spatial location.
 public struct PlaceChangeSet
 {
-    /// This is the list of changes. They will always be in the same order as the enum cases; in other words, all the entityAdded events will come first, then all the entityRemoved events, then all the componentAdded events, and so on.
+    /// This is the list of changes. All entityAdded changes will come first; and then all entityRemoved; and then component-related changes.
     let changes: [PlaceChange]
 }
 
