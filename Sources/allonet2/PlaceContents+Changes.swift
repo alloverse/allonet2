@@ -19,6 +19,12 @@ extension PlaceState
         return true
     }
     
+    /// Server: Apply the accumulated changes from interactions since last tick, and create a new state that we can broadcast to clients.
+    internal func applyChangeSet(_ changeSet: PlaceChangeSet) -> Bool
+    {
+        return applyChangeSet(changeSet, from: current.revision, to: current.revision + 1)
+    }
+    
     /// Client: When server can't give us a delta, use this full snapshot instead. This is e g true for the first delta.
     internal func applyFullSnapshot(_ snapshot: PlaceContents)
     {

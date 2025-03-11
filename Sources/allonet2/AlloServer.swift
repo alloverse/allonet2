@@ -32,6 +32,21 @@ public class PlaceServer : AlloSessionDelegate
         try await http.start()
     }
     
+    // MARK: - Place content management
+    func heartbeat()
+    {
+        let success = place.applyChangeSet(PlaceChangeSet(changes: outstandingPlaceChanges))
+        assert(success) // bug if this doesn't succeed
+        outstandingPlaceChanges.removeAll()
+        for client in clients.values {
+            let lastContents = client.ackdRevision.flatMap { place.getHistory(at: $0) } ?? PlaceContents()
+            let changeSet = place.current.changeSet(from: lastContents)
+            
+            client.session.send(placeChangeSet: changeSet)
+        }
+    }
+    
+    // MARK: - Session management
     @Sendable
     func handleIncomingClient(_ request: HTTPRequest) async throws -> HTTPResponse
     {
@@ -91,10 +106,13 @@ public class PlaceServer : AlloSessionDelegate
     }
 }
 
+// MARK: -
+
 internal class ConnectedClient
 {
     let session: AlloSession
     var announced = false
+    var ackdRevision : StateRevision? // Last ack'd place contents revision, or nil if none
     
     init(session: AlloSession)
     {
