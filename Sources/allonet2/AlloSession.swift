@@ -39,6 +39,12 @@ public class AlloSession : NSObject, RTCSessionDelegate
         interactionChannel.sendData(RTCDataBuffer(data: data, isBinary: true))
     }
     
+    public func send(placeChangeSet: PlaceChangeSet)
+    {
+        let data = try! encoder.encode(placeChangeSet)
+        worldstateChannel.sendData(RTCDataBuffer(data: data, isBinary: true))
+    }
+    
     private func setupDataChannels()
     {
         interactionChannel = rtc.createDataChannel(as: "interactions", configuration: with(RTCDataChannelConfiguration()) {

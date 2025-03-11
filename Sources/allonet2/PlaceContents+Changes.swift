@@ -8,8 +8,7 @@
 extension PlaceState
 {
     /// Client: Find the historical state at the given revision, and apply the given changeset to it, and use it as the freshly updated current state.
-    /// Server: Apply the accumulated changes from interactions since last tick, and create a new state that we can broadcast to clients.
-    internal func applyChangeSet(_ changeSet: PlaceChangeSet, from oldRevision: Int64, to newRevision: Int64) -> Bool
+    internal func applyChangeSet(_ changeSet: PlaceChangeSet, from oldRevision: StateRevision, to newRevision: StateRevision) -> Bool
     {
         guard let old = getHistory(at: oldRevision) else { return false }
         
@@ -28,13 +27,6 @@ extension PlaceState
         setCurrent(contents: snapshot)
         
         callChangeObservers()
-    }
-    
-    private func getHistory(at revision: Int64) -> PlaceContents?
-    {
-        return history.reversed().first {
-            return $0.revision == revision
-        }
     }
     
     // Also adds the new current state to history
@@ -111,7 +103,7 @@ extension PlaceContents
         return PlaceChangeSet(changes: newEntities + removedEntities + added + updated + removed)
     }
     
-    internal func applyChangeSet(_ changeSet: PlaceChangeSet, for newRevision: Int64) -> PlaceContents
+    internal func applyChangeSet(_ changeSet: PlaceChangeSet, for newRevision: StateRevision) -> PlaceContents
     {
         var entities: [EntityID: Entity] = self.entities
         var lists = self.components.lists

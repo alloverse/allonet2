@@ -13,16 +13,15 @@ public struct Test2Component: Component
     public var thingie: Int
 }
 
-final class WorldCodableTests: XCTestCase
+final class PlaceCodableTests: XCTestCase
 {
-    
     override func setUp()
     {
         super.setUp()
         TestComponent.register()
     }
     
-    func testWorldEncodingDecoding() throws
+    func testPlaceEncodingDecoding() throws
     {
         // Create a sample entity.
         let entity = Entity(id: "entity1", ownerAgentId: "agentA")
@@ -39,21 +38,50 @@ final class WorldCodableTests: XCTestCase
             ])
         )
         
-        // Encode the world to JSON.
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(place)
         
-        // Decode the JSON back into a World instance.
         let decoder = JSONDecoder()
         let decodedPlace = try decoder.decode(PlaceContents.self, from: data)
         
-        // Assert that the original and decoded worlds are equal.
-        XCTAssertEqual(place, decodedPlace, "The decoded World should equal the original World.")
+        XCTAssertEqual(place, decodedPlace, "The decoded Place should equal the original Place.")
     }
 }
 
-final class WorldChangeSetTests: XCTestCase
+final class PlaceChangeCodingTests: XCTestCase
+{
+    override func setUp()
+    {
+        super.setUp()
+        TestComponent.register()
+        Test2Component.register()
+    }
+    
+    func testChangeSetEncodingDecoding() throws
+    {
+        let changeSet = PlaceChangeSet(changes: [
+            .entityAdded(Entity(id: "c", ownerAgentId: "")),
+            .entityRemoved(Entity(id: "b", ownerAgentId: "")),
+            .componentAdded("c", TestComponent(entityID: "c", radius: 6.0)),
+            .componentAdded("c", Test2Component(entityID: "c", thingie: 3)),
+            .componentUpdated("a", TestComponent(entityID: "a", radius: 7.0)),
+            .componentRemoved("b", TestComponent(entityID: "b", radius: 5.0))
+        ])
+        
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let data = try encoder.encode(changeSet)
+        
+        let decoder = JSONDecoder()
+        let decodedChangeSet = try decoder.decode(PlaceChangeSet.self, from: data)
+        
+        XCTAssertEqual(changeSet, decodedChangeSet, "The decoded ChangeSet should equal the original ChangeSet.")
+        
+    }
+}
+
+final class PlaceChangeSetTests: XCTestCase
 {
     
     override func setUp()

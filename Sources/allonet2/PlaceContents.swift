@@ -3,6 +3,7 @@ import Combine
 
 public typealias EntityID = String
 public typealias ComponentTypeID = String
+public typealias StateRevision = Int64
 
 /// The current and historical state of the place.
 public class PlaceState
@@ -18,6 +19,13 @@ public class PlaceState
     
     /// Previous versions of the world. Mostly useful to calculate deltas internally.
     public var history: [PlaceContents] = []
+    
+    public func getHistory(at revision: StateRevision) -> PlaceContents?
+    {
+        return history.reversed().first {
+            return $0.revision == revision
+        }
+    }
     
     internal func callChangeObservers()
     {
@@ -44,7 +52,7 @@ public class PlaceState
 public struct PlaceContents
 {
     /// What revision of the place is this? Every tick in the server bumps this by 1. Due to network conditions, a client might miss a few revisions here and there and it might not see every sequential revision.
-    public let revision: Int64
+    public let revision: StateRevision
     /// The list of entities; basically just a list of IDs of things in the Place.
     public let entities: Dictionary<EntityID, Entity>
     /// All the attributes for the entities, as various typed components.
@@ -56,7 +64,7 @@ public struct PlaceContents
         entities = [:]
         components = Components()
     }
-    public init(revision: Int64, entities: Dictionary<EntityID, Entity>, components: Components)
+    public init(revision: StateRevision, entities: Dictionary<EntityID, Entity>, components: Components)
     {
         self.revision = revision
         self.entities = entities
@@ -113,7 +121,7 @@ public struct Components
 }
 
 /// List of changes in a Place since the last time it got an update. Useful as a list of what to react to. For example, if a TransformComponent has changed, this means an Entity has changed its spatial location.
-public struct PlaceChangeSet
+public struct PlaceChangeSet: Codable, Equatable
 {
     /// This is the list of changes. All entityAdded changes will come first; and then all entityRemoved; and then component-related changes.
     let changes: [PlaceChange]
@@ -187,30 +195,6 @@ extension Component
     public static var componentTypeId: ComponentTypeID { String(describing: self) }
 }
 
-public final class ComponentRegistry
-{
-    public static let shared = ComponentRegistry()
-    
-    private var registry: [ComponentTypeID: any Component.Type] = [:]
-    private var factories: [ComponentTypeID: () -> AnyComponentCallbacksProtocol] = [:]
-    
-    public func register<T: Component>(_ type: T.Type)
-    {
-        registry[type.componentTypeId] = type
-        factories[type.componentTypeId] = { ComponentCallbacks<T>() }
-    }
-    
-    public func component(for typeName: String) -> (any Component.Type)?
-    {
-        registry[typeName]
-    }
-    
-    internal func createCallbacks(for typeID: ComponentTypeID) -> AnyComponentCallbacksProtocol?
-    {
-        return factories[typeID]?()
-    }
-}
-
 extension Component
 {
     func isEqualTo(_ other: any Component) -> Bool
@@ -221,92 +205,21 @@ extension Component
     }
 }
 
-
-extension PlaceContents: Equatable
-{
-    public static func == (lhs: PlaceContents, rhs: PlaceContents) -> Bool {
-        guard lhs.revision == rhs.revision,
-              lhs.entities == rhs.entities,
-              lhs.components.lists.keys == rhs.components.lists.keys
-        else { return false }
-        
-        for key in lhs.components.lists.keys {
-            let lhsComponents = lhs.components.lists[key]!
-            let rhsComponents = rhs.components.lists[key]!
-            
-            if lhsComponents.count != rhsComponents.count {
-                return false
-            }
-            
-            // Compare each component using the helper method.
-            for (l, r) in zip(lhsComponents, rhsComponents) {
-                if !l.value.isEqualTo(r.value) {
-                    return false
-                }
-            }
-        }
-        return true
-    }
-}
-
-extension PlaceContents: Codable
-{
-    public init(from decoder: Decoder) throws
-    {
-        let container = try decoder.container(keyedBy: WorldCodingKeys.self)
-        revision = try container.decode(Int64.self, forKey: .revision)
-        entities = try container.decode([String: Entity].self, forKey: .entities)
-
-        var groupsContainer = try container.nestedUnkeyedContainer(forKey: .componentGroups)
-        var lists: Dictionary<ComponentTypeID, [EntityID: any Component]> = [:]
-        while !groupsContainer.isAtEnd {
-            let groupContainer = try groupsContainer.nestedContainer(keyedBy: ComponentGroupCodingKeys.self)
-            let typeId = try groupContainer.decode(String.self, forKey: .type)
-            
-            // Look up the concrete type.
-            guard let componentType = ComponentRegistry.shared.component(for: typeId) else {
-                throw DecodingError.dataCorruptedError(forKey: .type, in: groupContainer, debugDescription: "Unknown component type: \(typeId)")
-            }
-            
-            var componentsContainer = try groupContainer.nestedUnkeyedContainer(forKey: .components)
-            var decodedComponents: [EntityID : any Component] = [:]
-            while !componentsContainer.isAtEnd {
-                let comp = try componentType.init(from: componentsContainer.superDecoder())
-                decodedComponents[comp.entityID] = comp
-            }
-            lists[typeId] = decodedComponents
-        }
-        components = Components(lists: lists)
-    }
-    
-    public func encode(to encoder: Encoder) throws
-    {
-        var container = encoder.container(keyedBy: WorldCodingKeys.self)
-        try container.encode(revision, forKey: .revision)
-        try container.encode(entities, forKey: .entities)
-    
-        var groupsContainer = container.nestedUnkeyedContainer(forKey: .componentGroups)
-        for (typeId, comps) in components.lists {
-            var groupContainer = groupsContainer.nestedContainer(keyedBy: ComponentGroupCodingKeys.self)
-            try groupContainer.encode(typeId, forKey: .type)
-            
-            var componentsContainer = groupContainer.nestedUnkeyedContainer(forKey: .components)
-            for (_, comp) in comps {
-                try comp.encode(to: componentsContainer.superEncoder())
-            }
+extension PlaceChange: Equatable {
+    public static func == (lhs: PlaceChange, rhs: PlaceChange) -> Bool {
+        switch (lhs, rhs) {
+        case (.entityAdded(let e1), .entityAdded(let e2)):
+            return e1 == e2
+        case (.entityRemoved(let e1), .entityRemoved(let e2)):
+            return e1 == e2
+        case (.componentAdded(let id1, let comp1), .componentAdded(let id2, let comp2)):
+            return id1 == id2 && comp1.isEqualTo(comp2)
+        case (.componentUpdated(let id1, let comp1), .componentUpdated(let id2, let comp2)):
+            return id1 == id2 && comp1.isEqualTo(comp2)
+        case (.componentRemoved(let id1, let comp1), .componentRemoved(let id2, let comp2)):
+            return id1 == id2 && comp1.isEqualTo(comp2)
+        default:
+            return false
         }
     }
 }
-
-
-enum WorldCodingKeys: String, CodingKey
-{
-    case revision, entities, componentGroups
-}
-
-enum ComponentGroupCodingKeys: String, CodingKey
-{
-    case type, components
-}
-
-
