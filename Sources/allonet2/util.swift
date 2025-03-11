@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import simd
 
 func with<T>(_ value: T, using closure: (inout T) -> Void) -> T {
     var copy = value
@@ -22,5 +23,37 @@ extension Dictionary {
                 return value
             }()
         }
+    }
+}
+
+extension float4x4 : Codable
+{
+    public func encode(to encoder: Encoder) throws
+    {
+        var container = encoder.unkeyedContainer()
+        // Encode in row-major order: for each row, encode all columns.
+        for row in 0..<4
+        {
+            for col in 0..<4
+            {
+                try container.encode(self[col][row])
+            }
+        }
+    }
+    
+    public init(from decoder: Decoder) throws
+    {
+        var container = try decoder.unkeyedContainer()
+        var matrix = simd_float4x4()
+        // Decode in row-major order.
+        for row in 0..<4
+        {
+            for col in 0..<4
+            {
+                let value = try container.decode(Float.self)
+                matrix[col][row] = value
+            }
+        }
+        self = matrix
     }
 }
