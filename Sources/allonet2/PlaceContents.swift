@@ -18,7 +18,7 @@ public class PlaceState
     public var observers = PlaceObservers()
     
     /// Previous versions of the world. Mostly useful to calculate deltas internally.
-    public var history: [PlaceContents] = []
+    public var history: [PlaceContents] = [PlaceContents()]
     
     public func getHistory(at revision: StateRevision) -> PlaceContents?
     {

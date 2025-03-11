@@ -15,7 +15,17 @@ public class PlaceServer : AlloSessionDelegate
 {
     var clients : [RTCClientId: ConnectedClient] = [:]
     let place = PlaceState()
-    var outstandingPlaceChanges: [PlaceChange] = []
+    lazy var heartbeat: HeartbeatTimer = {
+        return HeartbeatTimer {
+            self.applyAndBroadcastState()
+        }
+    }()
+    private var outstandingPlaceChanges: [PlaceChange] = []
+    private func appendChanges(_ changes: [PlaceChange]) async
+    {
+        outstandingPlaceChanges.append(contentsOf: changes)
+        await heartbeat.markChanged()
+    }
     
     public init()
     {
@@ -28,12 +38,16 @@ public class PlaceServer : AlloSessionDelegate
 
         // On incoming connection, create a WebRTC socket.
         await http.appendRoute("/", handler: self.handleIncomingClient)
+        
+        await appendChanges([
+            .entityAdded(Entity(id: "test", ownerAgentId: "")),
+        ])
             
         try await http.start()
     }
     
     // MARK: - Place content management
-    func heartbeat()
+    func applyAndBroadcastState()
     {
         let success = place.applyChangeSet(PlaceChangeSet(changes: outstandingPlaceChanges))
         assert(success) // bug if this doesn't succeed
@@ -119,4 +133,67 @@ internal class ConnectedClient
         self.session = session
     }
     
+}
+
+/// A timer manager that fires once every _keepaliveDelay_ whenever nothing has happened, but will fire after only a _coalesceDelay_ if a change has happened. This will coalesce a small number of changes that happen in succession; but still fire a heartbeat now and again to keep connections primed.
+actor HeartbeatTimer {
+    private let syncAction: () async -> Void
+    private let coalesceDelay: UInt64
+    private let keepaliveDelay: UInt64
+
+    private var pendingChanges = false
+
+    // A stored continuation that we can resume early if needed.
+    private var waitContinuation: CheckedContinuation<Void, Never>?
+
+    init(coalesceDelay: UInt64 = 20_000_000,
+         keepaliveDelay: UInt64 = 1_000_000_000,
+         syncAction: @escaping () async -> Void) {
+        self.syncAction = syncAction
+        self.coalesceDelay = coalesceDelay
+        self.keepaliveDelay = keepaliveDelay
+
+        // Start the continuous heartbeat loop.
+        Task { await self.runLoop() }
+    }
+
+    /// Call this when a change occurs.
+    func markChanged() {
+        pendingChanges = true
+        // Resume the wait early if it’s in progress.
+        waitContinuation?.resume()
+        waitContinuation = nil
+    }
+
+    /// The continuous heartbeat loop.
+    private func runLoop() async {
+        while true {
+            // Determine the desired delay: a short delay if changes are pending, else the keepalive interval.
+            let delay = pendingChanges ? coalesceDelay : keepaliveDelay
+
+            // Wait for either the delay to elapse or an early wake-up via markChanged().
+            await wait(delay: delay)
+            // After the wait, perform the sync action.
+            await syncAction()
+            // Clear pending changes.
+            pendingChanges = false
+        }
+    }
+
+    /// Suspends until either the specified delay elapses or until markChanged() resumes the continuation.
+    private func wait(delay: UInt64) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            // Store the continuation so markChanged() can resume it.
+            self.waitContinuation = continuation
+            // Launch a task that resumes the continuation after the delay.
+            Task {
+                try? await Task.sleep(nanoseconds: delay)
+                // If the continuation is still pending, resume it.
+                if let cont = self.waitContinuation {
+                    cont.resume()
+                    self.waitContinuation = nil
+                }
+            }
+        }
+    }
 }
