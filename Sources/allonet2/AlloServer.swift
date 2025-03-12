@@ -153,7 +153,8 @@ internal class ConnectedClient
 }
 
 /// A timer manager that fires once every _keepaliveDelay_ whenever nothing has happened, but will fire after only a _coalesceDelay_ if a change has happened. This will coalesce a small number of changes that happen in succession; but still fire a heartbeat now and again to keep connections primed.
-actor HeartbeatTimer {
+actor HeartbeatTimer
+{
     private let syncAction: () async -> Void
     private let coalesceDelay: Int //ns
     private let keepaliveDelay: Int //ns
@@ -161,23 +162,39 @@ actor HeartbeatTimer {
     private let timerQueue = DispatchQueue(label: "HeartbeatTimerQueue")
     private var timer: DispatchSourceTimer?
     private var pendingChanges = false
+    private lazy var syncStream: AsyncStream<Void> = AsyncStream<Void> { continuation in
+        self.syncContinuation = continuation
+    }
+    private var syncContinuation: AsyncStream<Void>.Continuation?
 
-    init(coalesceDelay: Int = 20_000_000,
+    public init(coalesceDelay: Int = 20_000_000,
          keepaliveDelay: Int = 1_000_000_000,
          syncAction: @escaping () async -> Void) {
         self.syncAction = syncAction
         self.coalesceDelay = coalesceDelay
         self.keepaliveDelay = keepaliveDelay
+        
         Task { await setupTimer(delay: keepaliveDelay) }
     }
 
-    func markChanged() {
+    public func markChanged() {
         // Only schedule a new timer if not already pending.
         if pendingChanges { return }
         pendingChanges = true
         
         setupTimer(delay: coalesceDelay)
     }
+    
+    public func awaitNextSync() async
+    {
+        for await _ in syncStream { break }
+    }
+    
+    public func stop() {
+        timer?.cancel()
+        timer = nil
+    }
+    
 
     /// Schedules a new timer on the shared timerQueue.
     private func setupTimer(delay: Int) {
@@ -197,10 +214,6 @@ actor HeartbeatTimer {
         await syncAction()
         pendingChanges = false
         setupTimer(delay: keepaliveDelay)
-    }
-
-    func stop() {
-        timer?.cancel()
-        timer = nil
+        syncContinuation?.yield(())
     }
 }
