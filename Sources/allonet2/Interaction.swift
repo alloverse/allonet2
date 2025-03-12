@@ -46,19 +46,37 @@ public enum InteractionBody : Codable
     case announce(version: String, avatarComponents: [AnyComponent])
     case announceResponse(avatarId: String, placeName: String)
     
-    case spawnEntity(initialComponents: [AnyComponent])
-    case spawnEntityResponse(entityId: EntityID)
+    case createEntity(initialComponents: [AnyComponent])
+    case createEntityResponse(entityId: EntityID)
+    case removeEntity(entityId: EntityID, mode: EntityRemovalMode) // -> .success or .error
+    case changeEntity(entityId: EntityID, addOrChange: [AnyComponent], remove: [ComponentTypeID]) // -> .success or .error
     
     case error(domain: String, code: Int, description: String)
+    case success // generic request-was-successful
     case custom(value: [String: AnyCodable])
 }
+
+public enum EntityRemovalMode: String, Codable
+{
+    case reparent // Child entities are reparented to root
+    case cascade  // Child entities are also removed
+}
+
 
 public let PlaceErrorDomain = "com.alloverse.place.error"
 public enum PlaceErrorCode: Int
 {
-    case invalidRequest = 1
-    case unavailable = 2
+    case invalidRequest = 1 // request is malformed, programmer error
+    case unauthorized = 2   // you're not allowed to do that
+    case notFound = 3       // The thing you're requesting to modify couldn't be found
     
-    case recipientUnavailable = 3 // no such entity, or agent not found for that entity
-    case recipientTimedOut = 4 // agent didn't respond back to Place in a timely fashion. If it replies later, its response will be discarded.
+    case recipientUnavailable = 100 // no such entity, or agent not found for that entity
+    case recipientTimedOut = 101 // agent didn't respond back to Place in a timely fashion. If it replies later, its response will be discarded.
 }
+struct AlloverseError: Error, Codable
+{
+    public let domain: String
+    public let code: Int
+    public let description: String
+}
+

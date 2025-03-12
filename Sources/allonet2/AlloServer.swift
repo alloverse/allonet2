@@ -129,14 +129,25 @@ public class PlaceServer : AlloSessionDelegate
     {
         if inter.receiverEntityId == "place"
         {
-            self.handle(placeInteraction: inter, from: client)
+            Task
+            {
+                do
+                {
+                    try await self.handle(placeInteraction: inter, from: client)
+                }
+                catch (let e as AlloverseError)
+                {
+                    print("Interaction error for \(client.cid): \(e)")
+                    client.session.send(interaction: inter.makeResponse(with: .error(domain: e.domain, code: e.code, description: e.description)))
+                }
+            }
         } else {
             // TODO: Forward to correct client
             // TODO: reply with timeout if client doesn't respond if needed
         }
     }
     
-    func handle(placeInteraction inter: Interaction, from client: ConnectedClient)
+    func handle(placeInteraction inter: Interaction, from client: ConnectedClient) async throws(AlloverseError)
     {
         switch inter.body
         {
@@ -147,16 +158,21 @@ public class PlaceServer : AlloSessionDelegate
                 return
             }
             client.announced = true
-            Task {
-                let ent = await self.createEntity(with: avatarComponents, for: client)
-                print("Accepted client \(client.cid) with avatar id \(ent.id)")
-                // TODO: reply with correct place name
-                client.session.send(interaction: inter.makeResponse(with: .announceResponse(avatarId: ent.id, placeName: "Unnamed Alloverse place")))
-            }
+            let ent = await self.createEntity(with: avatarComponents, for: client)
+            print("Accepted client \(client.cid) with avatar id \(ent.id)")
+            // TODO: reply with correct place name
+            client.session.send(interaction: inter.makeResponse(with: .announceResponse(avatarId: ent.id, placeName: "Unnamed Alloverse place")))
+        case .createEntity(let initialComponents):
+            let ent = await self.createEntity(with: initialComponents, for: client)
+            print("Spawned entity for \(client.cid) with id \(ent.id)")
+            client.session.send(interaction: inter.makeResponse(with: .createEntityResponse(entityId: ent.id)))
+        case .removeEntity(let eid, let mode):
+            try await self.removeEntity(with: eid, mode: mode, for: client)
+        case .changeEntity(let entityId, let addOrChange, let remove):
+            try await self.changeEntity(eid: entityId, addOrChange: addOrChange, remove: remove, for: client)
         default:
-            print("Unhandled place interaction from \(client.session.rtc.clientId!): \(inter)")
             if inter.type == .request {
-                client.session.send(interaction: inter.makeResponse(with: .error(domain: PlaceErrorDomain, code: PlaceErrorCode.invalidRequest.rawValue, description: "Place server does not support this request")))
+                throw AlloverseError(domain: PlaceErrorDomain, code: PlaceErrorCode.invalidRequest.rawValue, description: "Place server does not support this request")
             }
         }
     }
@@ -166,7 +182,7 @@ public class PlaceServer : AlloSessionDelegate
     func createEntity(with components:[AnyComponent], for client: ConnectedClient) async -> Entity
     {
         let ent = Entity(id: EntityID.random(), ownerAgentId: client.cid.uuidString)
-        print("Creating entity \(ent.id) with \(components.count) components")
+        print("For \(client.cid), creating entity \(ent.id) with \(components.count) components")
         await appendChanges([.entityAdded(ent)] + components.map {
             .componentAdded(ent.id, $0)
         })
@@ -174,6 +190,64 @@ public class PlaceServer : AlloSessionDelegate
         await heartbeat.awaitNextSync()
         
         return ent
+    }
+    
+    func removeEntity(with id: EntityID, mode: EntityRemovalMode, for client: ConnectedClient?) async throws(AlloverseError)
+    {
+        print("For \(client?.cid.uuidString ?? "internal"), removing entity \(id)")
+        let ent = place.current.entities[id]
+
+        guard let ent = ent else {
+            throw AlloverseError(domain: PlaceErrorDomain, code: PlaceErrorCode.notFound.rawValue, description: "No such entity")
+        }
+        guard client == nil || ent.ownerAgentId == client!.cid.uuidString else {
+            throw AlloverseError(domain: PlaceErrorDomain, code: PlaceErrorCode.unauthorized.rawValue, description: "That's not your entity to remove")
+        }
+        
+        await appendChanges([
+            .entityRemoved(ent)
+        ] + place.current.components.componentsForEntity(id).map {
+            PlaceChange.componentRemoved(id, $0.value)
+        })
+        
+        await heartbeat.awaitNextSync()
+        
+        // TODO: Handle child entities
+    }
+    
+    func changeEntity(eid: EntityID, addOrChange: [AnyComponent], remove: [ComponentTypeID], for client: ConnectedClient?) async throws(AlloverseError)
+    {
+        print("For \(client?.cid.uuidString ?? "internal"), changing entity \(eid)")
+        let ent = place.current.entities[eid]
+        
+        guard let ent = ent else {
+            throw AlloverseError(domain: PlaceErrorDomain, code: PlaceErrorCode.notFound.rawValue, description: "No such entity")
+        }
+        guard client == nil || ent.ownerAgentId == client!.cid.uuidString else {
+            throw AlloverseError(domain: PlaceErrorDomain, code: PlaceErrorCode.unauthorized.rawValue, description: "That's not your entity to modify")
+        }
+        
+        let addOrChanges = addOrChange.map
+        {
+            if let _ = place.current.components[$0.componentTypeId]?[eid]
+            {
+                return PlaceChange.componentAdded(eid, $0.base)
+            }
+            else
+            {
+                return PlaceChange.componentUpdated(eid, $0.base)
+            }
+        }
+        let removals = try remove.map
+        { (ctid: ComponentTypeID) throws(AlloverseError) -> PlaceChange in
+            guard let existing = place.current.components[ctid]?[eid] else {
+                throw AlloverseError(domain: PlaceErrorDomain, code: PlaceErrorCode.notFound.rawValue, description: "No such entity")
+            }
+            return PlaceChange.componentRemoved(eid, existing)
+        }
+        
+        await appendChanges(addOrChanges + removals)
+        await heartbeat.awaitNextSync()
     }
     
 }
@@ -237,8 +311,6 @@ actor HeartbeatTimer
         timer = nil
     }
     
-
-    /// Schedules a new timer on the shared timerQueue.
     private func setupTimer(delay: Int) {
         timer?.cancel()
         

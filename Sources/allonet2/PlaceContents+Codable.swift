@@ -65,7 +65,7 @@ public struct AnyComponent: Component {
 
     public var entityID: EntityID { base.entityID }
     
-    public static var componentType: String { "AnyComponent" } // Not used in encoding
+    public var componentTypeId: String { type(of:base).componentTypeId }
     
     public init(_ base: some Component) {
         self.base = base

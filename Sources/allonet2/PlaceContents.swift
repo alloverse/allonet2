@@ -110,6 +110,11 @@ public struct Components
     {
         return lists[componentType.componentTypeId] as! [EntityID: T]
     }
+    public subscript(componentTypeID: ComponentTypeID) -> [EntityID: any Component]?
+    {
+        return lists[componentTypeID]
+    }
+
     
     public init()
     {
@@ -120,6 +125,18 @@ public struct Components
     internal init(lists: Dictionary<ComponentTypeID, [EntityID: any Component]>)
     {
         self.lists = lists
+    }
+    
+    // TODO: Return something like ComponentSet from RealityKit, and rename this class ComponentList (or use better names)
+    public func componentsForEntity(_ entityID: EntityID) -> [ComponentTypeID: any Component]
+    {
+        var result: [ComponentTypeID: any Component] = [:]
+        for (componentTypeID, list) in lists {
+            if let component = list[entityID] {
+                result[componentTypeID] = component
+            }
+        }
+        return result
     }
 }
 
