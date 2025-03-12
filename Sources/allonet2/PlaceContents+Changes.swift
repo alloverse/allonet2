@@ -7,22 +7,16 @@
 
 extension PlaceState
 {
-    /// Client: Find the historical state at the given revision, and apply the given changeset to it, and use it as the freshly updated current state.
-    internal func applyChangeSet(_ changeSet: PlaceChangeSet, from oldRevision: StateRevision, to newRevision: StateRevision) -> Bool
+    /// CFind the historical state at the given revision, and apply the given changeset to it, and use it as the freshly updated current state.
+    internal func applyChangeSet(_ changeSet: PlaceChangeSet) -> Bool
     {
-        guard let old = getHistory(at: oldRevision) else { return false }
+        guard let old = getHistory(at: changeSet.fromRevision) else { return false }
         
-        let new = old.applyChangeSet(changeSet, for: newRevision)
+        let new = old.applyChangeSet(changeSet)
         self.changeSet = changeSet
         setCurrent(contents: new)
         callChangeObservers()
         return true
-    }
-    
-    /// Server: Apply the accumulated changes from interactions since last tick, and create a new state that we can broadcast to clients.
-    internal func applyChangeSet(_ changeSet: PlaceChangeSet) -> Bool
-    {
-        return applyChangeSet(changeSet, from: current.revision, to: current.revision + 1)
     }
     
     /// Client: When server can't give us a delta, use this full snapshot instead. This is e g true for the first delta.
@@ -106,10 +100,17 @@ extension PlaceContents
             }
         }
         
-        return PlaceChangeSet(changes: newEntities + removedEntities + added + updated + removed)
+        var changes = [PlaceChange]()
+        changes.append(contentsOf: newEntities)
+        changes.append(contentsOf: removedEntities)
+        changes.append(contentsOf: added)
+        changes.append(contentsOf: updated)
+        changes.append(contentsOf: removed)
+        
+        return PlaceChangeSet(changes: changes, fromRevision: previous.revision, toRevision: self.revision)
     }
     
-    internal func applyChangeSet(_ changeSet: PlaceChangeSet, for newRevision: StateRevision) -> PlaceContents
+    internal func applyChangeSet(_ changeSet: PlaceChangeSet) -> PlaceContents
     {
         var entities: [EntityID: Entity] = self.entities
         var lists = self.components.lists
@@ -131,7 +132,7 @@ extension PlaceContents
                 lists[type(of:component).componentTypeId]![eid] = nil
             }
         }
-        return PlaceContents(revision: newRevision, entities: entities, components: Components(lists: lists))
+        return PlaceContents(revision: changeSet.toRevision, entities: entities, components: Components(lists: lists))
     }
 }
 

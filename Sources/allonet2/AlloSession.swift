@@ -14,6 +14,8 @@ public protocol AlloSessionDelegate: AnyObject
     func session(didConnect sess: AlloSession)
     func session(didDisconnect sess: AlloSession)
     func session(_: AlloSession, didReceiveInteraction inter: Interaction)
+    func session(_: AlloSession, didReceivePlaceChangeSet changeset: PlaceChangeSet)
+    func session(_: AlloSession, didReceiveIntent intent: Intent)
 }
 
 /// Wrapper of RTCSession, adding Alloverse-specific channels and data types
@@ -25,11 +27,20 @@ public class AlloSession : NSObject, RTCSessionDelegate
     private var interactionChannel: RTCDataChannel!
     private var worldstateChannel: RTCDataChannel!
     
-    public override init()
+    public enum Side { case client, server }
+    private let side: Side
+    
+    public init(side: Side)
     {
+        self.side = side
         super.init()
         rtc.delegate = self
         setupDataChannels()
+    }
+    
+    private convenience override init()
+    {
+        self.init(side: .client)
     }
     
     let encoder = BinaryEncoder()
@@ -84,12 +95,30 @@ public class AlloSession : NSObject, RTCSessionDelegate
     {
         if channel == interactionChannel
         {
-            if let inter = try? decoder.decode(Interaction.self, from: data)
+            guard let inter = try? decoder.decode(Interaction.self, from: data) else
             {
-                self.delegate?.session(self, didReceiveInteraction: inter)
-            } else {
                 print("Warning, dropped unparseable interaction")
+                return
             }
+            self.delegate?.session(self, didReceiveInteraction: inter)
+        }
+        else if channel == worldstateChannel && side == .client
+        {
+            guard let worldstate = try? decoder.decode(PlaceChangeSet.self, from: data) else
+            {
+                print("Warning, dropped unparseable worldstate")
+                return
+            }
+            self.delegate?.session(self, didReceivePlaceChangeSet: worldstate)
+        }
+        else if channel == worldstateChannel && side == .server
+        {
+            guard let intent = try? decoder.decode(Intent.self, from: data) else
+            {
+                print("Warning, \(rtc.clientId!.uuidString) dropped unparseable intent")
+                return
+            }
+            self.delegate?.session(self, didReceiveIntent: intent)
         }
     }
 }

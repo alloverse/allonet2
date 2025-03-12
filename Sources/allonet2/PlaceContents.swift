@@ -17,11 +17,14 @@ public class PlaceState
     /// Convenience for listening to relevant changes each time a new delta comes in. Useful when you have a subsystem that only cares about a specific component type, for example.
     public var observers = PlaceObservers()
     
-    /// Previous versions of the world. Mostly useful to calculate deltas internally.
+    /// Previous versions of the world. Mostly useful to calculate deltas internally. Oldest first, newest at the end.
     public var history: [PlaceContents] = [PlaceContents()]
     
     public func getHistory(at revision: StateRevision) -> PlaceContents?
     {
+        // revision 0 is a shorthand for the completely empty place
+        if revision == 0 { return PlaceContents() }
+        
         return history.reversed().first {
             return $0.revision == revision
         }
@@ -125,6 +128,10 @@ public struct PlaceChangeSet: Codable, Equatable
 {
     /// This is the list of changes. All entityAdded changes will come first; and then all entityRemoved; and then component-related changes.
     let changes: [PlaceChange]
+    /// Which revision should the receiver use as a base to apply these changes?
+    let fromRevision: StateRevision
+    /// Which revision do we end up at after applying these changes?
+    let toRevision: StateRevision
 }
 
 /// The different kinds of changes that can happen to a Place state

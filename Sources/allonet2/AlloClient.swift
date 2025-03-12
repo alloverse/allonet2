@@ -10,9 +10,21 @@ import Combine
 
 public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
 {
-    let url: URL
-    let session = AlloSession()
     public let place = PlaceState()
+    
+    let url: URL
+    let session = AlloSession(side: .client)
+    var currentIntent = Intent(ackStateRev: 0) {
+        didSet {
+            Task { await heartbeat.markChanged() }
+        }
+    }
+    lazy var heartbeat: HeartbeatTimer = {
+        /// Keep a shorter coalesce than server so we ack before the next change; longer keepalive so we don't send an unnecessary keepalive juust before the server's keepalive.
+        return HeartbeatTimer(coalesceDelay: 5_000_000, keepaliveDelay: 1_100_000_000) {
+            self.sendIntent()
+        }
+    }()
     
     @Published public var state = ConnectionState.idle
     // What was the last connection error?
@@ -57,7 +69,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
             switch nextState {
             case .waitingForReconnect:
                 self.handleWaitingForReconnect()
-            case let .idle:
+            case .idle:
                 disconnect()
             default:
                 break
@@ -193,6 +205,28 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     public func session(_: AlloSession, didReceiveInteraction inter: Interaction)
     {
         print("Received interaction: \(inter)")
+    }
+    
+    public func session(_: AlloSession, didReceivePlaceChangeSet changeset: PlaceChangeSet)
+    {
+        print("Received place change for revision \(changeset.fromRevision) -> \(changeset.toRevision)")
+        guard place.applyChangeSet(changeset) else
+        {
+            print("Failed to apply change set, asking for a full diff")
+            currentIntent = Intent(ackStateRev: 0)
+            return
+        }
+        currentIntent = Intent(ackStateRev: changeset.toRevision)
+    }
+    
+    public func session(_: AlloSession, didReceiveIntent intent: Intent)
+    {
+        assert(false) // should never happen on client
+    }
+    
+    func sendIntent()
+    {
+        session.send(currentIntent)
     }
 }
 
