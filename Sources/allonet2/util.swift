@@ -57,3 +57,11 @@ extension float4x4 : Codable
         self = matrix
     }
 }
+
+extension EntityID
+{
+    static func random() -> EntityID
+    {
+        return UUID().uuidString
+    }
+}

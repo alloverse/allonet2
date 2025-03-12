@@ -38,10 +38,6 @@ public class PlaceServer : AlloSessionDelegate
 
         // On incoming connection, create a WebRTC socket.
         await http.appendRoute("/", handler: self.handleIncomingClient)
-        
-        await appendChanges([
-            .entityAdded(Entity(id: "test", ownerAgentId: "")),
-        ])
             
         try await http.start()
     }
@@ -108,15 +104,7 @@ public class PlaceServer : AlloSessionDelegate
         print("Received interaction from \(cid): \(inter)")
         Task { @MainActor in
             let client = clients[cid]!
-            if case .announce(let version) = inter.body
-            {
-                guard version == "2.0" else {
-                    print("Client \(cid) has incompatible version, disconnecting.")
-                    sess.rtc.disconnect()
-                    return
-                }
-                client.announced = true
-            }
+            self.handle(inter, from: client)
         }
     }
     
@@ -135,6 +123,29 @@ public class PlaceServer : AlloSessionDelegate
         }
     }
     
+    // MARK: - Interactions
+    
+    func handle(_ inter: Interaction, from client: ConnectedClient)
+    {
+        if inter.receiverEntityId == "place"
+        {
+            self.handle(placeInteraction: inter, from: client)
+        } else {
+            // TODO: Forward to correct client
+            // TODO: reply with timeout if client doesn't respond if needed
+        }
+    }
+    func handle(placeInteraction inter: Interaction, from client: ConnectedClient)
+    {
+        switch inter.body
+        {
+        default:
+            print("Unhandled place interaction from \(client.session.rtc.clientId!): \(inter)")
+            if inter.type == .request {
+                client.session.send(interaction: inter.makeResponse(with: .error(domain: PlaceErrorDomain, code: PlaceErrorCode.invalidRequest.rawValue, description: "Place server does not support this request")))
+            }
+        }
+    }
 }
 
 // MARK: -
@@ -144,6 +155,7 @@ internal class ConnectedClient
     let session: AlloSession
     var announced = false
     var ackdRevision : StateRevision? // Last ack'd place contents revision, or nil if none
+    var cid: RTCClientId { session.rtc.clientId! }
     
     init(session: AlloSession)
     {
