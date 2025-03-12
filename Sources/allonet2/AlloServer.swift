@@ -135,10 +135,24 @@ public class PlaceServer : AlloSessionDelegate
             // TODO: reply with timeout if client doesn't respond if needed
         }
     }
+    
     func handle(placeInteraction inter: Interaction, from client: ConnectedClient)
     {
         switch inter.body
         {
+        case .announce(let version, let avatarComponents):
+            guard version == "2.0" else {
+                print("Client \(client.cid) has incompatible version, disconnecting.")
+                client.session.rtc.disconnect()
+                return
+            }
+            client.announced = true
+            Task {
+                let ent = await self.createEntity(with: avatarComponents, for: client)
+                print("Accepted client \(client.cid) with avatar id \(ent.id)")
+                // TODO: reply with correct place name
+                client.session.send(interaction: inter.makeResponse(with: .announceResponse(avatarId: ent.id, placeName: "Unnamed Alloverse place")))
+            }
         default:
             print("Unhandled place interaction from \(client.session.rtc.clientId!): \(inter)")
             if inter.type == .request {
@@ -146,6 +160,22 @@ public class PlaceServer : AlloSessionDelegate
             }
         }
     }
+    
+    // MARK: - Entity and component management
+    
+    func createEntity(with components:[AnyComponent], for client: ConnectedClient) async -> Entity
+    {
+        let ent = Entity(id: EntityID.random(), ownerAgentId: client.cid.uuidString)
+        print("Creating entity \(ent.id) with \(components.count) components")
+        await appendChanges([.entityAdded(ent)] + components.map {
+            .componentAdded(ent.id, $0)
+        })
+        
+        await heartbeat.awaitNextSync()
+        
+        return ent
+    }
+    
 }
 
 // MARK: -

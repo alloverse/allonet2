@@ -13,6 +13,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     public let place = PlaceState()
     
     let url: URL
+    let avatarDesc: [AnyComponent]
     let session = AlloSession(side: .client)
     var currentIntent = Intent(ackStateRev: 0) {
         didSet {
@@ -44,9 +45,10 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         }
     }
     
-    public init(url: URL)
+    public init(url: URL, avatarDescription: [AnyComponent])
     {
         self.url = url
+        self.avatarDesc = avatarDescription
         session.delegate = self
     }
     
@@ -177,8 +179,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
             type: .request,
             senderEntityId: "",
             receiverEntityId: "place",
-            requestId: "ANN0",
-            body: .announce(version: "2.0")
+            body: .announce(version: "2.0", avatarComponents: avatarDesc)
         ))
     }
     

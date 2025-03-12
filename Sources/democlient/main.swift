@@ -13,7 +13,9 @@ let url = URL(string: CommandLine.arguments[1])!
 
 print("Connecting to alloverse swift place ", url)
 
-let client = AlloClient(url: url)
+let client = AlloClient(url: url, avatarDescription: [
+
+])
 
 client.stayConnected()
 
