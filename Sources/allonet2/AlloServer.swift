@@ -93,8 +93,9 @@ public class PlaceServer : AlloSessionDelegate
     {
         let cid = sess.rtc.clientId!
         print("Lost client \(cid)")
-        DispatchQueue.main.async {
+        Task { @MainActor in
             self.clients[cid] = nil
+            await self.removeEntites(ownedBy: cid)
         }
     }
     
@@ -122,7 +123,7 @@ public class PlaceServer : AlloSessionDelegate
             client.ackdRevision = intent.ackStateRev
         }
     }
-    
+
     // MARK: - Interactions
     
     func handle(_ inter: Interaction, from client: ConnectedClient)
@@ -160,6 +161,7 @@ public class PlaceServer : AlloSessionDelegate
             client.announced = true
             let ent = await self.createEntity(with: avatarComponents, for: client)
             print("Accepted client \(client.cid) with avatar id \(ent.id)")
+            await heartbeat.awaitNextSync() // make it exist before we tell client about it
             // TODO: reply with correct place name
             client.session.send(interaction: inter.makeResponse(with: .announceResponse(avatarId: ent.id, placeName: "Unnamed Alloverse place")))
         case .createEntity(let initialComponents):
@@ -187,8 +189,6 @@ public class PlaceServer : AlloSessionDelegate
             .componentAdded(ent.id, $0)
         })
         
-        await heartbeat.awaitNextSync()
-        
         return ent
     }
     
@@ -209,11 +209,21 @@ public class PlaceServer : AlloSessionDelegate
         ] + place.current.components.componentsForEntity(id).map {
             PlaceChange.componentRemoved(id, $0.value)
         })
-        
-        await heartbeat.awaitNextSync()
-        
+                
         // TODO: Handle child entities
     }
+    
+    func removeEntites(ownedBy cid: RTCClientId) async
+    {
+        for (eid, ent) in place.current.entities
+        {
+            if ent.ownerAgentId == cid.uuidString
+            {
+                try? await removeEntity(with: eid, mode: .reparent, for: nil)
+            }
+        }
+    }
+
     
     func changeEntity(eid: EntityID, addOrChange: [AnyComponent], remove: [ComponentTypeID], for client: ConnectedClient?) async throws(AlloverseError)
     {
@@ -247,7 +257,6 @@ public class PlaceServer : AlloSessionDelegate
         }
         
         await appendChanges(addOrChanges + removals)
-        await heartbeat.awaitNextSync()
     }
     
 }
