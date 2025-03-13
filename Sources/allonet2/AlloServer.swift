@@ -140,7 +140,7 @@ public class PlaceServer : AlloSessionDelegate
     
     func handle(_ inter: Interaction, from client: ConnectedClient)
     {
-        if inter.receiverEntityId == "place"
+        if inter.receiverEntityId == PlaceEntity
         {
             Task
             {

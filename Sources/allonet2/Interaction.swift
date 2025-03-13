@@ -63,6 +63,9 @@ public enum EntityRemovalMode: String, Codable
     case cascade  // Child entities are also removed
 }
 
+/// This is a magical Entity ID that means you're targeting an interaction to the place itself, rather than a specific entity within the place.
+public let PlaceEntity: EntityID = "place"
+
 
 public let PlaceErrorDomain = "com.alloverse.place.error"
 public enum PlaceErrorCode: Int

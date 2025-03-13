@@ -8,14 +8,15 @@
 import Foundation
 import Combine
 
+@MainActor
 public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
 {
     public let place = PlaceState()
     
     let url: URL
     let avatarDesc: [AnyComponent]
-    var avatarId: EntityID?
-    var isAnnounced: Bool { avatarId != nil }
+    @Published public private(set) var avatarId: EntityID? { didSet { isAnnounced = avatarId != nil } }
+    @Published public private(set) var isAnnounced: Bool = false
     public private(set) var placeName: String?
     let session = AlloSession(side: .client)
     var currentIntent = Intent(ackStateRev: 0) {
@@ -41,7 +42,6 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     
     private var connectTask: Task<Void, Never>? = nil
     private var reconnectionAttempts = 0
-
     
     public var id: String? {
         get
@@ -172,10 +172,10 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         }
     }
     
-    public func session(didConnect sess: AlloSession)
+    nonisolated public func session(didConnect sess: AlloSession)
     {
         Task
-        {
+        { @MainActor in
             self.reconnectionAttempts = 0
             self.state = .connected
             
@@ -184,7 +184,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
             let response = await sess.request(interaction: Interaction(
                 type: .request,
                 senderEntityId: "",
-                receiverEntityId: "place",
+                receiverEntityId: PlaceEntity,
                 body: .announce(version: "2.0", avatarComponents: avatarDesc)
             ))
             guard case .announceResponse(let avatarId, let placeName) = response.body else
@@ -201,10 +201,11 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         }
     }
     
-    public func session(didDisconnect sess: AlloSession)
+    nonisolated public func session(didDisconnect sess: AlloSession)
     {
         print("Disconnected")
-        DispatchQueue.main.async {
+        Task { @MainActor in
+            avatarId = nil
             if(false)
             {
                 // TODO: Propagate disconnection reason, and notice if it's permanent
@@ -221,24 +222,29 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         }
     }
     
-    public func session(_: AlloSession, didReceiveInteraction inter: Interaction)
+    // MARK: - Interactions, intent and place state
+    
+    nonisolated public func session(_: AlloSession, didReceiveInteraction inter: Interaction)
     {
         print("Received interaction: \(inter)")
     }
     
-    public func session(_: AlloSession, didReceivePlaceChangeSet changeset: PlaceChangeSet)
+    nonisolated public func session(_: AlloSession, didReceivePlaceChangeSet changeset: PlaceChangeSet)
     {
         print("Received place change for revision \(changeset.fromRevision) -> \(changeset.toRevision)")
-        guard place.applyChangeSet(changeset) else
-        {
-            print("Failed to apply change set, asking for a full diff")
-            currentIntent = Intent(ackStateRev: 0)
-            return
+        Task
+        { @MainActor in
+            guard place.applyChangeSet(changeset) else
+            {
+                print("Failed to apply change set, asking for a full diff")
+                currentIntent = Intent(ackStateRev: 0)
+                return
+            }
+            currentIntent = Intent(ackStateRev: changeset.toRevision)
         }
-        currentIntent = Intent(ackStateRev: changeset.toRevision)
     }
     
-    public func session(_: AlloSession, didReceiveIntent intent: Intent)
+    nonisolated public func session(_: AlloSession, didReceiveIntent intent: Intent)
     {
         assert(false) // should never happen on client
     }
@@ -247,6 +253,40 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     {
         guard isAnnounced else { return }
         session.send(currentIntent)
+    }
+    
+    // MARK: - Convenience API
+    
+    func request(receiverEntityId: EntityID, body: InteractionBody) async -> Interaction
+    {
+        precondition(avatarId != nil, "Must be connected and announced to send a request")
+        return await session.request(interaction: Interaction(type: .request, senderEntityId: avatarId!, receiverEntityId: receiverEntityId, body: body))
+    }
+    
+    public func createEntity(with initialComponents: [any Component]) async throws(AlloverseError) -> EntityID
+    {
+        let initials = initialComponents.map { AnyComponent($0) }
+        let resp = await request(receiverEntityId: PlaceEntity, body: .createEntity(initialComponents: initials))
+        guard case .createEntityResponse(let entityId) = resp.body else {
+            throw AlloverseError(with: resp.body)
+        }
+        return entityId
+    }
+    
+    public func removeEntity(entityId: EntityID, mode: EntityRemovalMode) async throws(AlloverseError)
+    {
+        let resp = await request(receiverEntityId: PlaceEntity, body: .removeEntity(entityId: entityId, mode: mode))
+        guard case .success = resp.body else {
+            throw AlloverseError(with: resp.body)
+        }
+    }
+    
+    public func changeEntity(entityId: EntityID, addOrChange: [any Component], remove: [ComponentTypeID]) async throws(AlloverseError)
+    {
+        let resp = await request(receiverEntityId: PlaceEntity, body: .changeEntity(entityId: entityId, addOrChange: addOrChange.map { AnyComponent($0) }, remove: remove))
+        guard case .success = resp.body else {
+            throw AlloverseError(with: resp.body)
+        }
     }
 }
 
