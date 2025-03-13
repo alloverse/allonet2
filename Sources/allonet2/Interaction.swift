@@ -9,16 +9,17 @@ import Foundation
 import AnyCodable
 
 
-
 public struct Interaction : Codable
 {
+    public typealias RequestID = String
+    
     public let type: InteractionType
     public let senderEntityId: String
     public let receiverEntityId: String
-    public let requestId: String
+    public let requestId: RequestID
     public let body: InteractionBody
     
-    public init(type: InteractionType, senderEntityId: String, receiverEntityId: String, requestId: String = UUID().uuidString, body: InteractionBody) {
+    public init(type: InteractionType, senderEntityId: String, receiverEntityId: String, requestId: RequestID = UUID().uuidString, body: InteractionBody) {
         self.type = type
         self.senderEntityId = senderEntityId
         self.receiverEntityId = receiverEntityId
@@ -73,7 +74,7 @@ public enum PlaceErrorCode: Int
     case recipientUnavailable = 100 // no such entity, or agent not found for that entity
     case recipientTimedOut = 101 // agent didn't respond back to Place in a timely fashion. If it replies later, its response will be discarded.
 }
-struct AlloverseError: Error, Codable
+public struct AlloverseError: Error, Codable
 {
     public let domain: String
     public let code: Int

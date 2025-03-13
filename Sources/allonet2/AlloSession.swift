@@ -13,7 +13,10 @@ public protocol AlloSessionDelegate: AnyObject
 {
     func session(didConnect sess: AlloSession)
     func session(didDisconnect sess: AlloSession)
+    
+    /// This client has received an interaction from the place itself or another agent for you to react or respond to. Note: responses to send(request:) are not included here.
     func session(_: AlloSession, didReceiveInteraction inter: Interaction)
+    
     func session(_: AlloSession, didReceivePlaceChangeSet changeset: PlaceChangeSet)
     func session(_: AlloSession, didReceiveIntent intent: Intent)
 }
@@ -26,6 +29,8 @@ public class AlloSession : NSObject, RTCSessionDelegate
     public let rtc = RTCSession()
     private var interactionChannel: RTCDataChannel!
     private var worldstateChannel: RTCDataChannel!
+    
+    private var outstandingInteractions: [Interaction.RequestID: CheckedContinuation<Interaction, Never>] = [:]
     
     public enum Side { case client, server }
     private let side: Side
@@ -44,10 +49,20 @@ public class AlloSession : NSObject, RTCSessionDelegate
     }
     
     let encoder = BinaryEncoder()
+    
     public func send(interaction: Interaction)
     {
         let data = try! encoder.encode(interaction)
         interactionChannel.sendData(RTCDataBuffer(data: data, isBinary: true))
+    }
+    
+    public func request(interaction: Interaction) async -> Interaction
+    {
+        assert(interaction.type == .request)
+        return await withCheckedContinuation {
+            outstandingInteractions[interaction.requestId] = $0
+            send(interaction: interaction)
+        }
     }
     
     public func send(placeChangeSet: PlaceChangeSet)
@@ -100,7 +115,15 @@ public class AlloSession : NSObject, RTCSessionDelegate
                 print("Warning, dropped unparseable interaction")
                 return
             }
-            self.delegate?.session(self, didReceiveInteraction: inter)
+            if let continuation = outstandingInteractions[inter.requestId]
+            {
+                assert(inter.type == .response)
+                continuation.resume(with: .success(inter))
+            }
+            else
+            {
+                self.delegate?.session(self, didReceiveInteraction: inter)
+            }
         }
         else if channel == worldstateChannel && side == .client
         {
