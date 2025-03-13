@@ -14,6 +14,7 @@ let port:UInt16 = 9080
 public class PlaceServer : AlloSessionDelegate
 {
     var clients : [RTCClientId: ConnectedClient] = [:]
+    var unannouncedClients : [RTCClientId: ConnectedClient] = [:]
     let place = PlaceState()
     lazy var heartbeat: HeartbeatTimer = {
         return HeartbeatTimer {
@@ -74,7 +75,7 @@ public class PlaceServer : AlloSessionDelegate
             candidates: (await session.rtc.gatherCandidates()).map { SignallingIceCandidate(candidate: $0) },
             clientId: session.rtc.clientId!
         )
-        self.clients[session.rtc.clientId!] = client
+        self.unannouncedClients[session.rtc.clientId!] = client
         print("Client is \(session.rtc.clientId!), shaking hands...")
         
         return HTTPResponse(
@@ -94,8 +95,12 @@ public class PlaceServer : AlloSessionDelegate
         let cid = sess.rtc.clientId!
         print("Lost client \(cid)")
         Task { @MainActor in
-            self.clients[cid] = nil
-            await self.removeEntites(ownedBy: cid)
+            if let _ = self.clients.removeValue(forKey: cid)
+            {
+                await self.removeEntites(ownedBy: cid)
+            }
+            self.unannouncedClients[cid] = nil
+            
         }
     }
     
@@ -104,7 +109,7 @@ public class PlaceServer : AlloSessionDelegate
         let cid = sess.rtc.clientId!
         print("Received interaction from \(cid): \(inter)")
         Task { @MainActor in
-            let client = clients[cid]!
+            let client = (clients[cid] ?? unannouncedClients[cid])!
             self.handle(inter, from: client)
         }
     }
@@ -118,9 +123,16 @@ public class PlaceServer : AlloSessionDelegate
     {
         let cid = sess.rtc.clientId!
         Task { @MainActor in
-            let client = clients[cid]!
-            print("Client \(cid) acked revision \(intent.ackStateRev)")
-            client.ackdRevision = intent.ackStateRev
+            if let client = clients[cid]
+            {
+                print("Client \(cid) acked revision \(intent.ackStateRev)")
+                client.ackdRevision = intent.ackStateRev
+            } else
+            {
+                // If it's not in clients, it should be in unacknowledged... just double checking
+                assert(unannouncedClients[cid] != nil)
+                // but we shouldn't even receive an intent before it's acknowledged anyway.
+            }
         }
     }
 
@@ -159,6 +171,8 @@ public class PlaceServer : AlloSessionDelegate
                 return
             }
             client.announced = true
+            // Client is now announced, so move it into the main list of clients so it can get world states etc.
+            clients[client.cid] = unannouncedClients.removeValue(forKey: client.cid)!
             let ent = await self.createEntity(with: avatarComponents, for: client)
             print("Accepted client \(client.cid) with avatar id \(ent.id)")
             await heartbeat.awaitNextSync() // make it exist before we tell client about it
