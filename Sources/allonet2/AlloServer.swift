@@ -184,8 +184,10 @@ public class PlaceServer : AlloSessionDelegate
             client.session.send(interaction: inter.makeResponse(with: .createEntityResponse(entityId: ent.id)))
         case .removeEntity(let eid, let mode):
             try await self.removeEntity(with: eid, mode: mode, for: client)
+            client.session.send(interaction: inter.makeResponse(with: .success))
         case .changeEntity(let entityId, let addOrChange, let remove):
             try await self.changeEntity(eid: entityId, addOrChange: addOrChange, remove: remove, for: client)
+            client.session.send(interaction: inter.makeResponse(with: .success))
         default:
             if inter.type == .request {
                 throw AlloverseError(domain: PlaceErrorDomain, code: PlaceErrorCode.invalidRequest.rawValue, description: "Place server does not support this request")
