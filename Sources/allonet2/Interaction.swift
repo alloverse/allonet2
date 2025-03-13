@@ -74,10 +74,36 @@ public enum PlaceErrorCode: Int
     case recipientUnavailable = 100 // no such entity, or agent not found for that entity
     case recipientTimedOut = 101 // agent didn't respond back to Place in a timely fashion. If it replies later, its response will be discarded.
 }
+
+public let AlloverseErrorDomain = "com.alloverse.error"
+public enum AlloverseErrorCode: Int
+{
+    case unexpectedResponse = 1 // Interaction received some other response than was expected
+}
 public struct AlloverseError: Error, Codable
 {
     public let domain: String
     public let code: Int
     public let description: String
+    
+    public init(domain: String, code: Int, description: String) {
+        self.domain = domain
+        self.code = code
+        self.description = description
+    }
+    public init(with unexpectedBody: InteractionBody)
+    {
+        switch unexpectedBody
+        {
+        case .error(let domain, let code, let description):
+            self.domain = domain
+            self.code = code
+            self.description = description
+        default:
+            self.domain = AlloverseErrorDomain
+            self.code = AlloverseErrorCode.unexpectedResponse.rawValue
+            self.description = "Unexpected body: \(unexpectedBody)"
+        }
+    }
 }
 
