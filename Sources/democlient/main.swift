@@ -20,16 +20,9 @@ class DemoApp
         self.client = AlloClient(url: url, avatarDescription: [
         ])
         
-        Task { [weak self] in
-            guard let vals = self?.client.$isAnnounced.values else { return }
-            for await announced in vals where announced == true {
-                guard self != nil else { break }
-                do {
-                    try await self?.setup()
-                } catch(let e) {
-                    print("Failed setup: \(e)")
-                    exit(1)
-                }
+        Task {
+            for await announced in self.client.$isAnnounced.values where announced == true {
+                try! await self.setup()
             }
         }
 
@@ -44,11 +37,9 @@ class DemoApp
     }
 }
 
-
 let url = URL(string: CommandLine.arguments[1])!
 let app = DemoApp(connectingTo: url)
 
-func park() async -> Never {
-    await withUnsafeContinuation { _ in }
-}
-await park()
+await parkToRunloop()
+
+

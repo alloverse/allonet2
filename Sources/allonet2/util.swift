@@ -65,3 +65,8 @@ extension EntityID
         return UUID().uuidString
     }
 }
+
+// Utility for command line AlloApps. Run as last line to keep process running while app is processing requests.
+public func parkToRunloop() async -> Never {
+    await withUnsafeContinuation { _ in }
+}
