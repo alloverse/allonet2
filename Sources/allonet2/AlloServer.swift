@@ -15,6 +15,7 @@ public class PlaceServer : AlloSessionDelegate
 {
     var clients : [RTCClientId: ConnectedClient] = [:]
     var unannouncedClients : [RTCClientId: ConnectedClient] = [:]
+    let name: String
     let place = PlaceState()
     lazy var heartbeat: HeartbeatTimer = {
         return HeartbeatTimer {
@@ -28,14 +29,15 @@ public class PlaceServer : AlloSessionDelegate
         await heartbeat.markChanged()
     }
     
-    public init()
+    public init(name: String)
     {
+        self.name = name
     }
     
     let http = HTTPServer(port: port)
     public func start() async throws
     {
-        print("alloserver swift gateway: http://localhost:\(port)/")
+        print("Serving '\(name)' at http://localhost:\(port)/")
 
         // On incoming connection, create a WebRTC socket.
         await http.appendRoute("/", handler: self.handleIncomingClient)
@@ -177,7 +179,7 @@ public class PlaceServer : AlloSessionDelegate
             print("Accepted client \(client.cid) with avatar id \(ent.id)")
             await heartbeat.awaitNextSync() // make it exist before we tell client about it
             // TODO: reply with correct place name
-            client.session.send(interaction: inter.makeResponse(with: .announceResponse(avatarId: ent.id, placeName: "Unnamed Alloverse place")))
+            client.session.send(interaction: inter.makeResponse(with: .announceResponse(avatarId: ent.id, placeName: name)))
         case .createEntity(let initialComponents):
             let ent = await self.createEntity(with: initialComponents, for: client)
             print("Spawned entity for \(client.cid) with id \(ent.id)")

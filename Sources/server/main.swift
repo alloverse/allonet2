@@ -10,10 +10,7 @@ import allonet2
 import FlyingFox
 import WebRTC
 
-// once webrtc is established, handshake
-
-// once handshaken, hand the socket over to a worldmanager that will be its delegate
-// and send it world updates etc.
-let server = PlaceServer()
+let name = CommandLine.arguments[safe: 1] ?? "Unnamed Alloverse Place"
+let server = PlaceServer(name: name)
 try await server.start()
 
