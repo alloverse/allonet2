@@ -14,6 +14,9 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     
     let url: URL
     let avatarDesc: [AnyComponent]
+    var avatarId: EntityID?
+    var isAnnounced: Bool { avatarId != nil }
+    public private(set) var placeName: String?
     let session = AlloSession(side: .client)
     var currentIntent = Intent(ackStateRev: 0) {
         didSet {
@@ -26,6 +29,8 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
             self.sendIntent()
         }
     }()
+    
+    // MARK: - Connection state related
     
     @Published public var state = ConnectionState.idle
     // What was the last connection error?
@@ -169,18 +174,31 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     
     public func session(didConnect sess: AlloSession)
     {
-        DispatchQueue.main.async {
+        Task
+        {
             self.reconnectionAttempts = 0
             self.state = .connected
             
             print("Connected as \(sess.rtc.clientId!)")
+
+            let response = await sess.request(interaction: Interaction(
+                type: .request,
+                senderEntityId: "",
+                receiverEntityId: "place",
+                body: .announce(version: "2.0", avatarComponents: avatarDesc)
+            ))
+            guard case .announceResponse(let avatarId, let placeName) = response.body else
+            {
+                print("Announce failed: \(response)")
+                // TODO: Fill in lastError and make it a permanent disconnect
+                self.disconnect()
+                return
+            }
+            print("Received announce response: \(response.body)")
+            self.avatarId = avatarId
+            self.placeName = placeName
+            await heartbeat.markChanged()
         }
-        sess.send(interaction: Interaction(
-            type: .request,
-            senderEntityId: "",
-            receiverEntityId: "place",
-            body: .announce(version: "2.0", avatarComponents: avatarDesc)
-        ))
     }
     
     public func session(didDisconnect sess: AlloSession)
@@ -225,8 +243,9 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         assert(false) // should never happen on client
     }
     
-    func sendIntent()
+    private func sendIntent()
     {
+        guard isAnnounced else { return }
         session.send(currentIntent)
     }
 }
