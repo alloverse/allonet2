@@ -232,7 +232,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     
     nonisolated public func session(_: AlloSession, didReceivePlaceChangeSet changeset: PlaceChangeSet)
     {
-        print("Received place change for revision \(changeset.fromRevision) -> \(changeset.toRevision)")
+        //print("Received place change for revision \(changeset.fromRevision) -> \(changeset.toRevision)")
         Task
         { @MainActor in
             guard place.applyChangeSet(changeset) else

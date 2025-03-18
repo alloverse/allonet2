@@ -52,7 +52,6 @@ public class PlaceServer : AlloSessionDelegate
         let success = place.applyChangeSet(PlaceChangeSet(changes: outstandingPlaceChanges, fromRevision: place.current.revision, toRevision: place.current.revision + 1))
         assert(success) // bug if this doesn't succeed
         outstandingPlaceChanges.removeAll()
-        print("revision \(place.current.revision)")
         for client in clients.values {
             let lastContents = client.ackdRevision.flatMap { place.getHistory(at: $0) } ?? PlaceContents()
             let changeSet = place.current.changeSet(from: lastContents)
@@ -110,7 +109,7 @@ public class PlaceServer : AlloSessionDelegate
     nonisolated public func session(_ sess: AlloSession, didReceiveInteraction inter: Interaction)
     {
         let cid = sess.rtc.clientId!
-        print("Received interaction from \(cid): \(inter)")
+        //print("Received interaction from \(cid): \(inter)")
         Task { @MainActor in
             let client = (clients[cid] ?? unannouncedClients[cid])!
             self.handle(inter, from: client)
