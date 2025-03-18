@@ -67,7 +67,7 @@ final class PlaceChangeCodingTests: XCTestCase
             .componentAdded("c", Test2Component(entityID: "c", thingie: 3)),
             .componentUpdated("a", TestComponent(entityID: "a", radius: 7.0)),
             .componentRemoved("b", TestComponent(entityID: "b", radius: 5.0))
-        ])
+        ], fromRevision: 0, toRevision: 1)
         
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
@@ -77,6 +77,7 @@ final class PlaceChangeCodingTests: XCTestCase
         let decodedChangeSet = try decoder.decode(PlaceChangeSet.self, from: data)
         
         XCTAssertEqual(changeSet, decodedChangeSet, "The decoded ChangeSet should equal the original ChangeSet.")
+        XCTAssertEqual(decodedChangeSet.toRevision, 1, "Unexpected revision number in decoded ChangeSet.")
         
     }
 }
@@ -98,7 +99,7 @@ final class PlaceChangeSetTests: XCTestCase
             .entityAdded(Entity(id: "entity1", ownerAgentId: "")),
             .componentAdded("entity1", TestComponent(entityID: "entity1", radius: 5.0)),
             .componentUpdated("entity1", TestComponent(entityID: "entity1", radius: 6.0))
-        ])
+        ], fromRevision: 0, toRevision: 1)
         var entityAddedReceived = false
         var componentAddedReceived = false
         var componentUpdatedReceived = false
@@ -206,9 +207,9 @@ final class PlaceChangeSetTests: XCTestCase
             .componentAdded("c", Test2Component(entityID: "c", thingie: 3)),
             .componentUpdated("a", TestComponent(entityID: "a", radius: 7.0)),
             .componentRemoved("b", TestComponent(entityID: "b", radius: 5.0))
-        ])
+        ], fromRevision: 1, toRevision: 2)
         
-        let new = old.applyChangeSet(changeSet, for: 2)
+        let new = old.applyChangeSet(changeSet)
         
         dump(old)
         dump(changeSet)
