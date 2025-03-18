@@ -91,9 +91,6 @@ public protocol Component: Codable, Equatable
 {
     /// Internals: how to disambiguate this component on the wire protocol
     static var componentTypeId: ComponentTypeID { get }
-    
-    /// What entity is this component an aspect of?
-    var entityID: EntityID { get };
 }
 
 public extension Component
@@ -192,27 +189,27 @@ public struct PlaceObservers
 public struct ComponentCallbacks<T: Component>  : AnyComponentCallbacksProtocol
 {
     /// An entity has received a new component of this type
-    public var added: AnyPublisher<T, Never> { addedSubject.eraseToAnyPublisher() }
+    public var added: AnyPublisher<(EntityID, T), Never> { addedSubject.eraseToAnyPublisher() }
     /// An entity has received an update to a component with the following contents. NOTE: This is also called immediately after `added`, so you can put all your "react to property changes regardless of add or update" in one place.
-    public var updated: AnyPublisher<T, Never> { updatedSubject.eraseToAnyPublisher() }
+    public var updated: AnyPublisher<(EntityID, T), Never> { updatedSubject.eraseToAnyPublisher() }
     /// A component has been removed from an entity.
-    public var removed: AnyPublisher<T, Never> { removedSubject.eraseToAnyPublisher() }
+    public var removed: AnyPublisher<(EntityID, T), Never> { removedSubject.eraseToAnyPublisher() }
 
-    internal func sendAdded  (entityID: String, component: any Component) { addedSubject.send(component as! T) }
-    internal func sendUpdated(entityID: String, component: any Component) { updatedSubject.send(component as! T) }
-    internal func sendRemoved(entityID: String, component: any Component) { removedSubject.send(component as! T) }
-    private let addedSubject = PassthroughSubject<T, Never>()
-    private let updatedSubject = PassthroughSubject<T, Never>()
-    private let removedSubject = PassthroughSubject<T, Never>()
+    internal func sendAdded  (entityID: String, component: any Component) { addedSubject.send((entityID, component as! T)) }
+    internal func sendUpdated(entityID: String, component: any Component) { updatedSubject.send((entityID, component as! T)) }
+    internal func sendRemoved(entityID: String, component: any Component) { removedSubject.send((entityID, component as! T)) }
+    private let addedSubject = PassthroughSubject<(EntityID, T), Never>()
+    private let updatedSubject = PassthroughSubject<(EntityID, T), Never>()
+    private let removedSubject = PassthroughSubject<(EntityID, T), Never>()
 }
 
 
 // MARK: Internals
 
 protocol AnyComponentCallbacksProtocol {
-    func sendAdded(entityID: String, component: any Component)
-    func sendUpdated(entityID: String, component: any Component)
-    func sendRemoved(entityID: String, component: any Component)
+    func sendAdded(entityID: EntityID, component: any Component)
+    func sendUpdated(entityID: EntityID, component: any Component)
+    func sendRemoved(entityID: EntityID, component: any Component)
 }
 
 extension Component

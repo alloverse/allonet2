@@ -62,8 +62,6 @@ public struct AnyComponent: Component {
     }
     
     public var base: any Component
-
-    public var entityID: EntityID { base.entityID }
     
     public var componentTypeId: String { type(of:base).componentTypeId }
     
@@ -116,6 +114,15 @@ extension PlaceContents: Codable
     {
         case type, components
     }
+    
+    private struct EntityIdKey : CodingKey
+    {
+        var intValue: Int? { return nil }
+        init?(intValue: Int) { return nil }
+        
+        var stringValue: String
+        init?(stringValue: String) { self.stringValue = stringValue }
+    }
 
     public init(from decoder: Decoder) throws
     {
@@ -134,11 +141,11 @@ extension PlaceContents: Codable
                 throw DecodingError.dataCorruptedError(forKey: .type, in: groupContainer, debugDescription: "Unknown component type: \(typeId)")
             }
             
-            var componentsContainer = try groupContainer.nestedUnkeyedContainer(forKey: .components)
+            let componentsContainer = try groupContainer.nestedContainer(keyedBy: EntityIdKey.self, forKey: .components)
             var decodedComponents: [EntityID : any Component] = [:]
-            while !componentsContainer.isAtEnd {
-                let comp = try componentType.init(from: componentsContainer.superDecoder())
-                decodedComponents[comp.entityID] = comp
+            for key in componentsContainer.allKeys {
+                let comp = try componentsContainer.decode(componentType, forKey: key)
+                decodedComponents[key.stringValue] = comp
             }
             lists[typeId] = decodedComponents
         }
@@ -156,9 +163,9 @@ extension PlaceContents: Codable
             var groupContainer = groupsContainer.nestedContainer(keyedBy: ComponentGroupCodingKeys.self)
             try groupContainer.encode(typeId, forKey: .type)
             
-            var componentsContainer = groupContainer.nestedUnkeyedContainer(forKey: .components)
-            for (_, comp) in comps {
-                try comp.encode(to: componentsContainer.superEncoder())
+            var componentsContainer = groupContainer.nestedContainer(keyedBy: EntityIdKey.self, forKey: .components)
+            for (eid, comp) in comps {
+                try componentsContainer.encode(comp, forKey: EntityIdKey(stringValue: eid)!)
             }
         }
     }

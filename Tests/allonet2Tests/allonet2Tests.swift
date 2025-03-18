@@ -4,12 +4,10 @@ import Combine
 
 public struct TestComponent: Component
 {
-    public var entityID: String
     public var radius: Double
 }
 public struct Test2Component: Component
 {
-    public var entityID: String
     public var thingie: Int
 }
 
@@ -27,14 +25,14 @@ final class PlaceCodableTests: XCTestCase
         let entity = Entity(id: "entity1", ownerAgentId: "agentA")
         
         // Create a sample ColliderComponent.
-        let test = TestComponent(entityID: "entity1", radius: 5.0)
+        let test = TestComponent(radius: 5.0)
         
         // Create a World instance containing the entity and the collider component.
-        var place = PlaceContents(
+        let place = PlaceContents(
             revision: 1,
             entities: [ entity.id: entity],
             components: Components(lists:[
-                TestComponent.componentTypeId: [test.entityID: test]
+                TestComponent.componentTypeId: [entity.id: test]
             ])
         )
         
@@ -63,10 +61,10 @@ final class PlaceChangeCodingTests: XCTestCase
         let changeSet = PlaceChangeSet(changes: [
             .entityAdded(Entity(id: "c", ownerAgentId: "")),
             .entityRemoved(Entity(id: "b", ownerAgentId: "")),
-            .componentAdded("c", TestComponent(entityID: "c", radius: 6.0)),
-            .componentAdded("c", Test2Component(entityID: "c", thingie: 3)),
-            .componentUpdated("a", TestComponent(entityID: "a", radius: 7.0)),
-            .componentRemoved("b", TestComponent(entityID: "b", radius: 5.0))
+            .componentAdded("c", TestComponent(radius: 6.0)),
+            .componentAdded("c", Test2Component(thingie: 3)),
+            .componentUpdated("a", TestComponent(radius: 7.0)),
+            .componentRemoved("b", TestComponent(radius: 5.0))
         ], fromRevision: 0, toRevision: 1)
         
         let encoder = JSONEncoder()
@@ -97,8 +95,8 @@ final class PlaceChangeSetTests: XCTestCase
         let state = PlaceState()
         state.changeSet = PlaceChangeSet(changes: [
             .entityAdded(Entity(id: "entity1", ownerAgentId: "")),
-            .componentAdded("entity1", TestComponent(entityID: "entity1", radius: 5.0)),
-            .componentUpdated("entity1", TestComponent(entityID: "entity1", radius: 6.0))
+            .componentAdded("entity1", TestComponent(radius: 5.0)),
+            .componentUpdated("entity1", TestComponent(radius: 6.0))
         ], fromRevision: 0, toRevision: 1)
         var entityAddedReceived = false
         var componentAddedReceived = false
@@ -107,12 +105,18 @@ final class PlaceChangeSetTests: XCTestCase
         state.observers.entityAdded.sink { e in
             entityAddedReceived = true
         }.store(in: &cancellables)
-        state.observers[TestComponent.self].added.sink { comp in
+        state.observers[TestComponent.self].added.sink { (eid, comp) in
             XCTAssertEqual(comp.radius, 5.0, "Expected initial value to be correct")
             componentAddedReceived = true
         }.store(in: &cancellables)
-        state.observers[TestComponent.self].updated.sink { comp in
-            XCTAssertEqual(comp.radius, 6.0, "Expected updated value to be correct")
+        var initial = true
+        state.observers[TestComponent.self].updated.sink { (eid, comp) in
+            if initial {
+                XCTAssertEqual(comp.radius, 5.0, "Expected initial value to be correct")
+                initial = false
+            } else {
+                XCTAssertEqual(comp.radius, 6.0, "Expected updated value to be correct")
+            }
             componentUpdatedReceived = true
         }.store(in: &cancellables)
         
@@ -129,11 +133,11 @@ final class PlaceChangeSetTests: XCTestCase
             "b": Entity(id: "b", ownerAgentId: "")
         ], components: Components(lists: [
             TestComponent.componentTypeId: [
-                "a": TestComponent(entityID: "a", radius: 5.0),
-                "b": TestComponent(entityID: "b", radius: 5.0)
+                "a": TestComponent(radius: 5.0),
+                "b": TestComponent(radius: 5.0)
             ],
             Test2Component.componentTypeId: [
-                "a": Test2Component(entityID: "a", thingie: 4)
+                "a": Test2Component(thingie: 4)
             ]
         ]))
         
@@ -142,8 +146,8 @@ final class PlaceChangeSetTests: XCTestCase
             "c": Entity(id: "c", ownerAgentId: "")
         ], components: Components(lists: [
             TestComponent.componentTypeId: [
-                "a": TestComponent(entityID: "a", radius: 6.0),
-                "c": TestComponent(entityID: "c", radius: 7.0)
+                "a": TestComponent(radius: 6.0),
+                "c": TestComponent(radius: 7.0)
             ]
         ]))
         
@@ -195,18 +199,18 @@ final class PlaceChangeSetTests: XCTestCase
             "b": Entity(id: "b", ownerAgentId: "")
         ], components: Components(lists: [
             TestComponent.componentTypeId: [
-                "a": TestComponent(entityID: "a", radius: 5.0),
-                "b": TestComponent(entityID: "b", radius: 5.0)
+                "a": TestComponent(radius: 5.0),
+                "b": TestComponent(radius: 5.0)
             ]
         ]))
         
         let changeSet = PlaceChangeSet(changes: [
             .entityAdded(Entity(id: "c", ownerAgentId: "")),
             .entityRemoved(Entity(id: "b", ownerAgentId: "")),
-            .componentAdded("c", TestComponent(entityID: "c", radius: 6.0)),
-            .componentAdded("c", Test2Component(entityID: "c", thingie: 3)),
-            .componentUpdated("a", TestComponent(entityID: "a", radius: 7.0)),
-            .componentRemoved("b", TestComponent(entityID: "b", radius: 5.0))
+            .componentAdded("c", TestComponent(radius: 6.0)),
+            .componentAdded("c", Test2Component(thingie: 3)),
+            .componentUpdated("a", TestComponent(radius: 7.0)),
+            .componentRemoved("b", TestComponent(radius: 5.0))
         ], fromRevision: 1, toRevision: 2)
         
         let new = old.applyChangeSet(changeSet)
