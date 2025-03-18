@@ -204,9 +204,11 @@ public class PlaceServer : AlloSessionDelegate
     {
         let ent = Entity(id: EntityID.random(), ownerAgentId: client.cid.uuidString)
         print("For \(client.cid), creating entity \(ent.id) with \(components.count) components")
-        await appendChanges([.entityAdded(ent)] + components.map {
-            .componentAdded(ent.id, $0.base)
-        })
+        await appendChanges([
+                .entityAdded(ent),
+                .componentAdded(ent.id, Transform()) // every entity should have Transform
+            ] + components.map { .componentAdded(ent.id, $0.base) }
+        )
         
         return ent
     }
