@@ -59,6 +59,9 @@ extension float4x4 : Codable
 }
 
 extension simd_float4x4 {
+    public static var identity: simd_float4x4 {
+        return matrix_identity_float4x4
+    }
     public var translation: SIMD3<Float> {
         get {
             return SIMD3<Float>(columns.3.x, columns.3.y, columns.3.z)

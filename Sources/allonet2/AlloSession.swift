@@ -129,12 +129,14 @@ public class AlloSession : NSObject, RTCSessionDelegate
         }
         else if channel == worldstateChannel && side == .client
         {
-            guard let worldstate = try? decoder.decode(PlaceChangeSet.self, from: data) else
-            {
-                print("Warning, dropped unparseable worldstate")
-                return
+            do {
+                let worldstate = try decoder.decode(PlaceChangeSet.self, from: data)
+                self.delegate?.session(self, didReceivePlaceChangeSet: worldstate)
             }
-            self.delegate?.session(self, didReceivePlaceChangeSet: worldstate)
+            catch (let e)
+            {
+                print("Warning, dropped unparseable worldstate: \(e)")
+            }
         }
         else if channel == worldstateChannel && side == .server
         {

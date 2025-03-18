@@ -16,7 +16,7 @@ public struct Transform: Component
     
     public init(position: SIMD3<Float>)
     {
-        matrix = float4x4()
+        matrix = float4x4.identity
         matrix.translation = position
         entityID = ""
     }
