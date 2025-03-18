@@ -13,7 +13,13 @@ extension PlaceState
         guard let old = getHistory(at: changeSet.fromRevision) else { return false }
         
         let new = old.applyChangeSet(changeSet)
-        self.changeSet = changeSet
+        if current.revision == changeSet.fromRevision {
+            // Using the incoming changeset for callbacks since it's on top of the latest revision
+            self.changeSet = changeSet
+        } else {
+            // Incoming changeset is on top of an older revision, so we need to calculate which callbacks to fire
+            self.changeSet = new.changeSet(from: current)
+        }
         setCurrent(contents: new)
         callChangeObservers()
         return true

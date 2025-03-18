@@ -93,7 +93,7 @@ final class PlaceChangeSetTests: XCTestCase
 
     func testChangeSetCallbacks() throws
     {
-        var cancellables: [AnyCancellable] = []
+        var cancellables = Set<AnyCancellable>()
         let state = PlaceState()
         state.changeSet = PlaceChangeSet(changes: [
             .entityAdded(Entity(id: "entity1", ownerAgentId: "")),
@@ -221,5 +221,35 @@ final class PlaceChangeSetTests: XCTestCase
         XCTAssertEqual(new.components[TestComponent.self]["c"]!.radius, 6.0, "Changeset should have added component 'c'")
         XCTAssertNil(new.components[TestComponent.self]["b"], "Changeset should have removed component for entity 'b'")
     }
-
+    
+    func testOverlappingChangeSets()
+    {
+        var cancellables = Set<AnyCancellable>()
+        let state = PlaceState()
+        let change1 = PlaceChangeSet(changes: [
+            .entityAdded(Entity(id: "entity1", ownerAgentId: "")),
+        ], fromRevision: 0, toRevision: 1)
+        let change2 = PlaceChangeSet(changes: [
+            .entityAdded(Entity(id: "entity1", ownerAgentId: "")),
+            .entityAdded(Entity(id: "entity2", ownerAgentId: "")),
+        ], fromRevision: 0, toRevision: 2)
+        
+        var entity1CallbackCount = 0
+        var entity2CallbackCount = 0
+        state.observers.entityAdded.sink { e in
+            if e.id == "entity1" {
+                entity1CallbackCount += 1
+            } else if e.id == "entity2" {
+                entity2CallbackCount += 1
+            }
+        }.store(in: &cancellables)
+        
+        let success1 = state.applyChangeSet(change1)
+        let success2 = state.applyChangeSet(change2)
+        XCTAssertTrue(success1 && success2, "Changesets from rev 0 should always succeed")
+        
+        XCTAssertEqual(entity1CallbackCount, 1, "Entity1's creation should only generate one callback.")
+        XCTAssertEqual(entity2CallbackCount, 1, "Entity2's creation should only generate one callback")
+        // Otherwise, GUI code on top of it will think there are duplicate entities
+    }
 }
