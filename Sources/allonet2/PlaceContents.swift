@@ -42,6 +42,7 @@ public class PlaceState
                 observers.entityRemovedSubject.send(entity)
             case .componentAdded(let entityID, let comp):
                 observers[type(of: comp).componentTypeId].sendAdded(entityID: entityID, component: comp)
+                observers[type(of: comp).componentTypeId].sendUpdated(entityID: entityID, component: comp)
             case .componentUpdated(let entityID, let comp):
                 observers[type(of: comp).componentTypeId].sendUpdated(entityID: entityID, component: comp)
             case .componentRemoved(let entityID, let comp):
@@ -192,7 +193,7 @@ public struct ComponentCallbacks<T: Component>  : AnyComponentCallbacksProtocol
 {
     /// An entity has received a new component of this type
     public var added: AnyPublisher<T, Never> { addedSubject.eraseToAnyPublisher() }
-    /// An entity has received an update to a component with the following contents.
+    /// An entity has received an update to a component with the following contents. NOTE: This is also called immediately after `added`, so you can put all your "react to property changes regardless of add or update" in one place.
     public var updated: AnyPublisher<T, Never> { updatedSubject.eraseToAnyPublisher() }
     /// A component has been removed from an entity.
     public var removed: AnyPublisher<T, Never> { removedSubject.eraseToAnyPublisher() }
