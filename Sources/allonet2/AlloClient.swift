@@ -50,10 +50,10 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         }
     }
     
-    public init(url: URL, avatarDescription: [AnyComponent])
+    public init(url: URL, avatarDescription: [any Component])
     {
         self.url = url
-        self.avatarDesc = avatarDescription
+        self.avatarDesc = avatarDescription.map { AnyComponent($0) }
         session.delegate = self
     }
     
