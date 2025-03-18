@@ -52,6 +52,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     
     public init(url: URL, avatarDescription: [any Component])
     {
+        InitializeAllonet()
         self.url = url
         self.avatarDesc = avatarDescription.map { AnyComponent($0) }
         session.delegate = self

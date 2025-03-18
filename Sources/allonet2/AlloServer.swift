@@ -31,6 +31,7 @@ public class PlaceServer : AlloSessionDelegate
     
     public init(name: String)
     {
+        InitializeAllonet()
         self.name = name
     }
     
@@ -204,7 +205,7 @@ public class PlaceServer : AlloSessionDelegate
         let ent = Entity(id: EntityID.random(), ownerAgentId: client.cid.uuidString)
         print("For \(client.cid), creating entity \(ent.id) with \(components.count) components")
         await appendChanges([.entityAdded(ent)] + components.map {
-            .componentAdded(ent.id, $0)
+            .componentAdded(ent.id, $0.base)
         })
         
         return ent

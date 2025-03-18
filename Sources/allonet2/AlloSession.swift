@@ -110,19 +110,21 @@ public class AlloSession : NSObject, RTCSessionDelegate
     {
         if channel == interactionChannel
         {
-            guard let inter = try? decoder.decode(Interaction.self, from: data) else
-            {
-                print("Warning, dropped unparseable interaction")
-                return
+            do {
+                let inter = try decoder.decode(Interaction.self, from: data)
+                if let continuation = outstandingInteractions[inter.requestId]
+                {
+                    assert(inter.type == .response)
+                    continuation.resume(with: .success(inter))
+                }
+                else
+                {
+                    self.delegate?.session(self, didReceiveInteraction: inter)
+                }
             }
-            if let continuation = outstandingInteractions[inter.requestId]
+            catch(let e)
             {
-                assert(inter.type == .response)
-                continuation.resume(with: .success(inter))
-            }
-            else
-            {
-                self.delegate?.session(self, didReceiveInteraction: inter)
+                print("Warning, dropped unparseable interaction: \(e)")
             }
         }
         else if channel == worldstateChannel && side == .client

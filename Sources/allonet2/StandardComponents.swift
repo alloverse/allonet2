@@ -17,7 +17,7 @@ public struct Transform: Component
     public init(position: SIMD3<Float>)
     {
         matrix = float4x4()
-        matrix.translation = float3(position)
+        matrix.translation = position
         entityID = ""
     }
 }
@@ -25,6 +25,7 @@ public struct Transform: Component
 
 // MARK: - Internals
 
-private let _registerStandardComponents: Void = {
+func RegisterStandardComponents()
+{
     Transform.register()
-}()
+}
