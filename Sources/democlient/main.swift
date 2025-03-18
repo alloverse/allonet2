@@ -29,11 +29,26 @@ class DemoApp
         client.stayConnected()
     }
     
+    var timer: Timer?
     func setup() async throws
     {
         print("Demo app connected, setting up...")
-        let eid = try await client.createEntity(with: [])
-        print("Whee fresh eid: \(eid)")
+        
+        Task {
+            let r: Float = 2.0
+            var t: Float = 0.0
+            while !Task.isCancelled {
+                try await Task.sleep(nanoseconds: 20_000_000)
+                t += 0.02
+                
+                guard let avatarId = self.client.avatarId else { continue }
+                
+                let tform = Transform(translation: [sinf(t)*r, 0, cosf(t)*r])
+                try await self.client.changeEntity(entityId: avatarId, addOrChange: [
+                    tform
+                ])
+            }
+        }
     }
 }
 

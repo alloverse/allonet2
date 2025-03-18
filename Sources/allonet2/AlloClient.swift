@@ -282,7 +282,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         }
     }
     
-    public func changeEntity(entityId: EntityID, addOrChange: [any Component], remove: [ComponentTypeID]) async throws(AlloverseError)
+    public func changeEntity(entityId: EntityID, addOrChange: [any Component] = [], remove: [ComponentTypeID] = []) async throws(AlloverseError)
     {
         let resp = await request(receiverEntityId: PlaceEntity, body: .changeEntity(entityId: entityId, addOrChange: addOrChange.map { AnyComponent($0) }, remove: remove))
         guard case .success = resp.body else {

@@ -25,8 +25,9 @@ public struct Transform: Component
     {
         matrix = float4x4.identity
         matrix.translation = translation
-        matrix.rotation = rotation
-        matrix.scale = scale
+        // TODO: Fix the math in the float4x4 extension
+        //matrix.rotation = rotation
+        //matrix.scale = scale
     }
 }
 
