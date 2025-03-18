@@ -8,11 +8,18 @@
 import simd
 
 
-struct Transform: Component
+public struct Transform: Component
 {
-    let entityID: EntityID
+    public let entityID: EntityID
     
     public var matrix: float4x4 = .init()
+    
+    public init(position: SIMD3<Float>)
+    {
+        matrix = float4x4()
+        matrix.translation = float3(position)
+        entityID = ""
+    }
 }
 
 
