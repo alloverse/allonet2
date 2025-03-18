@@ -90,7 +90,7 @@ public struct AnyComponent: Component {
         }
         
         // Decode the actual component.
-        self.base = try componentType.init(from: decoder)
+        self.base = try componentType.init(from: container.superDecoder(forKey: .payload))
     }
     
     public func encode(to encoder: Encoder) throws {
@@ -98,8 +98,9 @@ public struct AnyComponent: Component {
         var container = encoder.container(keyedBy: CodingKeys.self)
         // Write out the type identifier. We use the static property from the concrete type.
         try container.encode(String(describing: type(of: base)), forKey: .type)
+        
         // Encode the underlying component.
-        try base.encode(to: encoder)
+        try base.encode(to: container.superEncoder(forKey: .payload))
     }
 }
 
