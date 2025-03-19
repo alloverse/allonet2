@@ -1,4 +1,4 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.0
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -6,7 +6,9 @@ import PackageDescription
 let package = Package(
     name: "allonet2",
     platforms: [
-        .macOS(.v12)
+        .visionOS(.v2),
+        .macOS(.v12),
+        .iOS(.v18)
     ],
     products: [
         // Products define the executables and libraries a package produces, making them visible to other packages.
@@ -57,5 +59,6 @@ let package = Package(
             name: "democlient",
             dependencies: ["allonet2"]
         ),
-    ]
+    ],
+    swiftLanguageModes: [.v5]
 )
