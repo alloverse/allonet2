@@ -44,10 +44,10 @@ public enum InteractionType: Codable
 
 public enum InteractionBody : Codable
 {
-    case announce(version: String, avatarComponents: [AnyComponent])
+    case announce(version: String, avatar: EntityDescription)
     case announceResponse(avatarId: String, placeName: String)
     
-    case createEntity(initialComponents: [AnyComponent])
+    case createEntity(EntityDescription)
     case createEntityResponse(entityId: EntityID)
     case removeEntity(entityId: EntityID, mode: EntityRemovalMode) // -> .success or .error
     case changeEntity(entityId: EntityID, addOrChange: [AnyComponent], remove: [ComponentTypeID]) // -> .success or .error
@@ -61,6 +61,16 @@ public enum EntityRemovalMode: String, Codable
 {
     case reparent // Child entities are reparented to root
     case cascade  // Child entities are also removed
+}
+
+public struct EntityDescription: Codable
+{
+    public let components: [AnyComponent]
+    public let children: [EntityDescription]
+    public init(components: [any Component] = [], children: [EntityDescription] = []) {
+        self.components = components.map { AnyComponent($0) }
+        self.children = children
+    }
 }
 
 /// This is a magical Entity ID that means you're targeting an interaction to the place itself, rather than a specific entity within the place.

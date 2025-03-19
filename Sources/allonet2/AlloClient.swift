@@ -14,7 +14,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     public let place = PlaceState()
     
     let url: URL
-    let avatarDesc: [AnyComponent]
+    let avatarDesc: EntityDescription
     @Published public private(set) var avatarId: EntityID? { didSet { isAnnounced = avatarId != nil } }
     @Published public private(set) var isAnnounced: Bool = false
     public private(set) var placeName: String?
@@ -50,11 +50,11 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         }
     }
     
-    public init(url: URL, avatarDescription: [any Component])
+    public init(url: URL, avatarDescription: EntityDescription)
     {
         InitializeAllonet()
         self.url = url
-        self.avatarDesc = avatarDescription.map { AnyComponent($0) }
+        self.avatarDesc = avatarDescription
         session.delegate = self
     }
     
@@ -186,7 +186,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
                 type: .request,
                 senderEntityId: "",
                 receiverEntityId: PlaceEntity,
-                body: .announce(version: "2.0", avatarComponents: avatarDesc)
+                body: .announce(version: "2.0", avatar: avatarDesc)
             ))
             guard case .announceResponse(let avatarId, let placeName) = response.body else
             {
@@ -264,10 +264,9 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         return await session.request(interaction: Interaction(type: .request, senderEntityId: avatarId!, receiverEntityId: receiverEntityId, body: body))
     }
     
-    public func createEntity(with initialComponents: [any Component]) async throws(AlloverseError) -> EntityID
+    public func createEntity(from description: EntityDescription) async throws(AlloverseError) -> EntityID
     {
-        let initials = initialComponents.map { AnyComponent($0) }
-        let resp = await request(receiverEntityId: PlaceEntity, body: .createEntity(initialComponents: initials))
+        let resp = await request(receiverEntityId: PlaceEntity, body: .createEntity(description))
         guard case .createEntityResponse(let entityId) = resp.body else {
             throw AlloverseError(with: resp.body)
         }

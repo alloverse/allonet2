@@ -166,7 +166,7 @@ public class PlaceServer : AlloSessionDelegate
     {
         switch inter.body
         {
-        case .announce(let version, let avatarComponents):
+        case .announce(let version, let avatarDescription):
             guard version == "2.0" else {
                 print("Client \(client.cid) has incompatible version, disconnecting.")
                 client.session.rtc.disconnect()
@@ -175,13 +175,13 @@ public class PlaceServer : AlloSessionDelegate
             client.announced = true
             // Client is now announced, so move it into the main list of clients so it can get world states etc.
             clients[client.cid] = unannouncedClients.removeValue(forKey: client.cid)!
-            let ent = await self.createEntity(with: avatarComponents, for: client)
+            let ent = await self.createEntity(from: avatarDescription, for: client)
             print("Accepted client \(client.cid) with avatar id \(ent.id)")
             await heartbeat.awaitNextSync() // make it exist before we tell client about it
             // TODO: reply with correct place name
             client.session.send(interaction: inter.makeResponse(with: .announceResponse(avatarId: ent.id, placeName: name)))
-        case .createEntity(let initialComponents):
-            let ent = await self.createEntity(with: initialComponents, for: client)
+        case .createEntity(let description):
+            let ent = await self.createEntity(from: description, for: client)
             print("Spawned entity for \(client.cid) with id \(ent.id)")
             client.session.send(interaction: inter.makeResponse(with: .createEntityResponse(entityId: ent.id)))
         case .removeEntity(let eid, let mode):
@@ -199,15 +199,11 @@ public class PlaceServer : AlloSessionDelegate
     
     // MARK: - Entity and component management
     
-    func createEntity(with components:[AnyComponent], for client: ConnectedClient) async -> Entity
+    func createEntity(from description:EntityDescription, for client: ConnectedClient) async -> Entity
     {
-        let ent = Entity(id: EntityID.random(), ownerAgentId: client.cid.uuidString)
-        print("For \(client.cid), creating entity \(ent.id) with \(components.count) components")
-        await appendChanges([
-                .entityAdded(ent),
-                .componentAdded(ent.id, Transform()) // every entity should have Transform
-            ] + components.map { .componentAdded(ent.id, $0.base) }
-        )
+        let (ent, changes) = description.changes(for: client.cid.uuidString)
+        print("For \(client.cid), creating entity \(ent.id) with \(description.components.count) components and \(description.children.count) children")
+        await appendChanges(changes)
         
         return ent
     }
@@ -294,7 +290,26 @@ internal class ConnectedClient
     {
         self.session = session
     }
-    
+}
+
+internal extension EntityDescription
+{
+    internal func changes(for ownerAgentId: String) -> (Entity, [PlaceChange])
+    {
+        let ent = Entity(id: EntityID.random(), ownerAgentId: ownerAgentId)
+        return (
+            ent,
+            [
+                .entityAdded(ent),
+                .componentAdded(ent.id, Transform()) // every entity should have Transform
+            ]
+            + components.map { .componentAdded(ent.id, $0.base) }
+            + children.flatMap {
+                let (child, changes) = $0.changes(for: ownerAgentId)
+                return changes
+            }
+        )
+    }
 }
 
 /// A timer manager that fires once every _keepaliveDelay_ whenever nothing has happened, but will fire after only a _coalesceDelay_ if a change has happened. This will coalesce a small number of changes that happen in succession; but still fire a heartbeat now and again to keep connections primed.
