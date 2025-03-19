@@ -22,8 +22,8 @@ let package = Package(
             type: .dynamic,
             targets: ["AlloReality"]
         ),
-        .executable(name: "server",
-            targets: ["server"]
+        .executable(name: "AlloPlace",
+            targets: ["AlloPlace"]
         ),
         .executable(name: "democlient",
             targets: ["democlient"]
@@ -52,7 +52,7 @@ let package = Package(
             dependencies: ["allonet2"]
         ),
         .executableTarget(
-            name: "server",
+            name: "AlloPlace",
             dependencies: ["allonet2"]
         ),
         .executableTarget(
