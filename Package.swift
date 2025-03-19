@@ -15,6 +15,11 @@ let package = Package(
             type: .dynamic,
             targets: ["allonet2"]
         ),
+        .library(
+            name: "AlloReality",
+            type: .dynamic,
+            targets: ["AlloReality"]
+        ),
         .executable(name: "server",
             targets: ["server"]
         ),
@@ -35,6 +40,10 @@ let package = Package(
         .target(
             name: "allonet2",
             dependencies: ["WebRTC", "BinaryCodable", "AnyCodable", "FlyingFox"]
+        ),
+        .target(
+            name: "AlloReality",
+            dependencies: ["allonet2"]
         ),
         .testTarget(
             name: "allonet2Tests",
