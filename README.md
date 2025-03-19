@@ -1,8 +1,9 @@
 # Allonet2
 
-Very early experimental next iteration of [allonet](https://github.com/alloverse/allonet/),
+This is the next iteration of [allonet](https://github.com/alloverse/allonet/),
 the fundamental networking library that underpins the distributed and collaborative 3D/VR/AR
-workspace [Alloverse](https://alloverse.com/).
+workspace [Alloverse](https://alloverse.com/). It is not yet ready to replace version 1, but its
+general shape is taking form and active development is now happening here.
 
 Allonet allows the writing of three different kinds of software:
 
