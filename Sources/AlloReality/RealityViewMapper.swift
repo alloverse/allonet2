@@ -8,6 +8,7 @@
 import RealityKit
 import Combine
 import allonet2
+import SwiftUICore
 
 /// The RealityViewMapper creates and maintains RealityKit entities and components to perfectly match corresponding entities and components inside an Alloverse connection's PlaceContents.
 public class RealityViewMapper
@@ -34,8 +35,21 @@ public class RealityViewMapper
             guard let guient = self.guiroot.findEntity(named: netent.id) else { return }
             guient.removeFromParent()
         }.store(in: &cancellables)
-        startSyncingOf(networkComponentType: allonet2.Transform.self, to: RealityKit.Transform.self) { (entity, transform) in
+        
+        startSyncingOf(networkComponentType: allonet2.Transform.self, to: RealityKit.Transform.self)
+        { (entity, transform) in
             entity.setTransformMatrix(transform.matrix, relativeTo: entity.parent)
+        }
+        
+        startSyncingOf(networkComponentType: Model.self, to: ModelComponent.self)
+        {
+            (entity, model) in
+            entity.components.set(
+                ModelComponent(
+                    mesh: model.mesh.realityMesh,
+                    materials: [model.material.realityMaterial]
+                )
+            )
         }
     }
     
@@ -57,5 +71,54 @@ public class RealityViewMapper
     {
         cancellables.forEach { $0.cancel() }
         cancellables.removeAll()
+    }
+}
+
+extension allonet2.Model.Mesh
+{
+    var realityMesh: RealityKit.MeshResource
+    {
+        switch self
+        {
+        case .asset(id: let id): fatalError("not implemented")
+        case .box(size: let size, cornerRadius: let cornerRadius):
+            return .generateBox(size: size, cornerRadius: cornerRadius)
+        case .plane(width: let width, depth: let depth, cornerRadius: let cornerRadius):
+            return .generatePlane(width: width, depth: depth, cornerRadius: cornerRadius)
+        case .sphere(radius: let radius):
+            return .generateSphere(radius: radius)
+        case .cylinder(height: let height, radius: let radius):
+            if #available(macOS 15.0, *) {
+                return .generateCylinder(height: height, radius: radius)
+            } else {
+                return .generateBox(size: .init(x: radius * 2, y: height, z: radius * 2), cornerRadius: radius)
+            }
+        }
+    }
+}
+
+extension allonet2.Model.Material
+{
+    var realityMaterial: RealityKit.Material
+    {
+        switch self
+        {
+        case .color(let color, let metallic):
+            return RealityKit.SimpleMaterial(color: color.realityColor, isMetallic: metallic)
+        }
+    }
+}
+
+extension allonet2.Model.Color
+{
+    var realityColor: RealityKit.Material.Color
+    {
+        switch self
+        {
+        case .rgb(red: let red, green: let green, blue: let blue, alpha: let alpha):
+            return RealityKit.Material.Color(red: CGFloat(red), green: CGFloat(green), blue: CGFloat(blue), alpha: CGFloat(alpha))
+        case .hsv(hue: let hue, saturation: let saturation, value: let value, alpha: let alpha):
+            return RealityKit.Material.Color(hue: CGFloat(hue), saturation: CGFloat(saturation), brightness: CGFloat(value), alpha: CGFloat(alpha))
+       }
     }
 }

@@ -31,10 +31,38 @@ public struct Transform: Component
     }
 }
 
+public struct Model: Component
+{
+    public enum Mesh: Equatable, Codable
+    {
+        case asset(id: String)
+        case box(size: SIMD3<Float>, cornerRadius: Float)
+        case plane(width: Float, depth: Float, cornerRadius: Float)
+        case cylinder(height: Float, radius: Float)
+        case sphere(radius: Float)
+    }
+    public enum Material: Equatable, Codable
+    {
+        case color(color: Color, metallic: Bool)
+    }
+    public enum Color: Equatable, Codable
+    {
+        case rgb(red: Float, green: Float, blue: Float, alpha: Float)
+        case hsv(hue: Float, saturation: Float, value: Float, alpha: Float)
+    }
+    public var mesh: Mesh
+    public var material: Material
+    
+    public init(mesh: Mesh, material: Material) {
+        self.mesh = mesh
+        self.material = material
+    }
+}
 
 // MARK: - Internals
 
 func RegisterStandardComponents()
 {
     Transform.register()
+    Model.register()
 }

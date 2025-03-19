@@ -18,6 +18,10 @@ class DemoApp
         print("Connecting to alloverse swift place ", url)
 
         self.client = AlloClient(url: url, avatarDescription: [
+            Model(
+                mesh: .sphere(radius: 0.5),
+                material: .color(color: .hsv(hue: .random(in: 0...1), saturation: 0.9, value: 1, alpha: 1), metallic: true)
+            )
         ])
         
         Task {
