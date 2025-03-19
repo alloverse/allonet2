@@ -127,7 +127,6 @@ public class PlaceServer : AlloSessionDelegate
         Task { @MainActor in
             if let client = clients[cid]
             {
-                print("Client \(cid) acked revision \(intent.ackStateRev)")
                 client.ackdRevision = intent.ackStateRev
             } else
             {
