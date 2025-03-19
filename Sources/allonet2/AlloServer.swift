@@ -242,7 +242,7 @@ public class PlaceServer : AlloSessionDelegate
     
     func changeEntity(eid: EntityID, addOrChange: [AnyComponent], remove: [ComponentTypeID], for client: ConnectedClient?) async throws(AlloverseError)
     {
-        print("For \(client?.cid.uuidString ?? "internal"), changing entity \(eid)")
+        //print("For \(client?.cid.uuidString ?? "internal"), changing entity \(eid)")
         let ent = place.current.entities[eid]
         
         guard let ent = ent else {
