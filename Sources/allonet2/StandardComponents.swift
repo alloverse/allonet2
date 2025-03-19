@@ -59,10 +59,20 @@ public struct Model: Component
     }
 }
 
+public struct VisorInfo: Component
+{
+    public var displayName: String
+    public init(displayName: String)
+    {
+        self.displayName = displayName
+    }
+}
+
 // MARK: - Internals
 
 func RegisterStandardComponents()
 {
     Transform.register()
     Model.register()
+    VisorInfo.register()
 }
