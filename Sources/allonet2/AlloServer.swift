@@ -10,6 +10,8 @@ import FlyingFox
 
 let port:UInt16 = 9080
 
+let InteractionTimeout: TimeInterval = 10
+
 @MainActor
 public class PlaceServer : AlloSessionDelegate
 {
@@ -141,32 +143,90 @@ public class PlaceServer : AlloSessionDelegate
     
     func handle(_ inter: Interaction, from client: ConnectedClient) async
     {
-        do throws(AlloverseError)
+        do
         {
             if inter.receiverEntityId == PlaceEntity
             {
                 try await self.handle(placeInteraction: inter, from: client)
             } else {
-                guard let receivingEntity = place.current.entities[inter.receiverEntityId],
-                      let ownerAgentId = UUID(uuidString: receivingEntity.ownerAgentId),
-                      let recipient = clients[ownerAgentId] else
-                {
-                    throw AlloverseError(
-                        domain: PlaceErrorDomain,
-                        code: PlaceErrorCode.recipientUnavailable.rawValue,
-                        description: "No such recipient \(inter.receiverEntityId)"
-                    )
-                }
-                recipient.session.send(interaction: inter)
-                
-                // TODO: reply with timeout if client doesn't respond if needed
+                try await self.handle(forwardingOfInteraction: inter, from: client)
             }
         
         }
         catch (let e as AlloverseError)
         {
             print("Interaction error for \(client.cid): \(e)")
-            client.session.send(interaction: inter.makeResponse(with: .error(domain: e.domain, code: e.code, description: e.description)))
+            client.session.send(interaction: inter.makeResponse(with: e.asBody))
+        }
+    }
+    
+    var outstandingClientToClientInteractions: [Interaction.RequestID: RTCClientId] = [:]
+    func handle(forwardingOfInteraction inter: Interaction, from client: ConnectedClient) async throws(AlloverseError)
+    {
+        // Go look for the recipient entity, and map it to recipient client.
+        guard let receivingEntity = place.current.entities[inter.receiverEntityId],
+              let ownerAgentId = UUID(uuidString: receivingEntity.ownerAgentId),
+              let recipient = clients[ownerAgentId] else
+        {
+            throw AlloverseError(
+                domain: PlaceErrorDomain,
+                code: PlaceErrorCode.recipientUnavailable.rawValue,
+                description: "No such recipient for entity \(inter.receiverEntityId)"
+            )
+        }
+        
+        // If it's a request, save it so we can keep track of mapping the response so the correct client responds.
+        // And if it's a response, map it back and check that it's the right one.
+        let correctRecipient = outstandingClientToClientInteractions[inter.requestId]
+        if inter.type == .request
+        {
+            print("Hello incoming request \(inter.requestId), storing you")
+            outstandingClientToClientInteractions[inter.requestId] = client.session.rtc.clientId!
+        }
+        else if(inter.type == .response)
+        {
+            guard let correctRecipient else
+            {
+                throw AlloverseError(
+                    domain: PlaceErrorDomain,
+                    code: PlaceErrorCode.invalidResponse.rawValue,
+                    description: "No such request \(inter.requestId) for your response, maybe it timed out before you replied, or you repliced twice?"
+                )
+            }
+            guard ownerAgentId == correctRecipient else
+            {
+                throw AlloverseError(
+                    domain: PlaceErrorDomain,
+                    code: PlaceErrorCode.invalidResponse.rawValue,
+                    description: "That's not your request to respond to."
+                )
+            }
+            
+            // We're now sending our response, so clear it out of the outstandings
+            print("Hello incoming response \(inter.requestId), now clearing the matching requestID")
+            outstandingClientToClientInteractions[inter.requestId] = nil
+        }
+        
+        // All checks passed! Send it off!
+        recipient.session.send(interaction: inter)
+        
+        // Now check for timeout, so the requester at _least_ gets a timeout answer if nothing else.
+        if inter.type == .request
+        {
+            print("Hello incoming request \(inter.requestId), now waiting until timeout")
+            try? await Task.sleep(for: .seconds(InteractionTimeout))
+            
+            if outstandingClientToClientInteractions[inter.requestId] != nil
+            {
+                print("Hello incoming request \(inter.requestId), you will now timeout")
+                throw AlloverseError(
+                    domain: PlaceErrorDomain,
+                    code: PlaceErrorCode.recipientTimedOut.rawValue,
+                    description: "Recipient didn't respond in time."
+                )
+                outstandingClientToClientInteractions[inter.requestId] = nil
+            }
+            print("Hello incoming request \(inter.requestId), you didnt exist anymore")
         }
     }
     
