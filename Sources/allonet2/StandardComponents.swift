@@ -31,6 +31,23 @@ public struct Transform: Component
     }
 }
 
+public enum Color: Equatable, Codable
+{
+    case rgb(red: Float, green: Float, blue: Float, alpha: Float)
+    case hsv(hue: Float, saturation: Float, value: Float, alpha: Float)
+    
+    static var white: Color { .rgb(red: 1, green: 1, blue: 1, alpha: 1) }
+    static var black: Color { .rgb(red: 0, green: 0, blue: 0, alpha: 1) }
+    static var red: Color { .rgb(red: 1, green: 0, blue: 0, alpha: 1) }
+    static var green: Color { .rgb(red: 0, green: 1, blue: 0, alpha: 1) }
+    static var blue: Color { .rgb(red: 0, green: 0, blue: 1, alpha: 1) }
+    static var yellow: Color { .rgb(red: 1, green: 1, blue: 0, alpha: 1) }
+    static var cyan: Color { .rgb(red: 0, green: 1, blue: 1, alpha: 1) }
+    static var magenta: Color { .rgb(red: 1, green: 0, blue: 1, alpha: 1) }
+    static var orange: Color { .rgb(red: 1, green: 0.5, blue: 0, alpha: 1) }
+    static var pink: Color { .rgb(red: 1, green: 0.8, blue: 0.8, alpha: 1) }
+}
+
 public struct Model: Component
 {
     public enum Mesh: Equatable, Codable
@@ -45,15 +62,12 @@ public struct Model: Component
     {
         case color(color: Color, metallic: Bool)
     }
-    public enum Color: Equatable, Codable
-    {
-        case rgb(red: Float, green: Float, blue: Float, alpha: Float)
-        case hsv(hue: Float, saturation: Float, value: Float, alpha: Float)
-    }
+
     public var mesh: Mesh
     public var material: Material
     
-    public init(mesh: Mesh, material: Material) {
+    public init(mesh: Mesh, material: Material)
+    {
         self.mesh = mesh
         self.material = material
     }
@@ -67,7 +81,8 @@ public struct Collision: Component
     }
     
     public var shapes: [Shape]
-    public init(shapes: [Shape]) {
+    public init(shapes: [Shape])
+    {
         self.shapes = shapes
     }
 }
@@ -75,6 +90,19 @@ public struct Collision: Component
 public struct InputTarget: Component
 {
 
+}
+
+public struct HoverEffect: Component
+{
+    public enum Style: Equatable, Codable
+    {
+        case spotlight(color: Color, strength: Float)
+    }
+    public var style: Style
+    public init(style: Style)
+    {
+        self.style = style
+    }
 }
 
 public struct VisorInfo: Component

@@ -64,6 +64,11 @@ public class RealityViewMapper
                 (entity, inputTarget) in
                 entity.components.set(InputTargetComponent())
             }
+            startSyncingOf(networkComponentType: HoverEffect.self, to: HoverEffectComponent.self)
+            {
+                (entity, hoverEffect) in
+                entity.components.set(HoverEffectComponent(hoverEffect.realityEffect))
+            }
         }
     }
     
@@ -138,7 +143,7 @@ extension Collision
     }
 }
 
-extension allonet2.Model.Color
+extension allonet2.Color
 {
     var realityColor: RealityKit.Material.Color
     {
@@ -149,5 +154,18 @@ extension allonet2.Model.Color
         case .hsv(hue: let hue, saturation: let saturation, value: let value, alpha: let alpha):
             return RealityKit.Material.Color(hue: CGFloat(hue), saturation: CGFloat(saturation), brightness: CGFloat(value), alpha: CGFloat(alpha))
        }
+    }
+}
+
+@available(macOS 15.0, *)
+extension HoverEffect
+{
+    var realityEffect: HoverEffectComponent.HoverEffect
+    {
+        switch style
+        {
+        case .spotlight(color: let color, strength: let strength):
+            return .spotlight(.init(color: color.realityColor, strength: 0.5))
+        }
     }
 }
