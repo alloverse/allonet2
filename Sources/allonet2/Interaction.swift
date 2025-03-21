@@ -44,13 +44,15 @@ public enum InteractionType: Codable
 
 public enum InteractionBody : Codable
 {
-    case announce(version: String, avatar: EntityDescription)
+    case announce(version: String, avatar: EntityDescription) // -> .announceResponse
     case announceResponse(avatarId: String, placeName: String)
     
-    case createEntity(EntityDescription)
+    case createEntity(EntityDescription) // -> .createEntityResponse
     case createEntityResponse(entityId: EntityID)
     case removeEntity(entityId: EntityID, mode: EntityRemovalMode) // -> .success or .error
     case changeEntity(entityId: EntityID, addOrChange: [AnyComponent], remove: [ComponentTypeID]) // -> .success or .error
+    
+    case tap(at: SIMD3<Float>) // oneway
     
     case error(domain: String, code: Int, description: String)
     case success // generic request-was-successful
