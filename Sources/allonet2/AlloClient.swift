@@ -225,38 +225,27 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     
     // MARK: - Interactions, intent and place state
     
-    public struct InteractionResponseHandler
+    public struct InteractionHandler<T>
     {
-        private var handlers: [String: (Interaction) async -> Interaction] = [:]
+        private var handlers: [String: (Interaction) async -> T] = [:]
         
         // Store a handler for a specific request type, returning a response. Example:
         // client.responders["custom"] = { // 'custom' is taken from the first part of the enum case name
         //    request async -> Interaction in
         //    return request.makeResponse(with: .custom(value: [:]))
         //}
-        public subscript(caseName: String) -> ((Interaction) async -> Interaction)? {
+        public subscript(caseName: String) -> ((Interaction) async -> T)? {
             get { handlers[caseName] }
             set { handlers[caseName] = newValue }
         }
-    }
-    public struct InteractionOnewayHandler
-    {
-        private var handlers: [String: (Interaction) -> Void] = [:]
         
-        // Store a handler for a specific non-request interaction type. Example:
-        // client.responders["tap"] = {
-        //    print("Entity tapped: \($0.receiverEntityId).")
-        //}
-        public subscript(caseName: String) -> ((Interaction) -> Void)? {
-            get { handlers[caseName] }
-            set { handlers[caseName] = newValue }
-        }
+        // TODO: register handlers for specific entities?
     }
     
-    /// Stores handlers for Interactions of specific request types
-    public var responders = InteractionResponseHandler()
-    /// Stores handlers for all other kinds of Interactions.
-    public var onewayHandlers = InteractionOnewayHandler()
+    /// Use this to register handlers for Interactions of specific request types
+    public var responders = InteractionHandler<Interaction>()
+    /// Use this to register handlers for all other kinds of Interactions.
+    public var handlers = InteractionHandler<Void>()
     
     nonisolated public func session(_: AlloSession, didReceiveInteraction inter: Interaction)
     {
@@ -286,11 +275,12 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         }
         else
         {
-            guard let handler = onewayHandlers[inter.body.caseName] else
+            guard let handler = handlers[inter.body.caseName] else
             {
-                print("Unexpected non-request interaction: \(inter)")
+                print("No handler registered for interaction: \(inter)")
                 return
             }
+            await handler(inter)
         }
     }
     
