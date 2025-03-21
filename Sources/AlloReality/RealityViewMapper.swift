@@ -51,6 +51,12 @@ public class RealityViewMapper
                 )
             )
         }
+        
+        startSyncingOf(networkComponentType: Collision.self, to: CollisionComponent.self)
+        {
+            (entity, collision) in
+            entity.components.set(CollisionComponent(shapes: collision.realityShapes))
+        }
     }
     
     /// In addition to syncing the Standard Components from `startSyncing()`, also sync other/custom components with this method, called directly after `startSyncing` but before the AlloClient connects.
@@ -105,6 +111,21 @@ extension allonet2.Model.Material
         {
         case .color(let color, let metallic):
             return RealityKit.SimpleMaterial(color: color.realityColor, isMetallic: metallic)
+        }
+    }
+}
+
+extension Collision
+{
+    var realityShapes: [ShapeResource]
+    {
+        shapes.map
+        {
+            switch $0
+            {
+            case .box(let size):
+                return .generateBox(size: size)
+            }
         }
     }
 }

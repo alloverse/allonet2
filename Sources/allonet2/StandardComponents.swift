@@ -59,6 +59,18 @@ public struct Model: Component
     }
 }
 
+public struct Collision: Component
+{
+    public enum Shape: Equatable, Codable
+    {
+        case box(size: SIMD3<Float>)
+    }
+    
+    public var shapes: [Shape]
+    public init(shapes: [Shape]) {
+        self.shapes = shapes
+    }
+}
 public struct VisorInfo: Component
 {
     public var displayName: String
@@ -75,4 +87,5 @@ func RegisterStandardComponents()
     Transform.register()
     Model.register()
     VisorInfo.register()
+    Collision.register()
 }
