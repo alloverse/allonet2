@@ -229,6 +229,11 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     {
         private var handlers: [String: (Interaction) async -> Interaction] = [:]
         
+        // Store a handler for a specific request type, returning a response. Example:
+        // client.responders["custom"] = { // 'custom' is taken from the first part of the enum case name
+        //    request async -> Interaction in
+        //    return request.makeResponse(with: .custom(value: [:]))
+        //}
         public subscript(caseName: String) -> ((Interaction) async -> Interaction)? {
             get { handlers[caseName] }
             set { handlers[caseName] = newValue }
@@ -238,13 +243,19 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     {
         private var handlers: [String: (Interaction) -> Void] = [:]
         
+        // Store a handler for a specific non-request interaction type. Example:
+        // client.responders["tap"] = {
+        //    print("Entity tapped: \($0.receiverEntityId).")
+        //}
         public subscript(caseName: String) -> ((Interaction) -> Void)? {
             get { handlers[caseName] }
             set { handlers[caseName] = newValue }
         }
     }
     
+    /// Stores handlers for Interactions of specific request types
     public var responders = InteractionResponseHandler()
+    /// Stores handlers for all other kinds of Interactions.
     public var onewayHandlers = InteractionOnewayHandler()
     
     nonisolated public func session(_: AlloSession, didReceiveInteraction inter: Interaction)

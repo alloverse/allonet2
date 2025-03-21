@@ -38,6 +38,14 @@ class DemoApp
     {
         print("Demo app connected, setting up...")
         
+        // Example of interaction handler
+        client.responders["custom"] = {
+            request async -> Interaction in
+            print("Got custom request!")
+            return request.makeResponse(with: .custom(value: [:]))
+        }
+        
+        // Example of modifying entities
         Task {
             let r: Float = 2.0
             var t: Float = 0.0
@@ -53,6 +61,7 @@ class DemoApp
                 ])
             }
         }
+        
     }
 }
 
