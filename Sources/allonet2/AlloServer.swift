@@ -155,8 +155,11 @@ public class PlaceServer : AlloSessionDelegate
         }
         catch (let e as AlloverseError)
         {
-            print("Interaction error for \(client.cid): \(e)")
-            client.session.send(interaction: inter.makeResponse(with: e.asBody))
+            print("Interaction error for \(client.cid) when handling \(inter): \(e)")
+            if inter.type == .request
+            {
+                client.session.send(interaction: inter.makeResponse(with: e.asBody))
+            }
         }
     }
     
