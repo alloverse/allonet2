@@ -246,7 +246,7 @@ public class PlaceServer : AlloSessionDelegate
             let ent = await self.createEntity(from: avatarDescription, for: client)
             print("Accepted client \(client.cid) with avatar id \(ent.id)")
             await heartbeat.awaitNextSync() // make it exist before we tell client about it
-            // TODO: reply with correct place name
+            
             client.session.send(interaction: inter.makeResponse(with: .announceResponse(avatarId: ent.id, placeName: name)))
         case .createEntity(let description):
             let ent = await self.createEntity(from: description, for: client)
@@ -390,14 +390,18 @@ actor HeartbeatTimer
     private let timerQueue = DispatchQueue(label: "HeartbeatTimerQueue")
     private var timer: DispatchSourceTimer?
     private var pendingChanges = false
-    private lazy var syncStream: AsyncStream<Void> = AsyncStream<Void> { continuation in
+    
+    // This stream must not buffer events; otherwise any awaitNextSync() will trigger immediately based on an outdated heartbeat,
+    // not the latest one it's actually waiting for.
+    private lazy var syncStream: AsyncStream<Void> = AsyncStream<Void>(bufferingPolicy: .bufferingNewest(0)) { continuation in
         self.syncContinuation = continuation
     }
     private var syncContinuation: AsyncStream<Void>.Continuation?
 
     public init(coalesceDelay: Int = 20_000_000,
          keepaliveDelay: Int = 1_000_000_000,
-         syncAction: @escaping () async -> Void) {
+         syncAction: @escaping () async -> Void)
+    {
         self.syncAction = syncAction
         self.coalesceDelay = coalesceDelay
         self.keepaliveDelay = keepaliveDelay
@@ -405,7 +409,8 @@ actor HeartbeatTimer
         Task { await setupTimer(delay: keepaliveDelay) }
     }
 
-    public func markChanged() {
+    public func markChanged()
+    {
         // Only schedule a new timer if not already pending.
         if pendingChanges { return }
         pendingChanges = true
@@ -418,12 +423,14 @@ actor HeartbeatTimer
         for await _ in syncStream { break }
     }
     
-    public func stop() {
+    public func stop()
+    {
         timer?.cancel()
         timer = nil
     }
     
-    private func setupTimer(delay: Int) {
+    private func setupTimer(delay: Int)
+    {
         timer?.cancel()
         
         let newTimer = DispatchSource.makeTimerSource(queue: timerQueue)
@@ -436,7 +443,8 @@ actor HeartbeatTimer
         timer = newTimer
     }
 
-    private func timerFired() async {
+    private func timerFired() async
+    {
         await syncAction()
         pendingChanges = false
         setupTimer(delay: keepaliveDelay)
