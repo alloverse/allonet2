@@ -112,7 +112,7 @@ public class PlaceServer : AlloSessionDelegate
         //print("Received interaction from \(cid): \(inter)")
         Task { @MainActor in
             let client = (clients[cid] ?? unannouncedClients[cid])!
-            self.handle(inter, from: client)
+            await self.handle(inter, from: client)
         }
     }
     
@@ -139,25 +139,34 @@ public class PlaceServer : AlloSessionDelegate
 
     // MARK: - Interactions
     
-    func handle(_ inter: Interaction, from client: ConnectedClient)
+    func handle(_ inter: Interaction, from client: ConnectedClient) async
     {
-        if inter.receiverEntityId == PlaceEntity
+        do throws(AlloverseError)
         {
-            Task
+            if inter.receiverEntityId == PlaceEntity
             {
-                do
+                try await self.handle(placeInteraction: inter, from: client)
+            } else {
+                guard let receivingEntity = place.current.entities[inter.receiverEntityId],
+                      let ownerAgentId = UUID(uuidString: receivingEntity.ownerAgentId),
+                      let recipient = clients[ownerAgentId] else
                 {
-                    try await self.handle(placeInteraction: inter, from: client)
+                    throw AlloverseError(
+                        domain: PlaceErrorDomain,
+                        code: PlaceErrorCode.recipientUnavailable.rawValue,
+                        description: "No such recipient \(inter.receiverEntityId)"
+                    )
                 }
-                catch (let e as AlloverseError)
-                {
-                    print("Interaction error for \(client.cid): \(e)")
-                    client.session.send(interaction: inter.makeResponse(with: .error(domain: e.domain, code: e.code, description: e.description)))
-                }
+                recipient.session.send(interaction: inter)
+                
+                // TODO: reply with timeout if client doesn't respond if needed
             }
-        } else {
-            // TODO: Forward to correct client
-            // TODO: reply with timeout if client doesn't respond if needed
+        
+        }
+        catch (let e as AlloverseError)
+        {
+            print("Interaction error for \(client.cid): \(e)")
+            client.session.send(interaction: inter.makeResponse(with: .error(domain: e.domain, code: e.code, description: e.description)))
         }
     }
     
