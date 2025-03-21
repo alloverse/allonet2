@@ -18,7 +18,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     @Published public private(set) var avatarId: EntityID? { didSet { isAnnounced = avatarId != nil } }
     @Published public private(set) var isAnnounced: Bool = false
     public private(set) var placeName: String?
-    let session = AlloSession(side: .client)
+    public let session = AlloSession(side: .client)
     var currentIntent = Intent(ackStateRev: 0) {
         didSet {
             Task { await heartbeat.markChanged() }
