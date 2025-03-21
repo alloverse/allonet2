@@ -183,7 +183,6 @@ public class PlaceServer : AlloSessionDelegate
         let correctRecipient = outstandingClientToClientInteractions[inter.requestId]
         if inter.type == .request
         {
-            print("Hello incoming request \(inter.requestId), storing you")
             outstandingClientToClientInteractions[inter.requestId] = client.session.rtc.clientId!
         }
         else if(inter.type == .response)
@@ -206,7 +205,6 @@ public class PlaceServer : AlloSessionDelegate
             }
             
             // We're now sending our response, so clear it out of the outstandings
-            print("Hello incoming response \(inter.requestId), now clearing the matching requestID")
             outstandingClientToClientInteractions[inter.requestId] = nil
         }
         
