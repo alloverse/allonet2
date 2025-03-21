@@ -123,4 +123,6 @@ func RegisterStandardComponents()
     VisorInfo.register()
     Collision.register()
     InputTarget.register()
+    HoverEffect.register()
+    VisorInfo.register()
 }
