@@ -57,6 +57,14 @@ public class RealityViewMapper
             (entity, collision) in
             entity.components.set(CollisionComponent(shapes: collision.realityShapes))
         }
+        
+        if #available(macOS 15.0, *) {
+            startSyncingOf(networkComponentType: InputTarget.self, to: InputTargetComponent.self)
+            {
+                (entity, inputTarget) in
+                entity.components.set(InputTargetComponent())
+            }
+        }
     }
     
     /// In addition to syncing the Standard Components from `startSyncing()`, also sync other/custom components with this method, called directly after `startSyncing` but before the AlloClient connects.

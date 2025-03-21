@@ -71,6 +71,12 @@ public struct Collision: Component
         self.shapes = shapes
     }
 }
+
+public struct InputTarget: Component
+{
+
+}
+
 public struct VisorInfo: Component
 {
     public var displayName: String
@@ -88,4 +94,5 @@ func RegisterStandardComponents()
     Model.register()
     VisorInfo.register()
     Collision.register()
+    InputTarget.register()
 }
