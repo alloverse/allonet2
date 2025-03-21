@@ -225,9 +225,62 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     
     // MARK: - Interactions, intent and place state
     
+    public struct InteractionResponseHandler
+    {
+        private var handlers: [String: (Interaction) async -> Interaction] = [:]
+        
+        public subscript(caseName: String) -> ((Interaction) async -> Interaction)? {
+            get { handlers[caseName] }
+            set { handlers[caseName] = newValue }
+        }
+    }
+    public struct InteractionOnewayHandler
+    {
+        private var handlers: [String: (Interaction) -> Void] = [:]
+        
+        public subscript(caseName: String) -> ((Interaction) -> Void)? {
+            get { handlers[caseName] }
+            set { handlers[caseName] = newValue }
+        }
+    }
+    
+    public var responders = InteractionResponseHandler()
+    public var onewayHandlers = InteractionOnewayHandler()
+    
     nonisolated public func session(_: AlloSession, didReceiveInteraction inter: Interaction)
     {
-        print("Received interaction: \(inter)")
+        Task { @MainActor in
+            do
+            {
+                try await self.handle(interaction: inter)
+            }
+            catch (let e as AlloverseError)
+            {
+                print("Error handling interaction: \(e)")
+                session.send(interaction: inter.makeResponse(with: e.asBody))
+            }
+        }
+    }
+    
+    func handle(interaction inter: Interaction) async throws(AlloverseError)
+    {
+        if inter.type == .request
+        {
+            guard let handler = responders[inter.body.caseName] else
+            {
+                throw AlloverseError(domain: AlloverseErrorDomain, code: AlloverseErrorCode.unhandledRequest.rawValue, description: "No handler for \(inter.body.caseName)")
+            }
+            let response = try await handler(inter)
+            session.send(interaction: response)
+        }
+        else
+        {
+            guard let handler = onewayHandlers[inter.body.caseName] else
+            {
+                print("Unexpected non-request interaction: \(inter)")
+                return
+            }
+        }
     }
     
     nonisolated public func session(_: AlloSession, didReceivePlaceChangeSet changeset: PlaceChangeSet)

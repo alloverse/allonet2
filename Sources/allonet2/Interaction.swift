@@ -57,6 +57,15 @@ public enum InteractionBody : Codable
     case error(domain: String, code: Int, description: String)
     case success // generic request-was-successful
     case custom(value: [String: AnyCodable])
+    
+    // Get just the name of the interaction, for use as a unique key
+    var caseName: String {
+        let description = String(describing: self)
+        if let parenIndex = description.firstIndex(of: "(") {
+            return String(description[..<parenIndex])
+        }
+        return description
+    }
 }
 
 public enum EntityRemovalMode: String, Codable
@@ -85,6 +94,7 @@ public enum PlaceErrorCode: Int
     case invalidRequest = 1 // request is malformed, programmer error
     case unauthorized = 2   // you're not allowed to do that
     case notFound = 3       // The thing you're requesting to modify couldn't be found
+    case invalidResponse = 4 // Couldn't pair the response with a previous request
     
     case recipientUnavailable = 100 // no such entity, or agent not found for that entity
     case recipientTimedOut = 101 // agent didn't respond back to Place in a timely fashion. If it replies later, its response will be discarded.
@@ -93,7 +103,8 @@ public enum PlaceErrorCode: Int
 public let AlloverseErrorDomain = "com.alloverse.error"
 public enum AlloverseErrorCode: Int
 {
-    case unexpectedResponse = 1 // Interaction received some other response than was expected
+    case unhandledRequest = 1   // The recipient doesn't know how to respond to this interaction
+    case unexpectedResponse = 2 // Interaction received some other response than was expected
 }
 public struct AlloverseError: Error, Codable
 {
@@ -120,5 +131,7 @@ public struct AlloverseError: Error, Codable
             self.description = "Unexpected body: \(unexpectedBody)"
         }
     }
+    
+    public var asBody: InteractionBody { .error(domain: domain, code: code, description: description) }
 }
 
