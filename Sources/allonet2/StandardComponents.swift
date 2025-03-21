@@ -89,7 +89,7 @@ public struct Collision: Component
 
 public struct InputTarget: Component
 {
-
+    public init() {}
 }
 
 public struct HoverEffect: Component
