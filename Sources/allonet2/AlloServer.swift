@@ -143,8 +143,15 @@ public class PlaceServer : AlloSessionDelegate
     
     func handle(_ inter: Interaction, from client: ConnectedClient) async
     {
-        do
+        do throws(AlloverseError)
         {
+            let senderEnt = place.current.entities[inter.senderEntityId]
+            let isValidAnnounce = inter.body.caseName == "announce" && inter.senderEntityId == ""
+            let isValidOtherMessage = (senderEnt != nil) && senderEnt!.ownerAgentId == client.cid.uuidString
+            if !(isValidAnnounce || isValidOtherMessage)
+            {
+                throw AlloverseError(domain: PlaceErrorDomain, code: PlaceErrorCode.unauthorized.rawValue, description: "You may only send interactions from entities you own")
+            }
             if inter.receiverEntityId == PlaceEntity
             {
                 try await self.handle(placeInteraction: inter, from: client)
