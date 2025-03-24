@@ -44,6 +44,7 @@ public enum InteractionType: Codable
 
 public enum InteractionBody : Codable
 {
+    // - Agent to Place
     case announce(version: String, avatar: EntityDescription) // -> .announceResponse
     case announceResponse(avatarId: String, placeName: String)
     
@@ -52,12 +53,15 @@ public enum InteractionBody : Codable
     case removeEntity(entityId: EntityID, mode: EntityRemovalMode) // -> .success or .error
     case changeEntity(entityId: EntityID, addOrChange: [AnyComponent], remove: [ComponentTypeID]) // -> .success or .error
     
+    // - Agent to agent
     case tap(at: SIMD3<Float>) // oneway
     
+    // - Responses
     case error(domain: String, code: Int, description: String)
     case success // generic request-was-successful
     case custom(value: [String: AnyCodable])
     
+    // - Utilities
     // Get just the name of the interaction, for use as a unique key
     var caseName: String {
         let description = String(describing: self)
