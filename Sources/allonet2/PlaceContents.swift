@@ -9,11 +9,11 @@ public typealias StateRevision = Int64
 public class Place
 {
     /// All the entities currently in the place.
-    public var entities: LazyMapCollection<Dictionary<EntityID, EntityData>, Entity>
+    public var entities : LazyMap<EntityID, EntityData, Entity>
     {
-        state.current.entities.lazy.map
-        {
-            return Entity(state: self.state, id: $0.key)
+        return LazyMap<EntityID, EntityData, Entity>(storage:state.current.entities)
+        { (k, v) in
+            return Entity(state: self.state, id: k)
         }
     }
     
@@ -35,7 +35,6 @@ public class Place
 public struct Entity
 {
     public let id: EntityID
-    
     public let components: ComponentSet
  
     let state: PlaceState

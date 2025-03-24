@@ -14,8 +14,8 @@ public struct Interaction : Codable
     public typealias RequestID = String
     
     public let type: InteractionType
-    public let senderEntityId: String
-    public let receiverEntityId: String
+    public let senderEntityId: EntityID
+    public let receiverEntityId: EntityID
     public let requestId: RequestID
     public let body: InteractionBody
     

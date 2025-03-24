@@ -45,6 +45,9 @@ class DemoApp
     {
         print("Demo app connected, setting up...")
         
+        let avatar = self.client.avatar!
+        print("Avatar's transform: \(avatar.components[Transform.self])")
+        
         // Example of interaction handler
         client.responders["custom"] = {
             request async -> Interaction in
@@ -60,10 +63,8 @@ class DemoApp
                 try await Task.sleep(nanoseconds: 20_000_000)
                 t += 0.02
                 
-                guard let avatarId = self.client.avatarId else { continue }
-                
                 let tform = Transform(translation: [sinf(t)*r, 0, cosf(t)*r])
-                try await self.client.changeEntity(entityId: avatarId, addOrChange: [
+                try await self.client.changeEntity(entityId: avatar.id, addOrChange: [
                     tform
                 ])
             }

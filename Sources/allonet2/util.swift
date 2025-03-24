@@ -125,6 +125,47 @@ public extension Collection {
     }
 }
 
+public struct LazyMap<K: Hashable, V, V2>: Collection
+{
+    let storage: Dictionary<K, V>
+    let mapper: (K, V) -> V2
+    public init(storage: Dictionary<K, V>, mapper: @escaping ((K, V) -> V2)) {
+        self.storage = storage
+        self.mapper = mapper
+    }
+    
+    // Collection conformance.
+    public typealias Key = K
+    public typealias Value = V2
+    public typealias Element = (key: K, value: V2)
+    public typealias Index = Dictionary<K, V>.Index
+
+    public var startIndex: Index {
+        storage.startIndex
+    }
+
+    public var endIndex: Index {
+        storage.endIndex
+    }
+
+    public func index(after i: Index) -> Index {
+        storage.index(after: i)
+    }
+
+    // Provide the lazy transformation.
+    public subscript(position: Index) -> Element {
+        let (key, value) = storage[position]
+        return (key, mapper(key, value))
+    }
+
+    // Key-based subscript.
+    public subscript(key: K) -> V2? {
+        guard let v = storage[key] else { return nil }
+        // Lazily transform only when requested.
+        return mapper(key, v)
+    }
+}
+
 // Utility for command line AlloApps. Run as last line to keep process running while app is processing requests.
 public func parkToRunloop() async -> Never {
     await withUnsafeContinuation { _ in }

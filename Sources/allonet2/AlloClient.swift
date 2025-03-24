@@ -19,6 +19,10 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     let url: URL
     let avatarDesc: EntityDescription
     @Published public private(set) var avatarId: EntityID? { didSet { isAnnounced = avatarId != nil } }
+    public var avatar: Entity? {
+        guard let aeid = self.avatarId else { return nil }
+        return place.entities[aeid]
+    }
     @Published public private(set) var isAnnounced: Bool = false
     public private(set) var placeName: String?
     public let session = AlloSession(side: .client)
