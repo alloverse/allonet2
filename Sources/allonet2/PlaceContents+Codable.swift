@@ -128,7 +128,7 @@ extension PlaceContents: Codable
     {
         let container = try decoder.container(keyedBy: WorldCodingKeys.self)
         revision = try container.decode(StateRevision.self, forKey: .revision)
-        entities = try container.decode([String: Entity].self, forKey: .entities)
+        entities = try container.decode([String: EntityData].self, forKey: .entities)
 
         var groupsContainer = try container.nestedUnkeyedContainer(forKey: .componentGroups)
         var lists: Dictionary<ComponentTypeID, [EntityID: any Component]> = [:]
@@ -149,7 +149,7 @@ extension PlaceContents: Codable
             }
             lists[typeId] = decodedComponents
         }
-        components = Components(lists: lists)
+        components = ComponentLists(lists: lists)
     }
     
     public func encode(to encoder: Encoder) throws
@@ -218,10 +218,10 @@ extension PlaceChange: Codable
         switch kind
         {
         case .entityAdded:
-            let entity = try container.decode(Entity.self, forKey: .entity)
+            let entity = try container.decode(EntityData.self, forKey: .entity)
             self = .entityAdded(entity)
         case .entityRemoved:
-            let entity = try container.decode(Entity.self, forKey: .entity)
+            let entity = try container.decode(EntityData.self, forKey: .entity)
             self = .entityRemoved(entity)
         case .componentAdded:
             let eid = try container.decode(EntityID.self, forKey: .entityID)

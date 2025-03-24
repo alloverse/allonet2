@@ -5,7 +5,69 @@ public typealias EntityID = String
 public typealias ComponentTypeID = String
 public typealias StateRevision = Int64
 
-/// The current and historical state of the place.
+/// The current contents of the Place which you are connected, with all its entities and their components.
+public class Place
+{
+    /// All the entities currently in the place.
+    public var entities: LazyMapCollection<Dictionary<EntityID, EntityData>, Entity>
+    {
+        state.current.entities.lazy.map
+        {
+            return Entity(state: self.state, id: $0.key)
+        }
+    }
+    
+    /// If you prefer a component-major view of the place (e g if you are writing a System which only deals with a single component type), this is a much more efficient accessor.
+    public var components: ComponentLists
+    {
+        return self.state.current.components
+    }
+    
+    // This is where it gets its actual data
+    private var state: PlaceState
+    internal init(state: PlaceState)
+    {
+        self.state = state
+    }
+}
+
+/// An entity is the thing in Place that components are part of. This is the convenience API for accessing all the related data for an entity in a single place.
+public struct Entity
+{
+    public let id: EntityID
+    
+    public let components: ComponentSet
+ 
+    let state: PlaceState
+    internal init(state: PlaceState, id: EntityID)
+    {
+        self.state = state
+        self.id = id
+        self.components = ComponentSet(state: state, id: id)
+    }
+}
+
+/// All the components that a single Entity contains in one place.
+public struct ComponentSet
+{
+    public subscript<T>(componentType: T.Type) -> T where T : Component
+    {
+        return state.current.components[componentType.componentTypeId]?[id] as! T
+    }
+    public subscript(componentTypeID: ComponentTypeID) -> (any Component)?
+    {
+        return state.current.components[componentTypeID]?[id]
+    }
+    
+    let state: PlaceState
+    let id: EntityID
+    internal init(state: PlaceState, id: EntityID) {
+        self.state = state
+        self.id = id
+    }
+}
+
+/// The current and historical state of the place. This is the stateful underlying representation of a Place; use `Place` instead for a simpler API.
 public class PlaceState
 {
     /// Immutable representation of the world, as known by this server or client right now.
@@ -58,17 +120,17 @@ public struct PlaceContents
     /// What revision of the place is this? Every tick in the server bumps this by 1. Due to network conditions, a client might miss a few revisions here and there and it might not see every sequential revision.
     public let revision: StateRevision
     /// The list of entities; basically just a list of IDs of things in the Place.
-    public let entities: Dictionary<EntityID, Entity>
+    public let entities: Dictionary<EntityID, EntityData>
     /// All the attributes for the entities, as various typed components.
-    public let components : Components
+    public let components : ComponentLists
     
     public init()
     {
         revision = 0
         entities = [:]
-        components = Components()
+        components = ComponentLists()
     }
-    public init(revision: StateRevision, entities: Dictionary<EntityID, Entity>, components: Components)
+    public init(revision: StateRevision, entities: Dictionary<EntityID, EntityData>, components: ComponentLists)
     {
         self.revision = revision
         self.entities = entities
@@ -76,8 +138,8 @@ public struct PlaceContents
     }
 }
 
-/// An entity: a Thing in a Place.
-public struct Entity: Codable, Equatable, Identifiable
+/// An entity is the thing in Place that components are part of. This is the underlying data structure that just informs that it exists and has an owner. Use `Entity` for a more convenient API.
+public struct EntityData: Codable, Equatable, Identifiable
 {
     /// Unique ID within this Place
     public let id: EntityID
@@ -102,7 +164,8 @@ public extension Component
     }
 }
 
-public struct Components
+/// A list of all the lists of components in a Place, grouped by type.
+public struct ComponentLists
 {
     public subscript<T>(componentType: T.Type) -> [EntityID: T] where T : Component
     {
@@ -125,7 +188,7 @@ public struct Components
         self.lists = lists
     }
     
-    // TODO: Return something like ComponentSet from RealityKit, and rename this class ComponentList (or use better names)
+    /// Collects all the components of all types for a single entity and returns as a map.
     public func componentsForEntity(_ entityID: EntityID) -> [ComponentTypeID: any Component]
     {
         var result: [ComponentTypeID: any Component] = [:]
@@ -152,8 +215,8 @@ public struct PlaceChangeSet: Codable, Equatable
 /// The different kinds of changes that can happen to a Place state
 public enum PlaceChange
 {
-    case entityAdded(Entity)
-    case entityRemoved(Entity)
+    case entityAdded(EntityData)
+    case entityRemoved(EntityData)
     case componentAdded(EntityID, any Component)
     case componentUpdated(EntityID, any Component)
     case componentRemoved(EntityID, any Component)
@@ -163,11 +226,11 @@ public enum PlaceChange
 public struct PlaceObservers
 {
     /// There's a new entity.
-    public var entityAdded: AnyPublisher<Entity, Never> { entityAddedSubject.eraseToAnyPublisher() }
+    public var entityAdded: AnyPublisher<EntityData, Never> { entityAddedSubject.eraseToAnyPublisher() }
     /// An entity has been removed.
-    public var entityRemoved: AnyPublisher<Entity, Never> { entityRemovedSubject.eraseToAnyPublisher() }
-    internal let entityAddedSubject = PassthroughSubject<Entity, Never>()
-    internal let entityRemovedSubject = PassthroughSubject<Entity, Never>()
+    public var entityRemoved: AnyPublisher<EntityData, Never> { entityRemovedSubject.eraseToAnyPublisher() }
+    internal let entityAddedSubject = PassthroughSubject<EntityData, Never>()
+    internal let entityRemovedSubject = PassthroughSubject<EntityData, Never>()
     
     /// Get a type-safe set of callbacks for a specific Component type
     public subscript<T>(componentType: T.Type) -> ComponentCallbacks<T> where T : Component

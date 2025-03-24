@@ -11,7 +11,10 @@ import Combine
 @MainActor
 public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
 {
-    public let place = PlaceState()
+    /// Convenient access to the contents of the connected Place.
+    public private(set) lazy var place = Place(state: placeState)
+    /// Access to the more complicated underlying data model for the connected Place.
+    public let placeState = PlaceState()
     
     let url: URL
     let avatarDesc: EntityDescription
@@ -289,7 +292,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         //print("Received place change for revision \(changeset.fromRevision) -> \(changeset.toRevision)")
         Task
         { @MainActor in
-            guard place.applyChangeSet(changeset) else
+            guard placeState.applyChangeSet(changeset) else
             {
                 print("Failed to apply change set, asking for a full diff")
                 currentIntent = Intent(ackStateRev: 0)

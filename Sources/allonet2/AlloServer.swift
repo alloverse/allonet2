@@ -275,7 +275,7 @@ public class PlaceServer : AlloSessionDelegate
     
     // MARK: - Entity and component management
     
-    func createEntity(from description:EntityDescription, for client: ConnectedClient) async -> Entity
+    func createEntity(from description:EntityDescription, for client: ConnectedClient) async -> EntityData
     {
         let (ent, changes) = description.changes(for: client.cid.uuidString)
         print("For \(client.cid), creating entity \(ent.id) with \(description.components.count) components and \(description.children.count) children")
@@ -370,9 +370,9 @@ internal class ConnectedClient
 
 internal extension EntityDescription
 {
-    internal func changes(for ownerAgentId: String) -> (Entity, [PlaceChange])
+    internal func changes(for ownerAgentId: String) -> (EntityData, [PlaceChange])
     {
-        let ent = Entity(id: EntityID.random(), ownerAgentId: ownerAgentId)
+        let ent = EntityData(id: EntityID.random(), ownerAgentId: ownerAgentId)
         return (
             ent,
             [

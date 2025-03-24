@@ -119,7 +119,7 @@ extension PlaceContents
     internal func applyChangeSet(_ changeSet: PlaceChangeSet) -> PlaceContents
     {
         assert(revision == changeSet.fromRevision, "Attempt to apply changeset meant for another revision.")
-        var entities: [EntityID: Entity] = self.entities
+        var entities: [EntityID: EntityData] = self.entities
         var lists = self.components.lists
         for change in changeSet.changes
         {
@@ -139,7 +139,7 @@ extension PlaceContents
                 lists[type(of:component).componentTypeId]![eid] = nil
             }
         }
-        return PlaceContents(revision: changeSet.toRevision, entities: entities, components: Components(lists: lists))
+        return PlaceContents(revision: changeSet.toRevision, entities: entities, components: ComponentLists(lists: lists))
     }
 }
 
