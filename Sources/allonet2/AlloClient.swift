@@ -234,7 +234,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     
     public struct InteractionHandler<T>
     {
-        private var handlers: [String: (Interaction) async -> T] = [:]
+        private var handlers: [String: @MainActor (Interaction) async -> T] = [:]
         
         // Store a handler for a specific request type, returning a response. Example:
         // client.responders["custom"] = { // 'custom' is taken from the first part of the enum case name
