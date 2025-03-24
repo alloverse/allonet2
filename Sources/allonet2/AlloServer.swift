@@ -325,9 +325,9 @@ public class PlaceServer : AlloSessionDelegate
         guard let ent = ent else {
             throw AlloverseError(domain: PlaceErrorDomain, code: PlaceErrorCode.notFound.rawValue, description: "No such entity")
         }
-        guard client == nil || ent.ownerAgentId == client!.cid.uuidString else {
+        /*guard client == nil || ent.ownerAgentId == client!.cid.uuidString else {
             throw AlloverseError(domain: PlaceErrorDomain, code: PlaceErrorCode.unauthorized.rawValue, description: "That's not your entity to modify")
-        }
+        }*/ // Re-enable this when we have ACLs
         
         let addOrChanges = addOrChange.map
         {
