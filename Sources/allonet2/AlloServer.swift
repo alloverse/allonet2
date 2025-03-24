@@ -375,7 +375,8 @@ internal extension EntityDescription
             + components.map { .componentAdded(ent.id, $0.base) }
             + children.flatMap {
                 let (child, changes) = $0.changes(for: ownerAgentId)
-                return changes
+                let relationship = PlaceChange.componentAdded(child.id, Relationships(parent: ent.id))
+                return changes + [relationship]
             }
         )
     }

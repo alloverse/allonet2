@@ -22,6 +22,13 @@ class DemoApp
                 mesh: .sphere(radius: 0.5),
                 material: .color(color: .hsv(hue: .random(in: 0...1), saturation: 0.9, value: 1, alpha: 1), metallic: true)
             )
+        ], children: [
+            EntityDescription(components: [
+                Model(
+                    mesh: .cylinder(height: 2.0, radius: 0.2),
+                    material: .color(color: .hsv(hue: .random(in: 0...1), saturation: 0.9, value: 1, alpha: 1), metallic: true)
+                )
+            ])
         ]))
         
         Task {

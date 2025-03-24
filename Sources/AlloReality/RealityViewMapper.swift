@@ -41,6 +41,17 @@ public class RealityViewMapper
             entity.setTransformMatrix(transform.matrix, relativeTo: entity.parent)
         }
         
+        startSyncingOf(networkComponentType: Relationships.self) { (entity, relationship) in
+            guard entity.parent?.name != relationship.parent else { return }
+            entity.removeFromParent()
+            let newParent = self.guiroot.findEntity(named: relationship.parent)!
+            newParent.addChild(entity)
+        } remover: { (entity, relationship) in
+            guard entity.parent != self.guiroot else { return }
+            entity.removeFromParent()
+            self.guiroot.addChild(entity)
+        }
+        
         startSyncingOf(networkComponentType: Model.self, to: ModelComponent.self)
         {
             (entity, model) in
@@ -73,6 +84,23 @@ public class RealityViewMapper
     }
     
     /// In addition to syncing the Standard Components from `startSyncing()`, also sync other/custom components with this method, called directly after `startSyncing` but before the AlloClient connects.
+    public func startSyncingOf<T>(
+        networkComponentType: T.Type,
+        updater: @escaping (RealityKit.Entity, T) -> Void,
+        remover: @escaping (RealityKit.Entity, T) -> Void
+    ) where T : allonet2.Component
+    {
+        netstate.observers[networkComponentType.self].updated.sink { (eid, netcomp) in
+            guard let guient = self.guiroot.findEntity(named: eid) else { return }
+            updater(guient, netcomp)
+        }.store(in: &cancellables)
+        netstate.observers[networkComponentType.self].removed.sink { (eid, netcomp) in
+            guard let guient = self.guiroot.findEntity(named: eid) else { return }
+            updater(guient, netcomp)
+        }.store(in: &cancellables)
+    }
+    
+    /// Convenience alternative to `startSyncingOf:updater:remover` when there's a one-to-one map between an Alloverse entity type and a RealityKit entity type.
     public func startSyncingOf<T, U>(networkComponentType: T.Type, to realityComponentType: U.Type, using updater: @escaping (RealityKit.Entity, T) -> Void) where T : allonet2.Component, U : RealityKit.Component
     {
         netstate.observers[networkComponentType.self].updated.sink { (eid, netcomp) in

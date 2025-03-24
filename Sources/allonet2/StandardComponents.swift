@@ -31,6 +31,14 @@ public struct Transform: Component
     }
 }
 
+public struct Relationships: Component
+{
+    public var parent: EntityID
+    public init(parent: EntityID) {
+        self.parent = parent
+    }
+}
+
 public enum Color: Equatable, Codable
 {
     case rgb(red: Float, green: Float, blue: Float, alpha: Float)
@@ -119,6 +127,7 @@ public struct VisorInfo: Component
 func RegisterStandardComponents()
 {
     Transform.register()
+    Relationships.register()
     Model.register()
     VisorInfo.register()
     Collision.register()
