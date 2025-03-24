@@ -12,7 +12,7 @@ import Combine
 public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
 {
     /// Convenient access to the contents of the connected Place.
-    public private(set) lazy var place = Place(state: placeState)
+    public private(set) lazy var place = Place(state: placeState, client: self)
     /// Access to the more complicated underlying data model for the connected Place.
     public let placeState = PlaceState()
     

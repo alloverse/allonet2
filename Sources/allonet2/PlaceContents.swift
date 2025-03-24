@@ -1,70 +1,11 @@
 import Foundation
 import Combine
 
+/// This file contains the low-level data API for accessing and listening to changes of the contents of a connected Place.
+
 public typealias EntityID = String
 public typealias ComponentTypeID = String
 public typealias StateRevision = Int64
-
-/// The current contents of the Place which you are connected, with all its entities and their components.
-public class Place
-{
-    /// All the entities currently in the place.
-    public var entities : LazyMap<EntityID, EntityData, Entity>
-    {
-        return LazyMap<EntityID, EntityData, Entity>(storage:state.current.entities)
-        { (k, v) in
-            return Entity(state: self.state, id: k)
-        }
-    }
-    
-    /// If you prefer a component-major view of the place (e g if you are writing a System which only deals with a single component type), this is a much more efficient accessor.
-    public var components: ComponentLists
-    {
-        return self.state.current.components
-    }
-    
-    // This is where it gets its actual data
-    private var state: PlaceState
-    internal init(state: PlaceState)
-    {
-        self.state = state
-    }
-}
-
-/// An entity is the thing in Place that components are part of. This is the convenience API for accessing all the related data for an entity in a single place.
-public struct Entity
-{
-    public let id: EntityID
-    public let components: ComponentSet
- 
-    let state: PlaceState
-    internal init(state: PlaceState, id: EntityID)
-    {
-        self.state = state
-        self.id = id
-        self.components = ComponentSet(state: state, id: id)
-    }
-}
-
-/// All the components that a single Entity contains in one place.
-public struct ComponentSet
-{
-    public subscript<T>(componentType: T.Type) -> T where T : Component
-    {
-        return state.current.components[componentType.componentTypeId]?[id] as! T
-    }
-    public subscript(componentTypeID: ComponentTypeID) -> (any Component)?
-    {
-        return state.current.components[componentTypeID]?[id]
-    }
-    
-    let state: PlaceState
-    let id: EntityID
-    internal init(state: PlaceState, id: EntityID) {
-        self.state = state
-        self.id = id
-    }
-}
 
 /// The current and historical state of the place. This is the stateful underlying representation of a Place; use `Place` instead for a simpler API.
 public class PlaceState

@@ -64,9 +64,9 @@ class DemoApp
                 t += 0.02
                 
                 let tform = Transform(translation: [sinf(t)*r, 0, cosf(t)*r])
-                try await self.client.changeEntity(entityId: avatar.id, addOrChange: [
-                    tform
-                ])
+                try await avatar.components.set(tform)
+                // This is equivalent to:
+                // try await self.client.changeEntity(entityId: avatar.id, addOrChange: [tform])
             }
         }
         
