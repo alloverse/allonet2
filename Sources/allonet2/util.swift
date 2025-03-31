@@ -111,6 +111,22 @@ extension simd_float4x4 {
     }
 }
 
+extension simd_float4x4 {
+    static func * (lhs: simd_float4x4, rhs: SIMD3<Float>) -> SIMD3<Float> {
+        let vec4 = SIMD4<Float>(rhs, 1)
+        let transformed = lhs * vec4
+        return transformed.xyz
+    }
+}
+
+extension SIMD4
+{
+    var xyz: SIMD3<Scalar>
+    {
+        SIMD3<Scalar>(self.x, self.y, self.z)
+    }
+}
+
 extension EntityID
 {
     static func random() -> EntityID
