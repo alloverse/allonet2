@@ -6,6 +6,7 @@
 //
 
 /// This file contains the convenience API for accessing and modifying the contents of a connected Place.
+import simd
 
 /// The current contents of the Place which you are connected, with all its entities and their components. This is the convenience API; for access to the underlying data, look at `PlaceContents`.
 @MainActor
@@ -53,15 +54,39 @@ public struct Entity
         self.id = id
         self.components = ComponentSet(state: state, client: client, id: id)
     }
+    
+    public var parent: Entity?
+    {
+        guard let parentId = self.components[Relationships.self]?.parent else
+        {
+            return nil
+        }
+        
+        return Entity(state: state, client: client!, id: parentId)
+    }
+    
+    public var transformToParent: simd_float4x4 {
+        return self.components[Transform.self]?.matrix ?? .identity
+    }
+    
+    public var transformToWorld: simd_float4x4 {
+        var transform = self.transformToParent
+        if let parent = self.parent
+        {
+            transform = parent.transformToWorld * transform
+        }
+        
+        return transform
+    }
 }
 
 /// All the components that a single Entity contains in one place.
 @MainActor
 public struct ComponentSet
 {
-    public subscript<T>(componentType: T.Type) -> T where T : Component
+    public subscript<T>(componentType: T.Type) -> T? where T : Component
     {
-        return state.current.components[componentType.componentTypeId]?[id] as! T
+        return state.current.components[componentType.componentTypeId]?[id] as! T?
     }
     public func set<T>(_ newValue: T) async throws(AlloverseError) where T: Component
     {
