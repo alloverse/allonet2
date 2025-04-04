@@ -19,14 +19,14 @@ public struct Transform: Component
     
     public init(
         translation: SIMD3<Float> = [0,0,0],
-        rotation: simd_quatf = simd_quatf(),
+        rotation: simd_quatf = .identity,
         scale: SIMD3<Float> = [1,1,1]
     )
     {
         matrix = float4x4.identity
         matrix.translation = translation
         // TODO: Fix the math in the float4x4 extension
-        //matrix.rotation = rotation
+        matrix.rotation = rotation
         //matrix.scale = scale
     }
 }

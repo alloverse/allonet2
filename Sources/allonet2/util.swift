@@ -111,11 +111,20 @@ extension simd_float4x4 {
     }
 }
 
-extension simd_float4x4 {
+extension simd_float4x4
+{
     static func * (lhs: simd_float4x4, rhs: SIMD3<Float>) -> SIMD3<Float> {
         let vec4 = SIMD4<Float>(rhs, 1)
         let transformed = lhs * vec4
         return transformed.xyz
+    }
+}
+
+extension simd_quatf
+{
+    public static var identity: simd_quatf
+    {
+        simd_quatf(ix: 0, iy: 0, iz: 0, r: 1)
     }
 }
 
