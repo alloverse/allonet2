@@ -56,10 +56,12 @@ public enum InteractionBody : Codable
     // - Agent to agent
     case tap(at: SIMD3<Float>) // oneway
     
-    // - Responses
+    // - Other
+    case custom(value: [String: AnyCodable])
+    
+    // - Generic responses
     case error(domain: String, code: Int, description: String)
     case success // generic request-was-successful
-    case custom(value: [String: AnyCodable])
     
     // - Utilities
     // Get just the name of the interaction, for use as a unique key

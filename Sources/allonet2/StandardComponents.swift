@@ -7,6 +7,9 @@
 
 import simd
 
+// MARK: Rendering/RealityKit related components
+// These all have an almost 1-to-1 mapping to a corresponding RealityKit component.
+// They are however designed to be implementable in other engines too.
 
 public struct Transform: Component
 {
@@ -37,23 +40,6 @@ public struct Relationships: Component
     public init(parent: EntityID) {
         self.parent = parent
     }
-}
-
-public enum Color: Equatable, Codable
-{
-    case rgb(red: Float, green: Float, blue: Float, alpha: Float)
-    case hsv(hue: Float, saturation: Float, value: Float, alpha: Float)
-    
-    public static var white: Color { .rgb(red: 1, green: 1, blue: 1, alpha: 1) }
-    public static var black: Color { .rgb(red: 0, green: 0, blue: 0, alpha: 1) }
-    public static var red: Color { .rgb(red: 1, green: 0, blue: 0, alpha: 1) }
-    public static var green: Color { .rgb(red: 0, green: 1, blue: 0, alpha: 1) }
-    public static var blue: Color { .rgb(red: 0, green: 0, blue: 1, alpha: 1) }
-    public static var yellow: Color { .rgb(red: 1, green: 1, blue: 0, alpha: 1) }
-    public static var cyan: Color { .rgb(red: 0, green: 1, blue: 1, alpha: 1) }
-    public static var magenta: Color { .rgb(red: 1, green: 0, blue: 1, alpha: 1) }
-    public static var orange: Color { .rgb(red: 1, green: 0.5, blue: 0, alpha: 1) }
-    public static var pink: Color { .rgb(red: 1, green: 0.8, blue: 0.8, alpha: 1) }
 }
 
 public struct Model: Component
@@ -134,6 +120,10 @@ public struct Billboard: Component
     }
 }
 
+// MARK: - Custom components
+// These shouldn't be in StandardComponents, but because Alloverse v2 doesn't have support
+// for schemas outside of the built-in component types yet, they go in here anyway.
+
 public struct VisorInfo: Component
 {
     public var displayName: String
@@ -141,6 +131,25 @@ public struct VisorInfo: Component
     {
         self.displayName = displayName
     }
+}
+
+// MARK: - Related types
+
+public enum Color: Equatable, Codable
+{
+    case rgb(red: Float, green: Float, blue: Float, alpha: Float)
+    case hsv(hue: Float, saturation: Float, value: Float, alpha: Float)
+    
+    public static var white: Color { .rgb(red: 1, green: 1, blue: 1, alpha: 1) }
+    public static var black: Color { .rgb(red: 0, green: 0, blue: 0, alpha: 1) }
+    public static var red: Color { .rgb(red: 1, green: 0, blue: 0, alpha: 1) }
+    public static var green: Color { .rgb(red: 0, green: 1, blue: 0, alpha: 1) }
+    public static var blue: Color { .rgb(red: 0, green: 0, blue: 1, alpha: 1) }
+    public static var yellow: Color { .rgb(red: 1, green: 1, blue: 0, alpha: 1) }
+    public static var cyan: Color { .rgb(red: 0, green: 1, blue: 1, alpha: 1) }
+    public static var magenta: Color { .rgb(red: 1, green: 0, blue: 1, alpha: 1) }
+    public static var orange: Color { .rgb(red: 1, green: 0.5, blue: 0, alpha: 1) }
+    public static var pink: Color { .rgb(red: 1, green: 0.8, blue: 0.8, alpha: 1) }
 }
 
 // MARK: - Internals
