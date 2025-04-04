@@ -61,6 +61,11 @@ public class RealityViewMapper
             entity.components.set(CollisionComponent(shapes: collision.realityShapes))
         }
         
+        startSyncingOf(networkComponentType: Opacity.self, to: OpacityComponent.self)
+        { entity, opacity in
+            entity.components.set(OpacityComponent(opacity: opacity.opacity))
+        }
+        
         if #available(macOS 15.0, *) {
             startSyncingOf(networkComponentType: InputTarget.self, to: InputTargetComponent.self)
             {

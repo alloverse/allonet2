@@ -116,6 +116,15 @@ public struct HoverEffect: Component
     }
 }
 
+public struct Opacity: Component
+{
+    public var opacity: Float
+    public init(opacity: Float)
+    {
+        self.opacity = opacity
+    }
+}
+
 public struct VisorInfo: Component
 {
     public var displayName: String
@@ -136,5 +145,6 @@ func RegisterStandardComponents()
     Collision.register()
     InputTarget.register()
     HoverEffect.register()
+    Opacity.register()
     VisorInfo.register()
 }
