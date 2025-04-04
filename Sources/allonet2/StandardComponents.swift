@@ -60,7 +60,9 @@ public struct Model: Component
 {
     public enum Mesh: Equatable, Codable
     {
-        case asset(id: String)
+        case builtin(name: String) // A mesh loaded from a client-provided file. This is a hack and will be replaced by Asset-based meshes
+        case asset(id: String) // A mesh loaded by requesting it over the network from the agent that publishes it
+        // The rest or basic geometric meshes
         case box(size: SIMD3<Float>, cornerRadius: Float)
         case plane(width: Float, depth: Float, cornerRadius: Float)
         case cylinder(height: Float, radius: Float)
@@ -68,13 +70,14 @@ public struct Model: Component
     }
     public enum Material: Equatable, Codable
     {
+        case standard // No material for basic geometry; or for builtin/asset: use the material from the loaded file.
         case color(color: Color, metallic: Bool)
     }
 
     public var mesh: Mesh
     public var material: Material
     
-    public init(mesh: Mesh, material: Material)
+    public init(mesh: Mesh, material: Material = .standard)
     {
         self.mesh = mesh
         self.material = material

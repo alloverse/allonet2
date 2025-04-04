@@ -7,7 +7,7 @@ let package = Package(
     name: "allonet2",
     platforms: [
         .visionOS(.v2),
-        .macOS(.v13),
+        .macOS(.v15),
         .iOS(.v18)
     ],
     products: [
