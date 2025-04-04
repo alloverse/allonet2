@@ -56,14 +56,19 @@ public class RealityViewMapper
         startSyncingModel()
         
         startSyncingOf(networkComponentType: Collision.self, to: CollisionComponent.self)
-        {
-            (entity, collision) in
+        { entity, collision in
             entity.components.set(CollisionComponent(shapes: collision.realityShapes))
         }
         
         startSyncingOf(networkComponentType: Opacity.self, to: OpacityComponent.self)
         { entity, opacity in
             entity.components.set(OpacityComponent(opacity: opacity.opacity))
+        }
+        startSyncingOf(networkComponentType: Billboard.self, to: BillboardComponent.self)
+        { entity, billboard in
+            var reality = BillboardComponent()
+            reality.blendFactor = billboard.blendFactor
+            entity.components.set(reality)
         }
         
         if #available(macOS 15.0, *) {

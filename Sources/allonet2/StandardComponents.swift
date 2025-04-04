@@ -125,6 +125,15 @@ public struct Opacity: Component
     }
 }
 
+public struct Billboard: Component
+{
+    public var blendFactor: Float
+    public init(blendFactor: Float = 1.0)
+    {
+        self.blendFactor = blendFactor
+    }
+}
+
 public struct VisorInfo: Component
 {
     public var displayName: String
@@ -146,5 +155,6 @@ func RegisterStandardComponents()
     InputTarget.register()
     HoverEffect.register()
     Opacity.register()
+    Billboard.register()
     VisorInfo.register()
 }
