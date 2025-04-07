@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import WebRTC
+import LiveKitWebRTC
 
 public struct SignallingPayload: Codable
 {
@@ -20,11 +20,11 @@ public struct SignallingPayload: Codable
         self.clientId = clientId
     }
     
-    public func desc(for type: RTCSdpType) -> RTCSessionDescription
+    public func desc(for type: RTCSdpType) -> LKRTCSessionDescription
     {
-        return RTCSessionDescription(type: type, sdp: self.sdp)
+        return LKRTCSessionDescription(type: type, sdp: self.sdp)
     }
-    public func rtcCandidates() -> [RTCIceCandidate]
+    public func rtcCandidates() -> [LKRTCIceCandidate]
     {
         return candidates.map { $0.candidate() }
     }
@@ -36,7 +36,7 @@ public struct SignallingIceCandidate: Codable
     let sdpMLineIndex: Int32
     let sdp: String
     let serverUrl: String?
-    public init(candidate: RTCIceCandidate)
+    public init(candidate: LKRTCIceCandidate)
     {
         sdpMid = candidate.sdpMid!
         sdpMLineIndex = candidate.sdpMLineIndex
@@ -44,8 +44,8 @@ public struct SignallingIceCandidate: Codable
         serverUrl = candidate.serverUrl
     }
     
-    public func candidate() -> RTCIceCandidate
+    public func candidate() -> LKRTCIceCandidate
     {
-        return RTCIceCandidate(sdp: sdp, sdpMLineIndex: sdpMLineIndex, sdpMid: sdpMid)
+        return LKRTCIceCandidate(sdp: sdp, sdpMLineIndex: sdpMLineIndex, sdpMid: sdpMid)
     }
 }

@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import WebRTC
+import LiveKitWebRTC
 
 extension RTCSignalingState: CustomDebugStringConvertible
 {

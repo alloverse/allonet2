@@ -6,26 +6,26 @@
 //
 
 import Foundation
-import WebRTC
+import LiveKitWebRTC
 
 public protocol RTCSessionDelegate: AnyObject
 {
     func session(didConnect: RTCSession)
     func session(didDisconnect: RTCSession)
-    func session(_: RTCSession, didReceiveData data: Data, on channel: RTCDataChannel)
+    func session(_: RTCSession, didReceiveData data: Data, on channel: LKRTCDataChannel)
 }
 
 public typealias RTCClientId = UUID
 
 /// Wrapper of RTCPeerConnection with Alloverse-specific peer semantics, but no business logic
-public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDelegate {
+public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannelDelegate {
     public private(set) var clientId: RTCClientId?
-    public let peer: RTCPeerConnection
-    private var channels: [RTCDataChannel] = []
+    public let peer: LKRTCPeerConnection
+    private var channels: [LKRTCDataChannel] = []
     
     public weak var delegate: RTCSessionDelegate?
     
-    private var localCandidates : [RTCIceCandidate] = []
+    private var localCandidates : [LKRTCIceCandidate] = []
     private var candidatesLocked = false
     private var candidatesContinuation: CheckedContinuation<Void, Never>?
     
@@ -60,7 +60,7 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
         }
     }
     
-    public func generateAnswer(offer: RTCSessionDescription, remoteCandidates: [RTCIceCandidate]) async throws -> String
+    public func generateAnswer(offer: LKRTCSessionDescription, remoteCandidates: [LKRTCIceCandidate]) async throws -> String
     {
         clientId = UUID()
         try await set(remoteSdp: offer)
@@ -85,7 +85,7 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
         }
     }
     
-    public func receive(client id: UUID, answer: RTCSessionDescription, candidates: [RTCIceCandidate]) async throws
+    public func receive(client id: UUID, answer: LKRTCSessionDescription, candidates: [LKRTCIceCandidate]) async throws
     {
         clientId = id
         try await set(remoteSdp: answer)
@@ -95,7 +95,7 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
         }
     }
     
-    private func set(remoteSdp: RTCSessionDescription) async throws
+    private func set(remoteSdp: LKRTCSessionDescription) async throws
     {
         return try await withCheckedThrowingContinuation() { cont in
             peer.setRemoteDescription(remoteSdp) { err in
@@ -107,7 +107,7 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
             }
         }
     }
-    public func set(remoteCandidate: RTCIceCandidate) async throws
+    public func set(remoteCandidate: LKRTCIceCandidate) async throws
     {
         return try await withCheckedThrowingContinuation() { cont in
             peer.add(remoteCandidate) { err in
@@ -121,7 +121,7 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     }
     
     
-    public func gatherCandidates() async -> [RTCIceCandidate]
+    public func gatherCandidates() async -> [LKRTCIceCandidate]
     {
         await withCheckedContinuation {
             if candidatesLocked {
@@ -133,7 +133,7 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
         return localCandidates
     }
     
-    public func createDataChannel(as label: String, configuration: RTCDataChannelConfiguration) -> RTCDataChannel?
+    public func createDataChannel(as label: String, configuration: LKRTCDataChannelConfiguration) -> LKRTCDataChannel?
     {
         guard let chan = peer.dataChannel(forLabel: label, configuration: configuration)
             else { return nil }
@@ -145,14 +145,14 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     //MARK: - Internals
     
 
-    private static func createPeerConnection() -> RTCPeerConnection
+    private static func createPeerConnection() -> LKRTCPeerConnection
     {
-        let config = RTCConfiguration()
+        let config = LKRTCConfiguration()
         
         config.sdpSemantics = .unifiedPlan
         config.continualGatheringPolicy = .gatherOnce
         // Define media constraints. DtlsSrtpKeyAgreement is required to be true to be able to connect with web browsers.
-        let constraints = RTCMediaConstraints(mandatoryConstraints: nil,
+        let constraints = LKRTCMediaConstraints(mandatoryConstraints: nil,
                                               optionalConstraints: ["DtlsSrtpKeyAgreement":kRTCMediaConstraintsValueTrue])
         
         guard let peerConnection = RTCSession.factory.peerConnection(with: config, constraints: constraints, delegate: nil) else {
@@ -162,14 +162,14 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
         return peerConnection
     }
     
-    private static let factory: RTCPeerConnectionFactory = {
+    private static let factory: LKRTCPeerConnectionFactory = {
         RTCInitializeSSL()
-        let videoEncoderFactory = RTCDefaultVideoEncoderFactory()
-        let videoDecoderFactory = RTCDefaultVideoDecoderFactory()
-        return RTCPeerConnectionFactory(encoderFactory: videoEncoderFactory, decoderFactory: videoDecoderFactory)
+        let videoEncoderFactory = LKRTCDefaultVideoEncoderFactory()
+        let videoDecoderFactory = LKRTCDefaultVideoDecoderFactory()
+        return LKRTCPeerConnectionFactory(encoderFactory: videoEncoderFactory, decoderFactory: videoDecoderFactory)
     }()
     
-    private let mediaConstraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
+    private let mediaConstraints = LKRTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
     
     private var didFullyConnect = false
     private func maybeConnected()
@@ -187,27 +187,27 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     }
     
     //MARK: - Peer connection delegates
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didChange stateChanged: RTCSignalingState)
+    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange stateChanged: RTCSignalingState)
     {
         print("Session \(clientId?.debugDescription ?? "unknown") signaling state \(stateChanged)")
     }
     
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didAdd stream: RTCMediaStream)
+    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didAdd stream: LKRTCMediaStream)
     {
         
     }
     
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didRemove stream: RTCMediaStream)
+    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didRemove stream: LKRTCMediaStream)
     {
         
     }
     
-    public func peerConnectionShouldNegotiate(_ peerConnection: RTCPeerConnection)
+    public func peerConnectionShouldNegotiate(_ peerConnection: LKRTCPeerConnection)
     {
         // TODO: This probably needs something...
     }
     
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceConnectionState)
+    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: RTCIceConnectionState)
     {
         print("Session \(clientId?.debugDescription ?? "unknown") ICE state \(newState)")
         if newState == .connected || newState == .completed
@@ -226,7 +226,7 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
         }
     }
     
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didChange newState: RTCIceGatheringState)
+    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: RTCIceGatheringState)
     {
         if newState == .complete {
             candidatesLocked = true
@@ -236,7 +236,7 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
         }
     }
     
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate)
+    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didGenerate candidate: LKRTCIceCandidate)
     {
         if candidatesLocked
         {
@@ -246,12 +246,12 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
         localCandidates.append(candidate)
     }
     
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didRemove candidates: [RTCIceCandidate])
+    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didRemove candidates: [LKRTCIceCandidate])
     {
         print("!! Lost candidate, shouldn't happen since we're not gathering continuously")
     }
     
-    public func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel)
+    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didOpen dataChannel: LKRTCDataChannel)
     {
         if dataChannel.label == "interactions"
         {
@@ -266,13 +266,13 @@ public class RTCSession: NSObject, RTCPeerConnectionDelegate, RTCDataChannelDele
     }
     
     //MARK: - Data channel delegate
-    public func dataChannelDidChangeState(_ dataChannel: RTCDataChannel)
+    public func dataChannelDidChangeState(_ dataChannel: LKRTCDataChannel)
     {
         print("Data channel \(dataChannel.label) state \(dataChannel.readyState)")
         maybeConnected()
     }
     
-    public func dataChannel(_ dataChannel: RTCDataChannel, didReceiveMessageWith buffer: RTCDataBuffer)
+    public func dataChannel(_ dataChannel: LKRTCDataChannel, didReceiveMessageWith buffer: LKRTCDataBuffer)
     {
         delegate?.session(self, didReceiveData: buffer.data, on: dataChannel)
     }

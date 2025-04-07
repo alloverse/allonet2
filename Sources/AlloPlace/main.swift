@@ -8,7 +8,6 @@
 import Foundation
 import allonet2
 import FlyingFox
-import WebRTC
 
 let name = CommandLine.arguments[safe: 1] ?? "Unnamed Alloverse Place"
 let server = PlaceServer(name: name)

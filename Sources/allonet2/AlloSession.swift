@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import WebRTC
+import LiveKitWebRTC
 import BinaryCodable
 
 public protocol AlloSessionDelegate: AnyObject
@@ -27,8 +27,8 @@ public class AlloSession : NSObject, RTCSessionDelegate
     public weak var delegate: AlloSessionDelegate?
 
     public let rtc = RTCSession()
-    private var interactionChannel: RTCDataChannel!
-    private var worldstateChannel: RTCDataChannel!
+    private var interactionChannel: LKRTCDataChannel!
+    private var worldstateChannel: LKRTCDataChannel!
     
     private var outstandingInteractions: [Interaction.RequestID: CheckedContinuation<Interaction, Never>] = [:]
     
@@ -53,7 +53,7 @@ public class AlloSession : NSObject, RTCSessionDelegate
     public func send(interaction: Interaction)
     {
         let data = try! encoder.encode(interaction)
-        interactionChannel.sendData(RTCDataBuffer(data: data, isBinary: true))
+        interactionChannel.sendData(LKRTCDataBuffer(data: data, isBinary: true))
     }
     
     public func request(interaction: Interaction) async -> Interaction
@@ -68,24 +68,24 @@ public class AlloSession : NSObject, RTCSessionDelegate
     public func send(placeChangeSet: PlaceChangeSet)
     {
         let data = try! encoder.encode(placeChangeSet)
-        worldstateChannel.sendData(RTCDataBuffer(data: data, isBinary: true))
+        worldstateChannel.sendData(LKRTCDataBuffer(data: data, isBinary: true))
     }
     
     public func send(_ intent: Intent)
     {
         let data = try! encoder.encode(intent)
-        worldstateChannel.sendData(RTCDataBuffer(data: data, isBinary: true))
+        worldstateChannel.sendData(LKRTCDataBuffer(data: data, isBinary: true))
     }
     
     private func setupDataChannels()
     {
-        interactionChannel = rtc.createDataChannel(as: "interactions", configuration: with(RTCDataChannelConfiguration()) {
+        interactionChannel = rtc.createDataChannel(as: "interactions", configuration: with(LKRTCDataChannelConfiguration()) {
             $0.isNegotiated = true
             $0.isOrdered = true
             $0.maxRetransmits = -1
             $0.channelId = 1
         })
-        worldstateChannel = rtc.createDataChannel(as: "worldstate", configuration: with(RTCDataChannelConfiguration()) {
+        worldstateChannel = rtc.createDataChannel(as: "worldstate", configuration: with(LKRTCDataChannelConfiguration()) {
             $0.isNegotiated = true
             $0.isOrdered = false
             $0.maxRetransmits = 0
@@ -106,7 +106,7 @@ public class AlloSession : NSObject, RTCSessionDelegate
     }
     
     let decoder = BinaryDecoder()
-    public func session(_: RTCSession, didReceiveData data: Data, on channel: RTCDataChannel)
+    public func session(_: RTCSession, didReceiveData data: Data, on channel: LKRTCDataChannel)
     {
         if channel == interactionChannel
         {
