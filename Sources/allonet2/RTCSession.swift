@@ -14,6 +14,8 @@ public protocol RTCSessionDelegate: AnyObject
     func session(didDisconnect: RTCSession)
     func session(_: RTCSession, didReceiveData data: Data, on channel: LKRTCDataChannel)
     func session(_: RTCSession, didReceiveMediaStream: LKRTCMediaStream)
+    
+    func session(requestsRenegotiation session: RTCSession)
 }
 
 public typealias RTCClientId = UUID
@@ -194,7 +196,12 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
             didFullyConnect = true
             self.delegate?.session(didConnect: self)
             
-            assert(renegotiationNeeded == false, "We don't have signalling anymore, so we can't renegotiate, but webrtc has asked us to")
+            if(renegotiationNeeded)
+            {
+                print("Renegotiation became necessary while connecting, so now renegotiating")
+                self.renegotiate()
+            }
+
         }
     }
     
@@ -220,7 +227,15 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
     {
         print("Renegotiation hinted")
         renegotiationNeeded = true
-        assert(!didFullyConnect, "Renegotiation hinted after connecting; can't do anything about it since signaling is now unavailable")
+        if didFullyConnect
+        {
+            self.renegotiate()
+        }
+    }
+    
+    func renegotiate()
+    {
+        delegate?.session(requestsRenegotiation: self)
     }
     
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: RTCIceConnectionState)

@@ -63,6 +63,9 @@ public enum InteractionBody : Codable
     case error(domain: String, code: Int, description: String)
     case success // generic request-was-successful
     
+    // - Internal, do not use
+    case internal_renegotiate(SignallingDirection, SignallingPayload)
+    
     // - Utilities
     // Get just the name of the interaction, for use as a unique key
     var caseName: String {
@@ -111,6 +114,8 @@ public enum AlloverseErrorCode: Int
 {
     case unhandledRequest = 1   // The recipient doesn't know how to respond to this interaction
     case unexpectedResponse = 2 // Interaction received some other response than was expected
+    
+    case failedRenegotiation = 100 // Connection environment changed, but underlying connection failed to adapt
 }
 public struct AlloverseError: Error, Codable
 {

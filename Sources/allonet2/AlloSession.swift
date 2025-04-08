@@ -133,6 +133,12 @@ public class AlloSession : NSObject, RTCSessionDelegate
         {
             do {
                 let inter = try decoder.decode(Interaction.self, from: data)
+                if case .internal_renegotiate(.offer, let payload) = inter.body
+                {
+                    respondToRenegotiation(offer: payload, request: inter)
+                    return
+                }
+                
                 if let continuation = outstandingInteractions[inter.requestId]
                 {
                     assert(inter.type == .response)
@@ -176,6 +182,84 @@ public class AlloSession : NSObject, RTCSessionDelegate
         incomingStreams[stream.streamId] = allostream
         delegate?.session(self, didReceiveMediaStream: allostream)
     }
+    
+    public func session(requestsRenegotiation session: RTCSession)
+    {
+        Task
+        {
+            do
+            {
+                try await renegotiateInner()
+            }
+            catch (let e)
+            {
+                // TODO: store the error, mark as temporary, and force upper lever to reconnect
+                print("Failed to renegotiate offer for \(rtc.clientId!): \(e)")
+                rtc.disconnect()
+            }
+        }
+    }
+
+    private func renegotiateInner() async throws
+    {
+        let offer = SignallingPayload(
+            sdp: try await rtc.generateOffer(),
+            candidates: (await rtc.gatherCandidates()).map { SignallingIceCandidate(candidate: $0) },
+            clientId: rtc.clientId!
+        )
+        print("Sending renegotiation offer over RPC")
+        let response = await request(interaction: Interaction(type: .request, senderEntityId: "", receiverEntityId: PlaceEntity, body: .internal_renegotiate(.offer, offer)))
+        guard case .internal_renegotiate(.answer, let answer) = response.body else
+        {
+            throw AlloverseError(
+                domain: AlloverseErrorDomain,
+                code: AlloverseErrorCode.failedRenegotiation.rawValue,
+                description: "unexpected renegotiation answer: \(response.body)"
+            )
+        }
+        
+        try await rtc.receive(
+            client: rtc.clientId!,
+            answer: answer.desc(for: .answer),
+            candidates: answer.rtcCandidates()
+        )
+        
+        print("RTC renegotiation complete on the offering side")
+    }
+    
+    private func respondToRenegotiation(offer: SignallingPayload, request: Interaction)
+    {
+        print("Received renegotiation offer over RPC")
+        Task
+        {
+            do
+            {
+                try await respondToRenegotiationInner(offer: offer, request: request)
+            }
+            catch(let e)
+            {
+                // TODO: store the error, mark as temporary, and force upper lever to reconnect
+                print("Failed to renegotiate answer for \(rtc.clientId!): \(e)")
+                rtc.disconnect()
+
+            }
+        }
+    }
+    
+    func respondToRenegotiationInner(offer: SignallingPayload, request: Interaction) async throws
+    {
+        let answer = SignallingPayload(
+            sdp: try await rtc.generateAnswer(offer: offer.desc(for: .offer), remoteCandidates: offer.rtcCandidates()),
+            candidates: (await rtc.gatherCandidates()).map { SignallingIceCandidate(candidate: $0) },
+            clientId: rtc.clientId!
+        )
+        
+        let response = request.makeResponse(with: .internal_renegotiate(.answer, answer))
+        self.send(interaction: response)
+        
+        print("RTC renegotiation complete on the answering side")
+    }
+    
     public func addOutgoing(stream: AlloMediaStream)
     {
         rtc.addOutgoing(stream: stream.stream)

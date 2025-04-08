@@ -8,6 +8,12 @@
 import Foundation
 import LiveKitWebRTC
 
+public enum SignallingDirection: Codable
+{
+    case offer
+    case answer
+}
+
 public struct SignallingPayload: Codable
 {
     let sdp: String
