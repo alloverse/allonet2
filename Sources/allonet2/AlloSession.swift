@@ -26,21 +26,28 @@ public class AlloSession : NSObject, RTCSessionDelegate
 {
     public weak var delegate: AlloSessionDelegate?
 
-    public let rtc = RTCSession()
+    internal let rtc: RTCSession
     private var interactionChannel: LKRTCDataChannel!
     private var worldstateChannel: LKRTCDataChannel!
+    private var micTrack: LKRTCAudioTrack!
     
     private var outstandingInteractions: [Interaction.RequestID: CheckedContinuation<Interaction, Never>] = [:]
     
     public enum Side { case client, server }
     private let side: Side
     
-    public init(side: Side)
+    public init(side: Side, sendMicrophone: Bool = false)
     {
         self.side = side
+        self.rtc = RTCSession()
         super.init()
         rtc.delegate = self
+        
         setupDataChannels()
+        if sendMicrophone
+        {
+            micTrack = rtc.createMicrophoneTrack()
+        }
     }
     
     private convenience override init()

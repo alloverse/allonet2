@@ -25,7 +25,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     }
     @Published public private(set) var isAnnounced: Bool = false
     public private(set) var placeName: String?
-    public let session = AlloSession(side: .client)
+    public let session: AlloSession
     var currentIntent = Intent(ackStateRev: 0) {
         didSet {
             Task { await heartbeat.markChanged() }
@@ -57,11 +57,12 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         }
     }
     
-    public init(url: URL, avatarDescription: EntityDescription)
+    public init(url: URL, avatarDescription: EntityDescription, sendMicrophone: Bool = true)
     {
         InitializeAllonet()
         self.url = url
         self.avatarDesc = avatarDescription
+        session = AlloSession(side: .client, sendMicrophone: sendMicrophone)
         session.delegate = self
     }
     

@@ -29,9 +29,14 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
     private var candidatesLocked = false
     private var candidatesContinuation: CheckedContinuation<Void, Never>?
     
+    private let offerAnswerConstraints = LKRTCMediaConstraints(mandatoryConstraints: [
+        kRTCMediaConstraintsOfferToReceiveAudio: kRTCMediaConstraintsValueTrue
+    ], optionalConstraints: [:])
+    
+    private let audioSessionActive = false
+    
     public override init() {
         peer = RTCSession.createPeerConnection()
-        
         super.init()
         peer.delegate = self
     }
@@ -39,13 +44,17 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
     public func disconnect()
     {
         peer.close()
+        if audioSessionActive
+        {
+            endAudioSession()
+        }
     }
     
     public func generateOffer() async throws -> String
     {
         return try await withCheckedThrowingContinuation { cont in
-            peer.offer(for: mediaConstraints) { (sdp, error) in
             renegotiationNeeded = false
+            peer.offer(for: offerAnswerConstraints) { (sdp, error) in
                 guard let sdp = sdp else {
                     cont.resume(throwing: error!)
                     return
@@ -70,8 +79,8 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
             try await set(remoteCandidate: cand)
         }
         return try await withCheckedThrowingContinuation { cont in
-            peer.answer(for: mediaConstraints) { (sdp, error) in
             renegotiationNeeded = false
+            peer.answer(for: offerAnswerConstraints) { (sdp, error) in
                 guard let sdp = sdp else {
                     cont.resume(throwing: error!)
                     return
@@ -171,8 +180,6 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
         return LKRTCPeerConnectionFactory(encoderFactory: videoEncoderFactory, decoderFactory: videoDecoderFactory)
     }()
     
-    private let mediaConstraints = LKRTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
-    
     private var didFullyConnect = false
     private func maybeConnected()
     {
@@ -196,9 +203,33 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
         print("Session \(clientId?.debugDescription ?? "unknown") signaling state \(stateChanged)")
     }
     
+    
+    class FileRenderer: NSObject, LKRTCAudioRenderer
+    {
+        let stream: OutputStream
+        init(filename: String)
+        {
+            let url = URL(fileURLWithPath: NSString(string: "~/Desktop/\(filename)").expandingTildeInPath)
+            self.stream = OutputStream(url: url, append: false)!
+            stream.open()
+            super.init()
+        }
+        func render(pcmBuffer: AVAudioPCMBuffer)
+        {
+            let byteCount = Int(pcmBuffer.frameLength) * 2 * pcmBuffer.stride
+            let written = stream.write(pcmBuffer.int16ChannelData![0], maxLength: byteCount)
+            assert(written == byteCount)
+        }
+    }
+    
+    var renderer: FileRenderer?
+    var incomingAudio: LKRTCMediaStream?
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didAdd stream: LKRTCMediaStream)
     {
-        
+        print("Received stream: \(stream)")
+        incomingAudio = stream
+        renderer = FileRenderer(filename: "\(clientId!)-\(stream.streamId).pcm")
+        audioTrack!.add(renderer!)
     }
     
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didRemove stream: LKRTCMediaStream)
@@ -282,5 +313,54 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
     public func dataChannel(_ dataChannel: LKRTCDataChannel, didReceiveMessageWith buffer: LKRTCDataBuffer)
     {
         delegate?.session(self, didReceiveData: buffer.data, on: dataChannel)
+    }
+    
+    // MARK: - Audio
+    private func beginAudioSession()
+    {
+#if os(macOS)
+        let arbiter = AVAudioRoutingArbiter.shared
+        arbiter.begin(category: .playAndRecordVoice)
+        { _, _ in
+            // ...
+        }
+#else
+        let sess = AVAudioSession.sharedInstance()
+        do {
+            try sess.setCategory(.playAndRecord, mode: .voiceChat)
+            try sess.setActive(true)
+        } catch let error {
+            print("Failed to set audio category and activate audio session: \(error)")
+        }
+#endif
+    }
+    
+    private func endAudioSession()
+    {
+#if os(macOS)
+        let arbiter = AVAudioRoutingArbiter.shared
+        arbiter.leave()
+#else
+        let sess = AVAudioSession.sharedInstance()
+        do {
+            try sess.setActive(false)
+        } catch let error {
+            print("Failed to deactivate audio session: \(error)")
+        }
+#endif
+    }
+    
+    // Start capturing audio from microphone
+    public func createMicrophoneTrack() -> LKRTCAudioTrack
+    {
+        if !audioSessionActive
+        {
+            beginAudioSession()
+        }
+        let audioConstraints = LKRTCMediaConstraints(mandatoryConstraints: [:], optionalConstraints: [:])
+        let audioSource = RTCSession.factory.audioSource(with: audioConstraints)
+        let audioTrack = RTCSession.factory.audioTrack(with: audioSource, trackId: "mic")
+        peer.add(audioTrack, streamIds: ["voice"])
+        return audioTrack
     }
 }
