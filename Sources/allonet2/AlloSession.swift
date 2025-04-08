@@ -176,13 +176,6 @@ public class AlloSession : NSObject, RTCSessionDelegate
         }
     }
     
-    public func session(_: RTCSession, didReceiveMediaStream stream: LKRTCMediaStream)
-    {
-        let allostream = AlloMediaStream(stream: stream)
-        incomingStreams[stream.streamId] = allostream
-        delegate?.session(self, didReceiveMediaStream: allostream)
-    }
-    
     public func session(requestsRenegotiation session: RTCSession)
     {
         Task
@@ -258,6 +251,14 @@ public class AlloSession : NSObject, RTCSessionDelegate
         self.send(interaction: response)
         
         print("RTC renegotiation complete on the answering side")
+    }
+    
+    // MARK: - Audio
+    public func session(_: RTCSession, didReceiveMediaStream stream: LKRTCMediaStream)
+    {
+        let allostream = AlloMediaStream(stream: stream)
+        incomingStreams[stream.streamId] = allostream
+        delegate?.session(self, didReceiveMediaStream: allostream)
     }
     
     public func addOutgoing(stream: AlloMediaStream)

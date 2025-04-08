@@ -343,6 +343,7 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
 #endif
     }
     
+    let micTrackName = "mic"
     // Start capturing audio from microphone
     public func createMicrophoneTrack() -> LKRTCAudioTrack
     {
@@ -352,9 +353,23 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
         }
         let audioConstraints = LKRTCMediaConstraints(mandatoryConstraints: [:], optionalConstraints: [:])
         let audioSource = RTCSession.factory.audioSource(with: audioConstraints)
-        let audioTrack = RTCSession.factory.audioTrack(with: audioSource, trackId: "mic")
+        let audioTrack = RTCSession.factory.audioTrack(with: audioSource, trackId: micTrackName)
         peer.add(audioTrack, streamIds: ["voice"])
         return audioTrack
+    }
+    
+    public var microphoneEnabled: Bool
+    {
+        get
+        {
+            let micTrack = peer.transceivers.first { $0.sender.track?.trackId == micTrackName }?.sender.track as? LKRTCAudioTrack
+            return micTrack?.isEnabled ?? false
+        }
+        set
+        {
+            let micTrack = peer.transceivers.first { $0.sender.track?.trackId == micTrackName }?.sender.track as? LKRTCAudioTrack
+            micTrack?.isEnabled = newValue
+        }
     }
     
     var outgoingStreamSender: LKRTCRtpSender?

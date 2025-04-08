@@ -26,6 +26,12 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     @Published public private(set) var isAnnounced: Bool = false
     public private(set) var placeName: String?
     public let session: AlloSession
+    
+    @Published public var micEnabled: Bool = false
+    {
+        didSet { session.rtc.microphoneEnabled = micEnabled }
+    }
+    
     var currentIntent = Intent(ackStateRev: 0) {
         didSet {
             Task { await heartbeat.markChanged() }
@@ -62,6 +68,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         InitializeAllonet()
         self.url = url
         self.avatarDesc = avatarDescription
+        self.micEnabled = sendMicrophone
         session = AlloSession(side: .client, sendMicrophone: sendMicrophone)
         session.delegate = self
     }
