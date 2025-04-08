@@ -20,7 +20,7 @@ public typealias RTCClientId = UUID
 /// Wrapper of RTCPeerConnection with Alloverse-specific peer semantics, but no business logic
 public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannelDelegate {
     public private(set) var clientId: RTCClientId?
-    public let peer: LKRTCPeerConnection
+    private let peer: LKRTCPeerConnection
     private var channels: [LKRTCDataChannel] = []
     
     public weak var delegate: RTCSessionDelegate?
@@ -45,6 +45,7 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
     {
         return try await withCheckedThrowingContinuation { cont in
             peer.offer(for: mediaConstraints) { (sdp, error) in
+            renegotiationNeeded = false
                 guard let sdp = sdp else {
                     cont.resume(throwing: error!)
                     return
@@ -70,6 +71,7 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
         }
         return try await withCheckedThrowingContinuation { cont in
             peer.answer(for: mediaConstraints) { (sdp, error) in
+            renegotiationNeeded = false
                 guard let sdp = sdp else {
                     cont.resume(throwing: error!)
                     return
@@ -183,6 +185,8 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
         {
             didFullyConnect = true
             self.delegate?.session(didConnect: self)
+            
+            assert(renegotiationNeeded == false, "We don't have signalling anymore, so we can't renegotiate, but webrtc has asked us to")
         }
     }
     
@@ -202,9 +206,12 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
         
     }
     
+    var renegotiationNeeded = false
     public func peerConnectionShouldNegotiate(_ peerConnection: LKRTCPeerConnection)
     {
-        // TODO: This probably needs something...
+        print("Renegotiation hinted")
+        renegotiationNeeded = true
+        assert(!didFullyConnect, "Renegotiation hinted after connecting; can't do anything about it since signaling is now unavailable")
     }
     
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: RTCIceConnectionState)
