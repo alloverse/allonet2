@@ -57,7 +57,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         }
     }
     
-    public init(url: URL, avatarDescription: EntityDescription, sendMicrophone: Bool = true)
+    public init(url: URL, avatarDescription: EntityDescription, sendMicrophone: Bool = false)
     {
         InitializeAllonet()
         self.url = url
@@ -229,6 +229,12 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
                 self.state = .idle
             }
         }
+    }
+    
+    nonisolated public func session(_: AlloSession, didReceiveMediaStream: AlloMediaStream)
+    {
+        print("Client received audio track, but not yet implemented")
+        // TODO: Playback
     }
     
     // MARK: - Interactions, intent and place state

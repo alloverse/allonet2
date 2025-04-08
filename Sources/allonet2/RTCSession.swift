@@ -13,6 +13,7 @@ public protocol RTCSessionDelegate: AnyObject
     func session(didConnect: RTCSession)
     func session(didDisconnect: RTCSession)
     func session(_: RTCSession, didReceiveData data: Data, on channel: LKRTCDataChannel)
+    func session(_: RTCSession, didReceiveMediaStream: LKRTCMediaStream)
 }
 
 public typealias RTCClientId = UUID
@@ -203,33 +204,10 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
         print("Session \(clientId?.debugDescription ?? "unknown") signaling state \(stateChanged)")
     }
     
-    
-    class FileRenderer: NSObject, LKRTCAudioRenderer
-    {
-        let stream: OutputStream
-        init(filename: String)
-        {
-            let url = URL(fileURLWithPath: NSString(string: "~/Desktop/\(filename)").expandingTildeInPath)
-            self.stream = OutputStream(url: url, append: false)!
-            stream.open()
-            super.init()
-        }
-        func render(pcmBuffer: AVAudioPCMBuffer)
-        {
-            let byteCount = Int(pcmBuffer.frameLength) * 2 * pcmBuffer.stride
-            let written = stream.write(pcmBuffer.int16ChannelData![0], maxLength: byteCount)
-            assert(written == byteCount)
-        }
-    }
-    
-    var renderer: FileRenderer?
-    var incomingAudio: LKRTCMediaStream?
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didAdd stream: LKRTCMediaStream)
     {
-        print("Received stream: \(stream)")
-        incomingAudio = stream
-        renderer = FileRenderer(filename: "\(clientId!)-\(stream.streamId).pcm")
-        audioTrack!.add(renderer!)
+        print("Received stream: \(clientId!): \(stream)")
+        delegate?.session(self, didReceiveMediaStream: stream)
     }
     
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didRemove stream: LKRTCMediaStream)
@@ -362,5 +340,12 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
         let audioTrack = RTCSession.factory.audioTrack(with: audioSource, trackId: "mic")
         peer.add(audioTrack, streamIds: ["voice"])
         return audioTrack
+    }
+    
+    var outgoingStreamSender: LKRTCRtpSender?
+    public func addOutgoing(stream: LKRTCMediaStream)
+    {
+        outgoingStreamSender = peer.add(stream.audioTracks[0], streamIds: [stream.streamId])
+        print("Forwarding audio stream with sender \(outgoingStreamSender!)")
     }
 }

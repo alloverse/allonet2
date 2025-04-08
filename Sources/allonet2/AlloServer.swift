@@ -138,6 +138,18 @@ public class PlaceServer : AlloSessionDelegate
             }
         }
     }
+    
+    nonisolated public func session(_ sess: AlloSession, didReceiveMediaStream stream: AlloMediaStream)
+    {
+        Task { @MainActor in
+            for (cid, client) in self.clients
+            {
+                if cid == sess.rtc.clientId! { continue }
+                client.session.addOutgoing(stream: stream)
+            }
+            // TODO: also attach to new clients that connect after this stream comes in
+        }
+    }
 
     // MARK: - Interactions
     

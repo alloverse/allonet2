@@ -19,6 +19,17 @@ public protocol AlloSessionDelegate: AnyObject
     
     func session(_: AlloSession, didReceivePlaceChangeSet changeset: PlaceChangeSet)
     func session(_: AlloSession, didReceiveIntent intent: Intent)
+    
+    func session(_: AlloSession, didReceiveMediaStream: AlloMediaStream)
+}
+
+public class AlloMediaStream
+{
+    internal let stream: LKRTCMediaStream
+    
+    internal init(stream: LKRTCMediaStream) {
+        self.stream = stream
+    }
 }
 
 /// Wrapper of RTCSession, adding Alloverse-specific channels and data types
@@ -27,9 +38,12 @@ public class AlloSession : NSObject, RTCSessionDelegate
     public weak var delegate: AlloSessionDelegate?
 
     internal let rtc: RTCSession
+    
     private var interactionChannel: LKRTCDataChannel!
     private var worldstateChannel: LKRTCDataChannel!
+    
     private var micTrack: LKRTCAudioTrack!
+    private var incomingStreams: [String/*StreamID*/: AlloMediaStream] = [:]
     
     private var outstandingInteractions: [Interaction.RequestID: CheckedContinuation<Interaction, Never>] = [:]
     
@@ -154,5 +168,16 @@ public class AlloSession : NSObject, RTCSessionDelegate
             }
             self.delegate?.session(self, didReceiveIntent: intent)
         }
+    }
+    
+    public func session(_: RTCSession, didReceiveMediaStream stream: LKRTCMediaStream)
+    {
+        let allostream = AlloMediaStream(stream: stream)
+        incomingStreams[stream.streamId] = allostream
+        delegate?.session(self, didReceiveMediaStream: allostream)
+    }
+    public func addOutgoing(stream: AlloMediaStream)
+    {
+        rtc.addOutgoing(stream: stream.stream)
     }
 }
