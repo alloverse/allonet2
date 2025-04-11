@@ -17,7 +17,7 @@ public class Place
     {
         return LazyMap<EntityID, EntityData, Entity>(storage:state.current.entities)
         { [weak self] (k, v) in
-            guard let self, let client = self.client else { precondition(false, "Accessing world after deconstructing client") }
+            guard let self, let client = self.client else { fatalError("Accessing world after deconstructing client"); }
             return Entity(state: self.state, client: client, id: k)
         }
     }
@@ -90,7 +90,7 @@ public struct ComponentSet
     }
     public func set<T>(_ newValue: T) async throws(AlloverseError) where T: Component
     {
-        guard let client else { precondition(false, "Modifying world after deconstructing client") }
+        guard let client else { fatalError("Modifying world after deconstructing client"); }
         try await client.changeEntity(entityId: id, addOrChange: [newValue])
     }
     public subscript(componentTypeID: ComponentTypeID) -> (any Component)?
