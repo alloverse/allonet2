@@ -233,20 +233,18 @@ public class PlaceServer : AlloSessionDelegate
         // Now check for timeout, so the requester at _least_ gets a timeout answer if nothing else.
         if inter.type == .request
         {
-            print("Hello incoming request \(inter.requestId), now waiting until timeout")
             try? await Task.sleep(for: .seconds(InteractionTimeout))
             
             if outstandingClientToClientInteractions[inter.requestId] != nil
             {
-                print("Hello incoming request \(inter.requestId), you will now timeout")
+                print("Request \(inter.requestId) timed out")
+                outstandingClientToClientInteractions[inter.requestId] = nil
                 throw AlloverseError(
                     domain: PlaceErrorDomain,
                     code: PlaceErrorCode.recipientTimedOut.rawValue,
                     description: "Recipient didn't respond in time."
                 )
-                outstandingClientToClientInteractions[inter.requestId] = nil
             }
-            print("Hello incoming request \(inter.requestId), you didnt exist anymore")
         }
     }
     
