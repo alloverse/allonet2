@@ -152,7 +152,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         }
         
         do {
-            print("Trying to connect...")
+            print("Trying to connect to \(url)...")
             let offer = SignallingPayload(
                 sdp: try await session.rtc.generateOffer(),
                 candidates: (await session.rtc.gatherCandidates()).map { SignallingIceCandidate(candidate: $0) },
