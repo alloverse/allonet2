@@ -21,6 +21,12 @@ let package = Package(
             name: "AlloReality",
             type: .dynamic,
             targets: ["AlloReality"]
+        ),
+        .executable(name: "AlloPlace",
+            targets: ["AlloPlace"]
+        ),
+        .executable(name: "democlient",
+            targets: ["democlient"]
         )
     ],
     dependencies: [
