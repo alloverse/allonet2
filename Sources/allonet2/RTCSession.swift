@@ -165,6 +165,15 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
         
         config.sdpSemantics = .unifiedPlan
         config.continualGatheringPolicy = .gatherOnce
+        
+        // NAT hole punching
+        let STUNservers = LKRTCIceServer(urlStrings: [
+            "stun:stun.l.google.com:19302",
+            //"stun:global.stun.twilio.com:3478",
+            //"stun:freestun.net:3478"
+        ])
+        config.iceServers = [STUNservers]
+
         // Define media constraints. DtlsSrtpKeyAgreement is required to be true to be able to connect with web browsers.
         let constraints = LKRTCMediaConstraints(mandatoryConstraints: nil,
                                               optionalConstraints: ["DtlsSrtpKeyAgreement":kRTCMediaConstraintsValueTrue])
