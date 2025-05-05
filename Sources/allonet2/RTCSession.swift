@@ -21,7 +21,8 @@ public protocol RTCSessionDelegate: AnyObject
 public typealias RTCClientId = UUID
 
 /// Wrapper of RTCPeerConnection with Alloverse-specific peer semantics, but no business logic
-public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannelDelegate {
+public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannelDelegate
+{
     public private(set) var clientId: RTCClientId?
     private let peer: LKRTCPeerConnection
     private var channels: [LKRTCDataChannel] = []
@@ -38,8 +39,16 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
     
     private let audioSessionActive = false
     
-    public override init() {
-        peer = RTCSession.createPeerConnection()
+    public enum ConnectionOptions
+    {
+        case direct // no STUN nor TURN
+        // STUN allows NAT hole punching using a third party
+        case standardSTUN // Google, Twilio and some other free options
+        case STUN(servers: [String])
+    }
+    
+    public init(with connectionOptions: ConnectionOptions = .direct) {
+        peer = RTCSession.createPeerConnection(with: connectionOptions)
         super.init()
         peer.delegate = self
     }
@@ -159,21 +168,26 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
     //MARK: - Internals
     
 
-    private static func createPeerConnection() -> LKRTCPeerConnection
+    private static func createPeerConnection(with connectionOptions: ConnectionOptions) -> LKRTCPeerConnection
     {
         let config = LKRTCConfiguration()
-        
         config.sdpSemantics = .unifiedPlan
-        // TODO: this forces us to resolve STUN candidates before we can send an offer/answer, which will increase connection time. Either open UDP ports on server and remove STUN, or figure out how to move to continual gathering.
+        
+        // NOTE: Having both STUN and .gatherOnce forces a 10s connection time as candidates need to be gathered through a remote party.
         config.continualGatheringPolicy = .gatherOnce
         
-        // NAT hole punching
-        let STUNservers = LKRTCIceServer(urlStrings: [
-            "stun:stun.l.google.com:19302",
-            "stun:global.stun.twilio.com:3478",
-            "stun:freestun.net:3478"
-        ])
-        config.iceServers = [STUNservers]
+        switch(connectionOptions)
+        {
+            case .standardSTUN:
+                config.iceServers = [LKRTCIceServer(urlStrings: [
+                    "stun:stun.l.google.com:19302",
+                    "stun:global.stun.twilio.com:3478",
+                    "stun:freestun.net:3478"
+                ])]
+            case .STUN(servers: let servers):
+                config.iceServers = [LKRTCIceServer(urlStrings: servers)]
+            default: break
+        }
 
         // Define media constraints. DtlsSrtpKeyAgreement is required to be true to be able to connect with web browsers.
         let constraints = LKRTCMediaConstraints(mandatoryConstraints: nil,
