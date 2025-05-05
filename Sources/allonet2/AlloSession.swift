@@ -50,10 +50,10 @@ public class AlloSession : NSObject, RTCSessionDelegate
     public enum Side { case client, server }
     private let side: Side
     
-    public init(side: Side, sendMicrophone: Bool = false)
+    public init(side: Side, sendMicrophone: Bool = false, status: ConnectionStatus)
     {
         self.side = side
-        self.rtc = RTCSession()
+        self.rtc = RTCSession(status: status)
         super.init()
         rtc.delegate = self
         
@@ -62,11 +62,6 @@ public class AlloSession : NSObject, RTCSessionDelegate
         {
             micTrack = rtc.createMicrophoneTrack()
         }
-    }
-    
-    private convenience override init()
-    {
-        self.init(side: .client)
     }
     
     let encoder = BinaryEncoder()

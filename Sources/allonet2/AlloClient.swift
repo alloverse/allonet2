@@ -46,12 +46,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     
     // MARK: - Connection state related
     
-    @Published public var state = ConnectionState.idle
-    // What was the last connection error?
-    // If state is now .idle, it was a permanent error and we're wholly disconnected.
-    // If state is now .waitingToReconnect, it was a temporary error and we're about to reconnect.
-    @Published public var lastError: Error?
-    @Published public private(set) var willReconnectAt: Date?
+    public private(set) var connectionStatus = ConnectionStatus()
     
     private var connectTask: Task<Void, Never>? = nil
     private var reconnectionAttempts = 0
@@ -69,7 +64,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         self.url = url
         self.avatarDesc = avatarDescription
         self.micEnabled = sendMicrophone
-        session = AlloSession(side: .client, sendMicrophone: sendMicrophone)
+        session = AlloSession(side: .client, sendMicrophone: sendMicrophone, status: connectionStatus)
         session.delegate = self
     }
     
@@ -80,15 +75,15 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         guard connectionLoopCancellable == nil else { return }
         
         // Move out of the idle state since we've been asked to get going.
-        if state == .idle {
+        if connectionStatus.reconnection == .idle {
             print("Going from .idle to .waitingForReconnect")
-            state = .waitingForReconnect
+            connectionStatus.reconnection = .waitingForReconnect
         }
         
-        connectionLoopCancellable = $state.receive(on: DispatchQueue.main).sink
+        connectionLoopCancellable = connectionStatus.$reconnection.receive(on: DispatchQueue.main).sink
         { [weak self] nextState in
             guard let self = self else { return }
-            print("state: \(nextState), error: \(String(describing: self.lastError)), willReconnectAt: \(String(describing: self.willReconnectAt))")
+            print("\(connectionStatus)")
             switch nextState {
             case .waitingForReconnect:
                 self.handleWaitingForReconnect()
@@ -107,7 +102,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         
         // Reconnection backoff with exponential delay and a cap at 1m/try
         let delaySeconds = min(60, pow(2.0, Double(reconnectionAttempts)))
-        willReconnectAt = delaySeconds > 0 ? Date().addingTimeInterval(delaySeconds) : nil
+        connectionStatus.willReconnectAt = delaySeconds > 0 ? Date().addingTimeInterval(delaySeconds) : nil
         reconnectionAttempts += 1
         print("connection attempt \(reconnectionAttempts) in \(delaySeconds) seconds")
         
@@ -115,7 +110,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         connectTask = Task { [weak self] in
             guard let self = self else { return }
             
-            let delay = self.willReconnectAt?.timeIntervalSinceNow ?? 0
+            let delay = connectionStatus.willReconnectAt?.timeIntervalSinceNow ?? 0
             print(String(format: "waiting for reconnect in %.1f seconds", delay))
             if delay > 0 {
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
@@ -124,7 +119,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
             // Clear the task and reconnectDate before connecting.
             await MainActor.run {
                 self.connectTask = nil
-                self.willReconnectAt = nil
+                connectionStatus.willReconnectAt = nil
             }
             print("connecting...")
             await self.connect()
@@ -139,16 +134,17 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         connectTask = nil
         connectionLoopCancellable?.cancel()
         connectionLoopCancellable = nil
-        willReconnectAt = nil
+        connectionStatus.willReconnectAt = nil
         reconnectionAttempts = 0
         session.rtc.disconnect()
     }
     
     private func connect() async
     {
-        precondition(state == .waitingForReconnect, "Trying to connect while \(state)")
+        connectionStatus.signalling = .connecting
+        precondition(connectionStatus.reconnection == .waitingForReconnect, "Trying to connect while \(connectionStatus.reconnection)")
         DispatchQueue.main.async {
-            self.state = .connecting
+            self.connectionStatus.reconnection = .connecting
         }
         
         do {
@@ -171,6 +167,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONEncoder().encode(offer)
             let (data, _) = try await URLSession.shared.data(for: request as URLRequest)
+            connectionStatus.signalling = .connected
             let answer = try JSONDecoder().decode(SignallingPayload.self, from: data)
             
             try await session.rtc.receive(
@@ -182,8 +179,9 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         } catch (let e) {
             print("failed to connect: \(e)")
             DispatchQueue.main.async {
-                self.lastError = e
-                self.state = .idle
+                self.connectionStatus.lastError = e
+                self.connectionStatus.reconnection = .idle
+                self.connectionStatus.signalling = .disconnected
             }
         }
     }
@@ -193,7 +191,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         Task
         { @MainActor in
             self.reconnectionAttempts = 0
-            self.state = .connected
+            self.connectionStatus.reconnection = .connected
             
             print("Connected as \(sess.rtc.clientId!)")
 
@@ -222,6 +220,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         print("Disconnected")
         Task { @MainActor in
             avatarId = nil
+            self.connectionStatus.signalling = .disconnected
             if(false)
             {
                 // TODO: Propagate disconnection reason, and notice if it's permanent
@@ -229,11 +228,11 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
             }
             else if(self.connectionLoopCancellable != nil)
             {
-                self.state = .waitingForReconnect
+                self.connectionStatus.reconnection = .waitingForReconnect
             }
             else
             {
-                self.state = .idle
+                self.connectionStatus.reconnection = .idle
             }
         }
     }
@@ -365,11 +364,3 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     }
 }
 
-public enum ConnectionState : Equatable
-{
-    case idle
-    case waitingForReconnect
-    
-    case connecting
-    case connected
-}

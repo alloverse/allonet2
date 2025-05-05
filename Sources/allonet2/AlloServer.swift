@@ -18,6 +18,7 @@ public class PlaceServer : AlloSessionDelegate
     var clients : [RTCClientId: ConnectedClient] = [:]
     var unannouncedClients : [RTCClientId: ConnectedClient] = [:]
     let name: String
+    let connectionStatus = ConnectionStatus()
     let place = PlaceState()
     lazy var heartbeat: HeartbeatTimer = {
         return HeartbeatTimer {
@@ -68,7 +69,7 @@ public class PlaceServer : AlloSessionDelegate
     {
         let offer = try await JSONDecoder().decode(SignallingPayload.self, from: request.bodyData)
             
-        let session = AlloSession(side: .server)
+        let session = AlloSession(side: .server, status: connectionStatus)
         session.delegate = self
         let client = ConnectedClient(session: session)
         

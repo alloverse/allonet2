@@ -7,6 +7,7 @@
 
 import Foundation
 import LiveKitWebRTC
+import Combine
 
 public protocol RTCSessionDelegate: AnyObject
 {
@@ -33,6 +34,8 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
     private var candidatesLocked = false
     private var candidatesContinuation: CheckedContinuation<Void, Never>?
     
+    private var connectionStatus: ConnectionStatus
+    
     private let offerAnswerConstraints = LKRTCMediaConstraints(mandatoryConstraints: [
         kRTCMediaConstraintsOfferToReceiveAudio: kRTCMediaConstraintsValueTrue
     ], optionalConstraints: [:])
@@ -47,8 +50,9 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
         case STUN(servers: [String])
     }
     
-    public init(with connectionOptions: ConnectionOptions = .direct) {
+    public init(with connectionOptions: ConnectionOptions = .direct, status: ConnectionStatus) {
         peer = RTCSession.createPeerConnection(with: connectionOptions)
+        connectionStatus = status
         super.init()
         peer.delegate = self
     }
@@ -64,6 +68,7 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
     
     public func generateOffer() async throws -> String
     {
+        Task { @MainActor in self.connectionStatus.signalling = .connecting }
         return try await withCheckedThrowingContinuation { cont in
             renegotiationNeeded = false
             peer.offer(for: offerAnswerConstraints) { (sdp, error) in
@@ -265,6 +270,14 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: RTCIceConnectionState)
     {
         print("Session \(clientId?.debugDescription ?? "unknown") ICE state \(newState)")
+        DispatchQueue.main.async {
+            self.connectionStatus.iceGathering = switch newState
+            {
+                case .new, .failed, .disconnected, .closed, .count: .disconnected
+                case .checking: .connecting
+                case .completed, .connected: .connected
+            }
+        }
         if newState == .connected || newState == .completed
         {
             // actually, just checking the data channels is enough?
@@ -283,9 +296,19 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
     
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: RTCIceGatheringState)
     {
-        if newState == .complete {
+        DispatchQueue.main.async {
+            self.connectionStatus.iceGathering = switch newState
+            {
+                case .new: .disconnected
+                case .gathering: .connecting
+                case .complete: .connected
+            }
+        }
+        if newState == .complete
+        {
             candidatesLocked = true
-            if let candidatesContinuation = candidatesContinuation {
+            if let candidatesContinuation = candidatesContinuation
+            {
                 candidatesContinuation.resume()
             }
         }
@@ -323,7 +346,16 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
     //MARK: - Data channel delegate
     public func dataChannelDidChangeState(_ dataChannel: LKRTCDataChannel)
     {
-        print("Data channel \(dataChannel.label) state \(dataChannel.readyState)")
+        let readyState = dataChannel.readyState
+        print("Data channel \(dataChannel.label) state \(readyState)")
+        DispatchQueue.main.async {
+            self.connectionStatus.data = switch readyState
+            {
+                case .closed, .closing: .disconnected
+                case .connecting: .connecting
+                case .open: .connected
+            }
+        }
         maybeConnected()
     }
     
