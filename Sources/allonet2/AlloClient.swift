@@ -101,7 +101,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         guard connectTask == nil else { return }
         
         // Reconnection backoff with exponential delay and a cap at 1m/try
-        let delaySeconds = min(60, pow(2.0, Double(reconnectionAttempts)))
+        let delaySeconds = reconnectionAttempts == 0 ? 0 : min(60, pow(2.0, Double(reconnectionAttempts)))
         connectionStatus.willReconnectAt = delaySeconds > 0 ? Date().addingTimeInterval(delaySeconds) : nil
         reconnectionAttempts += 1
         print("connection attempt \(reconnectionAttempts) in \(delaySeconds) seconds")
