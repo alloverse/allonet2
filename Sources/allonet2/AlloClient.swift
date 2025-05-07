@@ -25,8 +25,9 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     }
     @Published public private(set) var isAnnounced: Bool = false
     public private(set) var placeName: String?
-    public let session: AlloSession
+    public var session: AlloSession! = nil
     
+    private let sendMicrophone: Bool
     @Published public var micEnabled: Bool = false
     {
         didSet { session.rtc.microphoneEnabled = micEnabled }
@@ -64,8 +65,8 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         self.url = url
         self.avatarDesc = avatarDescription
         self.micEnabled = sendMicrophone
-        session = AlloSession(side: .client, sendMicrophone: sendMicrophone, status: connectionStatus)
-        session.delegate = self
+        self.sendMicrophone = sendMicrophone
+        self.reset()
     }
     
     private var connectionLoopCancellable: AnyCancellable?
@@ -125,6 +126,15 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
             await self.connect()
         }
     }
+    
+    private func reset()
+    {
+        print("Resetting AlloSession within client")
+        session = AlloSession(side: .client, sendMicrophone: sendMicrophone, status: connectionStatus)
+        session.delegate = self
+        avatarId = nil
+        isAnnounced = false
+    }
 
     
     /// Disconnect from peers and remain disconnected until asked to connect again by user
@@ -137,6 +147,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         connectionStatus.willReconnectAt = nil
         reconnectionAttempts = 0
         session.rtc.disconnect()
+        reset()
     }
     
     private func connect() async
