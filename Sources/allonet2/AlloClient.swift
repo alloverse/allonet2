@@ -181,7 +181,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
             DispatchQueue.main.async {
                 self.connectionStatus.lastError = e
                 self.connectionStatus.reconnection = .idle
-                self.connectionStatus.signalling = .disconnected
+                self.connectionStatus.signalling = .failed
             }
         }
     }
@@ -220,7 +220,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         print("Disconnected")
         Task { @MainActor in
             avatarId = nil
-            self.connectionStatus.signalling = .disconnected
+            self.connectionStatus.signalling = .failed
             if(false)
             {
                 // TODO: Propagate disconnection reason, and notice if it's permanent

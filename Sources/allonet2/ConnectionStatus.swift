@@ -20,9 +20,10 @@ public enum ReconnectionState : Equatable
 /// Status of a single subsystem
 public enum ConnectionState
 {
-    case disconnected
+    case idle
     case connecting
     case connected
+    case failed
 }
 
 /// Observable status of both the client itself and all its subsystems
@@ -37,13 +38,22 @@ public class ConnectionStatus: ObservableObject
     @Published public var willReconnectAt: Date?
     
     // Subsystem statuses:
-    @Published public var signalling: ConnectionState = .disconnected
-    @Published public var iceGathering: ConnectionState = .disconnected
-    @Published public var iceConnection: ConnectionState = .disconnected
-    @Published public var data: ConnectionState = .disconnected
+    @Published public var signalling: ConnectionState = .idle
+    @Published public var iceGathering: ConnectionState = .idle
+    @Published public var iceConnection: ConnectionState = .idle
+    @Published public var data: ConnectionState = .idle
     
     var debugDescription: String {
         "state: \(reconnection), error: \(String(describing: self.lastError)), willReconnectAt: \(String(describing: self.willReconnectAt))"
     }
-    public init() {} 
+    public init(reconnection: ReconnectionState = .idle, lastError: Error? = nil, willReconnectAt: Date? = nil, signalling: ConnectionState = .idle, iceGathering: ConnectionState = .idle, iceConnection: ConnectionState = .idle, data: ConnectionState = .idle)
+    {
+        self.reconnection = reconnection
+        self.lastError = lastError
+        self.willReconnectAt = willReconnectAt
+        self.signalling = signalling
+        self.iceGathering = iceGathering
+        self.iceConnection = iceConnection
+        self.data = data
+    }
 }

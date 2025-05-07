@@ -273,9 +273,11 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
         DispatchQueue.main.async {
             self.connectionStatus.iceGathering = switch newState
             {
-                case .new, .failed, .disconnected, .closed, .count: .disconnected
+                case .new: .idle
                 case .checking: .connecting
-                case .completed, .connected: .connected
+                case .connected, .completed: .connected
+                case .failed, .disconnected, .closed: .failed
+                case .count: .idle
             }
         }
         if newState == .connected || newState == .completed
@@ -299,7 +301,7 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
         DispatchQueue.main.async {
             self.connectionStatus.iceGathering = switch newState
             {
-                case .new: .disconnected
+                case .new: .idle
                 case .gathering: .connecting
                 case .complete: .connected
             }
@@ -351,7 +353,7 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
         DispatchQueue.main.async {
             self.connectionStatus.data = switch readyState
             {
-                case .closed, .closing: .disconnected
+                case .closed, .closing: .idle
                 case .connecting: .connecting
                 case .open: .connected
             }
