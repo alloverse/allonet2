@@ -166,7 +166,15 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONEncoder().encode(offer)
-            let (data, _) = try await URLSession.shared.data(for: request as URLRequest)
+            let (data, response) = try await URLSession.shared.data(for: request as URLRequest)
+            let http = response as! HTTPURLResponse
+            guard http.statusCode >= 200 && http.statusCode < 300 else {
+                throw AlloverseError(
+                    domain: AlloverseErrorDomain,
+                    code: AlloverseErrorCode.failedSignalling.rawValue,
+                    description: "HTTP error \(http.statusCode): \(String(data: data, encoding: .utf8) ?? "(no data)")"
+                )
+            }
             connectionStatus.signalling = .connected
             let answer = try JSONDecoder().decode(SignallingPayload.self, from: data)
             
