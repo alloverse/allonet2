@@ -34,7 +34,9 @@ let package = Package(
         //.package(url: "https://github.com/apple/swift-protobuf.git", .upToNextMajor(from: "1.25.1")),
         .package(url: "https://github.com/livekit/webrtc-xcframework.git", exact: "125.6422.28"),
         .package(url: "https://github.com/swhitty/FlyingFox.git", .upToNextMajor(from: "0.14.0")),
-        .package(url: "https://github.com/Flight-School/AnyCodable", from: "0.6.0")
+        .package(url: "https://github.com/Flight-School/AnyCodable", from: "0.6.0"),
+        .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0")
+
     ],
     targets: [
         // Targets are the basic building blocks of a package, defining a module or a test suite.
@@ -58,7 +60,10 @@ let package = Package(
         ),
         .executableTarget(
             name: "AlloPlace",
-            dependencies: ["allonet2"]
+            dependencies: [
+                "allonet2",
+                .product(name: "ArgumentParser", package: "swift-argument-parser")
+            ]
         ),
         .executableTarget(
             name: "democlient",
