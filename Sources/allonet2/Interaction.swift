@@ -32,6 +32,9 @@ public struct Interaction : Codable
         assert(type == .request)
         return Interaction(type: .response, senderEntityId: receiverEntityId, receiverEntityId: senderEntityId, requestId: requestId, body: body)
     }
+    
+    /// This is a magical Entity ID that means you're targeting an interaction to the place itself, rather than a specific entity within the place.
+    public static let PlaceEntity: EntityID = "place"
 }
 
 public enum InteractionType: Codable
@@ -93,7 +96,5 @@ public struct EntityDescription: Codable
     }
 }
 
-/// This is a magical Entity ID that means you're targeting an interaction to the place itself, rather than a specific entity within the place.
-public let PlaceEntity: EntityID = "place"
 
 

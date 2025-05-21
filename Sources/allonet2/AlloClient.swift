@@ -61,7 +61,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     
     public init(url: URL, avatarDescription: EntityDescription, sendMicrophone: Bool = false)
     {
-        InitializeAllonet()
+        Allonet.Initialize()
         self.url = url
         self.avatarDesc = avatarDescription
         self.micEnabled = sendMicrophone
@@ -181,7 +181,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
             let http = response as! HTTPURLResponse
             guard http.statusCode >= 200 && http.statusCode < 300 else {
                 throw AlloverseError(
-                    domain: AlloverseErrorDomain,
+                    domain: AlloverseErrorCode.domain,
                     code: AlloverseErrorCode.failedSignalling.rawValue,
                     description: "HTTP error \(http.statusCode): \(String(data: data, encoding: .utf8) ?? "(no data)")"
                 )
@@ -217,7 +217,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
             let response = await sess.request(interaction: Interaction(
                 type: .request,
                 senderEntityId: "",
-                receiverEntityId: PlaceEntity,
+                receiverEntityId: Interaction.PlaceEntity,
                 body: .announce(version: "2.0", avatar: avatarDesc)
             ))
             guard case .announceResponse(let avatarId, let placeName) = response.body else
@@ -307,7 +307,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         {
             guard let handler = responders[inter.body.caseName] else
             {
-                throw AlloverseError(domain: AlloverseErrorDomain, code: AlloverseErrorCode.unhandledRequest.rawValue, description: "No handler for \(inter.body.caseName)")
+                throw AlloverseError(domain: AlloverseErrorCode.domain, code: AlloverseErrorCode.unhandledRequest.rawValue, description: "No handler for \(inter.body.caseName)")
             }
             let response = try await handler(inter)
             session.send(interaction: response)
@@ -359,7 +359,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     
     public func createEntity(from description: EntityDescription) async throws(AlloverseError) -> EntityID
     {
-        let resp = await request(receiverEntityId: PlaceEntity, body: .createEntity(description))
+        let resp = await request(receiverEntityId: Interaction.PlaceEntity, body: .createEntity(description))
         guard case .createEntityResponse(let entityId) = resp.body else {
             throw AlloverseError(with: resp.body)
         }
@@ -368,7 +368,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     
     public func removeEntity(entityId: EntityID, mode: EntityRemovalMode) async throws(AlloverseError)
     {
-        let resp = await request(receiverEntityId: PlaceEntity, body: .removeEntity(entityId: entityId, mode: mode))
+        let resp = await request(receiverEntityId: Interaction.PlaceEntity, body: .removeEntity(entityId: entityId, mode: mode))
         guard case .success = resp.body else {
             throw AlloverseError(with: resp.body)
         }
@@ -376,7 +376,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     
     public func changeEntity(entityId: EntityID, addOrChange: [any Component] = [], remove: [ComponentTypeID] = []) async throws(AlloverseError)
     {
-        let resp = await request(receiverEntityId: PlaceEntity, body: .changeEntity(entityId: entityId, addOrChange: addOrChange.map { AnyComponent($0) }, remove: remove))
+        let resp = await request(receiverEntityId: Interaction.PlaceEntity, body: .changeEntity(entityId: entityId, addOrChange: addOrChange.map { AnyComponent($0) }, remove: remove))
         guard case .success = resp.body else {
             throw AlloverseError(with: resp.body)
         }

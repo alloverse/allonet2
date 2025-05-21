@@ -1,9 +1,11 @@
-
-var alreadyInitialized = false
-func InitializeAllonet()
+struct Allonet
 {
-    guard !alreadyInitialized else { return }
-    alreadyInitialized = true
-    print("Allonet initialization")
-    RegisterStandardComponents()
+    private static var alreadyInitialized = false
+    public static func Initialize()
+    {
+        guard !alreadyInitialized else { return }
+        alreadyInitialized = true
+        print("Allonet initialization")
+        RegisterStandardComponents()
+    }
 }

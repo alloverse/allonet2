@@ -216,9 +216,9 @@ public class PlaceServer : AlloSessionDelegate
             let isValidOtherMessage = (senderEnt != nil) && senderEnt!.ownerAgentId == client.cid.uuidString
             if !(isValidAnnounce || isValidOtherMessage)
             {
-                throw AlloverseError(domain: PlaceErrorDomain, code: PlaceErrorCode.unauthorized.rawValue, description: "You may only send interactions from entities you own")
+                throw AlloverseError(domain: PlaceErrorCode.domain, code: PlaceErrorCode.unauthorized.rawValue, description: "You may only send interactions from entities you own")
             }
-            if inter.receiverEntityId == PlaceEntity
+            if inter.receiverEntityId == Interaction.PlaceEntity
             {
                 try await self.handle(placeInteraction: inter, from: client)
             } else {
@@ -245,7 +245,7 @@ public class PlaceServer : AlloSessionDelegate
               let recipient = clients[ownerAgentId] else
         {
             throw AlloverseError(
-                domain: PlaceErrorDomain,
+                domain: PlaceErrorCode.domain,
                 code: PlaceErrorCode.recipientUnavailable.rawValue,
                 description: "No such recipient for entity \(inter.receiverEntityId)"
             )
@@ -263,7 +263,7 @@ public class PlaceServer : AlloSessionDelegate
             guard let correctRecipient else
             {
                 throw AlloverseError(
-                    domain: PlaceErrorDomain,
+                    domain: PlaceErrorCode.domain,
                     code: PlaceErrorCode.invalidResponse.rawValue,
                     description: "No such request \(inter.requestId) for your response, maybe it timed out before you replied, or you repliced twice?"
                 )
@@ -271,7 +271,7 @@ public class PlaceServer : AlloSessionDelegate
             guard ownerAgentId == correctRecipient else
             {
                 throw AlloverseError(
-                    domain: PlaceErrorDomain,
+                    domain: PlaceErrorCode.domain,
                     code: PlaceErrorCode.invalidResponse.rawValue,
                     description: "That's not your request to respond to."
                 )
@@ -294,7 +294,7 @@ public class PlaceServer : AlloSessionDelegate
                 print("Request \(inter.requestId) timed out")
                 outstandingClientToClientInteractions[inter.requestId] = nil
                 throw AlloverseError(
-                    domain: PlaceErrorDomain,
+                    domain: PlaceErrorCode.domain,
                     code: PlaceErrorCode.recipientTimedOut.rawValue,
                     description: "Recipient didn't respond in time."
                 )
@@ -332,7 +332,7 @@ public class PlaceServer : AlloSessionDelegate
             client.session.send(interaction: inter.makeResponse(with: .success))
         default:
             if inter.type == .request {
-                throw AlloverseError(domain: PlaceErrorDomain, code: PlaceErrorCode.invalidRequest.rawValue, description: "Place server does not support this request")
+                throw AlloverseError(domain: PlaceErrorCode.domain, code: PlaceErrorCode.invalidRequest.rawValue, description: "Place server does not support this request")
             }
         }
     }
@@ -354,10 +354,10 @@ public class PlaceServer : AlloSessionDelegate
         let ent = place.current.entities[id]
 
         guard let ent = ent else {
-            throw AlloverseError(domain: PlaceErrorDomain, code: PlaceErrorCode.notFound.rawValue, description: "No such entity")
+            throw AlloverseError(domain: PlaceErrorCode.domain, code: PlaceErrorCode.notFound.rawValue, description: "No such entity")
         }
         guard client == nil || ent.ownerAgentId == client!.cid.uuidString else {
-            throw AlloverseError(domain: PlaceErrorDomain, code: PlaceErrorCode.unauthorized.rawValue, description: "That's not your entity to remove")
+            throw AlloverseError(domain: PlaceErrorCode.domain, code: PlaceErrorCode.unauthorized.rawValue, description: "That's not your entity to remove")
         }
         
         await appendChanges([
@@ -387,10 +387,10 @@ public class PlaceServer : AlloSessionDelegate
         let ent = place.current.entities[eid]
         
         guard let ent = ent else {
-            throw AlloverseError(domain: PlaceErrorDomain, code: PlaceErrorCode.notFound.rawValue, description: "No such entity")
+            throw AlloverseError(domain: PlaceErrorCode.domain, code: PlaceErrorCode.notFound.rawValue, description: "No such entity")
         }
         /*guard client == nil || ent.ownerAgentId == client!.cid.uuidString else {
-            throw AlloverseError(domain: PlaceErrorDomain, code: PlaceErrorCode.unauthorized.rawValue, description: "That's not your entity to modify")
+            throw AlloverseError(domain: PlaceErrorCode.domain, code: PlaceErrorCode.unauthorized.rawValue, description: "That's not your entity to modify")
         }*/ // Re-enable this when we have ACLs
         
         let addOrChanges = addOrChange.map
@@ -407,7 +407,7 @@ public class PlaceServer : AlloSessionDelegate
         let removals = try remove.map
         { (ctid: ComponentTypeID) throws(AlloverseError) -> PlaceChange in
             guard let existing = place.current.components[ctid]?[eid] else {
-                throw AlloverseError(domain: PlaceErrorDomain, code: PlaceErrorCode.notFound.rawValue, description: "No such entity")
+                throw AlloverseError(domain: PlaceErrorCode.domain, code: PlaceErrorCode.notFound.rawValue, description: "No such entity")
             }
             return PlaceChange.componentRemoved(eid, existing)
         }

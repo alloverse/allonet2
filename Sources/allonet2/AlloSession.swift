@@ -196,11 +196,11 @@ public class AlloSession : NSObject, RTCSessionDelegate
             clientId: rtc.clientId!
         )
         print("Sending renegotiation offer over RPC")
-        let response = await request(interaction: Interaction(type: .request, senderEntityId: "", receiverEntityId: PlaceEntity, body: .internal_renegotiate(.offer, offer)))
+        let response = await request(interaction: Interaction(type: .request, senderEntityId: "", receiverEntityId: Interaction.PlaceEntity, body: .internal_renegotiate(.offer, offer)))
         guard case .internal_renegotiate(.answer, let answer) = response.body else
         {
             throw AlloverseError(
-                domain: AlloverseErrorDomain,
+                domain: AlloverseErrorCode.domain,
                 code: AlloverseErrorCode.failedRenegotiation.rawValue,
                 description: "unexpected renegotiation answer: \(response.body)"
             )

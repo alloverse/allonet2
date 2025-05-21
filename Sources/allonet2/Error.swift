@@ -8,9 +8,9 @@
 import Foundation
 
 // Errors raised by the PlaceServer
-public let PlaceErrorDomain = "com.alloverse.place.error"
 public enum PlaceErrorCode: Int
 {
+    public static let domain = "com.alloverse.place.error"
     case invalidRequest = 1 // request is malformed, programmer error
     case unauthorized = 2   // you're not allowed to do that
     case notFound = 3       // The thing you're requesting to modify couldn't be found
@@ -21,9 +21,9 @@ public enum PlaceErrorCode: Int
 }
 
 // Errors raised by protocol errors
-public let AlloverseErrorDomain = "com.alloverse.error"
 public enum AlloverseErrorCode: Int
 {
+    public static let domain = "com.alloverse.error"
     case unhandledRequest = 1   // The recipient doesn't know how to respond to this interaction
     case unexpectedResponse = 2 // Interaction received some other response than was expected
     
@@ -53,7 +53,7 @@ public struct AlloverseError: LocalizedError, Codable
             self.code = code
             self.description = description
         default:
-            self.domain = AlloverseErrorDomain
+            self.domain = AlloverseErrorCode.domain
             self.code = AlloverseErrorCode.unexpectedResponse.rawValue
             self.description = "Unexpected body: \(unexpectedBody)"
         }
