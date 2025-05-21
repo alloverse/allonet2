@@ -8,8 +8,6 @@
 import Foundation
 import FlyingFox
 
-let port:UInt16 = 9080
-
 let InteractionTimeout: TimeInterval = 10
 
 @MainActor
@@ -17,7 +15,12 @@ public class PlaceServer : AlloSessionDelegate
 {
     var clients : [RTCClientId: ConnectedClient] = [:]
     var unannouncedClients : [RTCClientId: ConnectedClient] = [:]
+    
     let name: String
+    let port:UInt16
+    let clientName: String
+    let clientDownloadURL: String
+    
     let connectionStatus = ConnectionStatus()
     let place = PlaceState()
     lazy var heartbeat: HeartbeatTimer = {
@@ -32,21 +35,71 @@ public class PlaceServer : AlloSessionDelegate
         await heartbeat.markChanged()
     }
     
-    public init(name: String)
+    public init(name: String, port: UInt16 = 9080, clientName: String = "Alloverse", clientDownloadURL: String = "https://alloverse.com")
     {
-        InitializeAllonet()
+        Allonet.Initialize()
         self.name = name
+        self.port = port
+        self.clientName = clientName
+        self.clientDownloadURL = clientDownloadURL
+        self.http = HTTPServer(port: port)
     }
     
-    let http = HTTPServer(port: port)
+    // MARK: - HTTP server
+    
+    let http: HTTPServer
     public func start() async throws
     {
         print("Serving '\(name)' at http://localhost:\(port)/")
 
         // On incoming connection, create a WebRTC socket.
-        await http.appendRoute("/", handler: self.handleIncomingClient)
+        await http.appendRoute("POST /", handler: self.handleIncomingClient)
+        await http.appendRoute("GET /", handler: self.landingPage)
             
         try await http.start()
+    }
+    
+    @Sendable
+    func landingPage(_ request: HTTPRequest) async -> HTTPResponse
+    {
+        let body = """
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>\(name)</title>
+                <style>
+                    body {
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+                        padding: 2em;
+                        max-width: 600px;
+                        margin: auto;
+                        line-height: 1.6;
+                    }
+                    a.button {
+                        display: inline-block;
+                        padding: 0.75em 1.5em;
+                        margin-top: 1em;
+                        background: #007aff;
+                        color: white;
+                        text-decoration: none;
+                        border-radius: 8px;
+                    }
+                </style>
+            </head>
+            <body>
+                <h1>Welcome to \(name).</h1>
+                <p>You need to <a href="\(clientDownloadURL)">install the \(clientName) app</a> to connect to this virtual place.</p>
+                <p>Already have \(clientName)?<br/> <a class="button" href="yourapp://resource?id=123">Open <i>\(name)</i> in \(clientName)</a></p>
+            </body>
+            </html>
+            """
+        return HTTPResponse(
+            statusCode: .ok,
+            headers: [.contentType: "text/html"],
+            body: body.data(using: .utf8)!
+        )
     }
     
     // MARK: - Place content management
