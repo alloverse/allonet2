@@ -8,8 +8,6 @@
 import Foundation
 import FlyingFox
 
-let InteractionTimeout: TimeInterval = 10
-
 @MainActor
 public class PlaceServer : AlloSessionDelegate
 {
@@ -34,6 +32,8 @@ public class PlaceServer : AlloSessionDelegate
         outstandingPlaceChanges.append(contentsOf: changes)
         await heartbeat.markChanged()
     }
+    
+    static let InteractionTimeout: TimeInterval = 10
     
     public init(name: String, port: UInt16 = 9080, clientName: String = "Alloverse", clientDownloadURL: String = "https://alloverse.com")
     {
@@ -62,6 +62,7 @@ public class PlaceServer : AlloSessionDelegate
     @Sendable
     func landingPage(_ request: HTTPRequest) async -> HTTPResponse
     {
+        
         let body = """
             <!DOCTYPE html>
             <html lang="en">
@@ -91,7 +92,7 @@ public class PlaceServer : AlloSessionDelegate
             <body>
                 <h1>Welcome to \(name).</h1>
                 <p>You need to <a href="\(clientDownloadURL)">install the \(clientName) app</a> to connect to this virtual place.</p>
-                <p>Already have \(clientName)?<br/> <a class="button" href="yourapp://resource?id=123">Open <i>\(name)</i> in \(clientName)</a></p>
+                <p>Already have \(clientName)?<br/> <a class="button" href="alloplace2://TBD">Open <i>\(name)</i> in \(clientName)</a></p>
             </body>
             </html>
             """
@@ -287,7 +288,7 @@ public class PlaceServer : AlloSessionDelegate
         // Now check for timeout, so the requester at _least_ gets a timeout answer if nothing else.
         if inter.type == .request
         {
-            try? await Task.sleep(for: .seconds(InteractionTimeout))
+            try? await Task.sleep(for: .seconds(PlaceServer.InteractionTimeout))
             
             if outstandingClientToClientInteractions[inter.requestId] != nil
             {

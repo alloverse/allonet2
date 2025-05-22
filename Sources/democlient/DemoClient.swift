@@ -9,7 +9,7 @@ import Foundation
 import Combine
 import allonet2
 
-@MainActor
+@main @MainActor
 class DemoApp
 {
     let client: AlloClient
@@ -69,13 +69,13 @@ class DemoApp
                 // try await self.client.changeEntity(entityId: avatar.id, addOrChange: [tform])
             }
         }
-        
+    }
+    
+    static func main() async
+    {
+        let url = URL(string: CommandLine.arguments[1])!
+        let app = DemoApp(connectingTo: url)
+
+        await parkToRunloop()
     }
 }
-
-let url = URL(string: CommandLine.arguments[1])!
-let app = DemoApp(connectingTo: url)
-
-await parkToRunloop()
-
-
