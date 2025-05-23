@@ -11,15 +11,19 @@ struct PlaceServerApp: AsyncParsableCommand
     @Option(name: [.customShort("p"), .long], help: "Port to open HTTP listener on.")
     var port: UInt16 = 9080
     
-    @Option(help: "If this Alloverse Place is designed to be used with another client than the offical Alloverse app, specify the name of that client here.")
-    var clientName: String = "Alloverse"
+    @Option(help: "If this Alloverse Place is designed to be used with another client app than the offical Alloverse app, specify the name of that client here.")
+    var appName: String = "Alloverse"
     
-    @Option(help: "Together with clientName, use this to specify where to download the custom client that this place is designed to be used with.")
-    var clientDownloadURL: String = "https://alloverse.com/download"
+    @Option(help: "Together with client-name, use this to specify where to download the custom client that this place is designed to be used with.")
+    var appDownloadURL: String = "https://alloverse.com/download"
+    
+    @Option(help: "Together with client-name, use this to specify the URL protocol to use to launch the custom client.")
+    var appURLProtocol: String = "alloplace2"
     
     mutating func run() async throws
     {
-        let server = PlaceServer(name: name, port: port, clientName: clientName, clientDownloadURL: clientDownloadURL)
+        let app = AppDescription(name: appName, downloadURL: appDownloadURL, URLProtocol: appURLProtocol)
+        let server = PlaceServer(name: name, port: port, customApp: app)
         try await server.start()
     }
 }

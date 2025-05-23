@@ -8,6 +8,15 @@
 import Foundation
 import FlyingFox
 
+public struct AppDescription
+{
+    public let name: String
+    public let downloadURL: String
+    public let URLProtocol: String
+    public init(name: String, downloadURL: String, URLProtocol: String) { self.name = name; self.downloadURL = downloadURL; self.URLProtocol = URLProtocol }
+    public static var alloverse: Self { AppDescription(name: "Alloverse", downloadURL: "https://alloverse.com/download", URLProtocol: "alloplace2") }
+}
+
 @MainActor
 public class PlaceServer : AlloSessionDelegate
 {
@@ -16,8 +25,7 @@ public class PlaceServer : AlloSessionDelegate
     
     let name: String
     let port:UInt16
-    let clientName: String
-    let clientDownloadURL: String
+    let appDescription: AppDescription
     
     let connectionStatus = ConnectionStatus()
     let place = PlaceState()
@@ -35,13 +43,12 @@ public class PlaceServer : AlloSessionDelegate
     
     static let InteractionTimeout: TimeInterval = 10
     
-    public init(name: String, port: UInt16 = 9080, clientName: String = "Alloverse", clientDownloadURL: String = "https://alloverse.com")
+    public init(name: String, port: UInt16 = 9080, customApp: AppDescription = .alloverse)
     {
         Allonet.Initialize()
         self.name = name
         self.port = port
-        self.clientName = clientName
-        self.clientDownloadURL = clientDownloadURL
+        self.appDescription = customApp
         self.http = HTTPServer(port: port)
     }
     
@@ -62,6 +69,10 @@ public class PlaceServer : AlloSessionDelegate
     @Sendable
     func landingPage(_ request: HTTPRequest) async -> HTTPResponse
     {
+        let host = request.headers[.host] ?? "localhost"
+        let path = request.path
+        var proto = appDescription.URLProtocol
+        if !host.contains(":") { proto += "s" } // no custom port = _likely_ https
         
         let body = """
             <!DOCTYPE html>
@@ -91,8 +102,8 @@ public class PlaceServer : AlloSessionDelegate
             </head>
             <body>
                 <h1>Welcome to \(name).</h1>
-                <p>You need to <a href="\(clientDownloadURL)">install the \(clientName) app</a> to connect to this virtual place.</p>
-                <p>Already have \(clientName)?<br/> <a class="button" href="alloplace2://TBD">Open <i>\(name)</i> in \(clientName)</a></p>
+                <p>You need to <a href="\(appDescription.downloadURL)">install the \(appDescription.name) app</a> to connect to this virtual place.</p>
+                <p>Already have \(appDescription.name)?<br/> <a class="button" href="\(proto)://\(host)\(path)">Open <i>\(name)</i> in \(appDescription.name)</a></p>
             </body>
             </html>
             """
