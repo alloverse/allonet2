@@ -30,7 +30,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     private let sendMicrophone: Bool
     @Published public var micEnabled: Bool = false
     {
-        didSet { session.rtc.microphoneEnabled = micEnabled }
+        didSet { session.microphoneEnabled = micEnabled }
     }
     
     var currentIntent = Intent(ackStateRev: 0) {
@@ -55,7 +55,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     public var id: String? {
         get
         {
-            session.rtc.clientId?.uuidString
+            session.clientId?.uuidString
         }
     }
     
@@ -130,7 +130,9 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     private func reset()
     {
         print("Resetting AlloSession within client")
-        session = AlloSession(side: .client, sendMicrophone: sendMicrophone, status: connectionStatus)
+        // Create ClientTransport instead of AlloSession directly
+        let transport = ClientTransport()
+        session = AlloSession(side: .client, sendMicrophone: sendMicrophone, transport: transport)
         session.delegate = self
         avatarId = nil
         isAnnounced = false
@@ -146,7 +148,8 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         connectionLoopCancellable = nil
         connectionStatus.willReconnectAt = nil
         reconnectionAttempts = 0
-        session.rtc.disconnect()
+        // Use session's disconnect method
+        session.disconnect()
         reset()
     }
     
@@ -160,11 +163,8 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         
         do {
             print("Trying to connect to \(url)...")
-            let offer = SignallingPayload(
-                sdp: try await session.rtc.generateOffer(),
-                candidates: (await session.rtc.gatherCandidates()).map { SignallingIceCandidate(candidate: $0) },
-                clientId: nil
-            )
+            // Use session's transport methods
+            let offer = try await session.generateOffer()
             
             // Original schema is alloplace2://. We call this with HTTP(S) to establish a WebRTC connection, which means we need to rewrite the
             // schema to be http(s).
@@ -189,11 +189,8 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
             connectionStatus.signalling = .connected
             let answer = try JSONDecoder().decode(SignallingPayload.self, from: data)
             
-            try await session.rtc.receive(
-                client: answer.clientId!,
-                answer: answer.desc(for: .answer),
-                candidates: answer.rtcCandidates()
-            )
+            // Use session's transport methods
+            try await session.acceptAnswer(answer)
             print("All the RTC stuff should be done now")
         } catch (let e) {
             print("failed to connect: \(e)")
@@ -212,7 +209,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
             self.reconnectionAttempts = 0
             self.connectionStatus.reconnection = .connected
             
-            print("Connected as \(sess.rtc.clientId!)")
+            print("Connected as \(sess.clientId!)")
 
             let response = await sess.request(interaction: Interaction(
                 type: .request,
@@ -256,7 +253,7 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         }
     }
     
-    nonisolated public func session(_: AlloSession, didReceiveMediaStream: AlloMediaStream)
+    nonisolated public func session(_: AlloSession, didReceiveMediaStream: MediaStream)
     {
         print("Client received audio track, but not yet implemented")
         // TODO: Playback
@@ -382,4 +379,3 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         }
     }
 }
-
