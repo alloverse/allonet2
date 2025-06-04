@@ -1,5 +1,5 @@
 //
-//  ServerTransport.swift
+//  HeadlessWebRTCTransport.swift
 //  allonet2
 //
 //  Created by Nevyn Bengtsson on 2025-02-11.
@@ -8,11 +8,11 @@
 import Foundation
 
 // Temporary stub for server - you'll replace this with your chosen server WebRTC implementation
-public class ServerTransport: Transport {
+public class HeadlessWebRTCTransport: Transport {
     public weak var delegate: TransportDelegate?
     public private(set) var clientId: ClientId?
     
-    private var channels: [String: ServerDataChannel] = [:]
+    private var channels: [DataChannelLabel: ServerDataChannel] = [:]
     
     public init() {
         // TODO: Initialize your server-side WebRTC implementation
@@ -23,7 +23,8 @@ public class ServerTransport: Transport {
         throw TransportError.notImplemented
     }
     
-    public func generateAnswer(offer: SignallingPayload) async throws -> SignallingPayload {
+    public func generateAnswer(for: SignallingPayload) async throws -> SignallingPayload
+    {
         clientId = UUID()
         // TODO: Implement with server WebRTC library
         throw TransportError.notImplemented
@@ -39,13 +40,13 @@ public class ServerTransport: Transport {
         // TODO: Implement cleanup
     }
     
-    public func createDataChannel(label: String, reliable: Bool) -> DataChannel? {
+    public func createDataChannel(label: DataChannelLabel, reliable: Bool) -> DataChannel? {
         let channel = ServerDataChannel(label: label)
         channels[label] = channel
         return channel
     }
     
-    public func send(data: Data, on channelLabel: String) {
+    public func send(data: Data, on channelLabel: DataChannelLabel) {
         // TODO: Implement with server WebRTC library
     }
     
@@ -69,10 +70,10 @@ public enum TransportError: Error {
 }
 
 private class ServerDataChannel: DataChannel {
-    let label: String
+    let label: DataChannelLabel
     var isOpen: Bool = false
     
-    init(label: String) {
+    init(label: DataChannelLabel) {
         self.label = label
     }
 }

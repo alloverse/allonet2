@@ -25,12 +25,14 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     }
     @Published public private(set) var isAnnounced: Bool = false
     public private(set) var placeName: String?
+    private var transport: UIWebRTCTransport! = nil
     public var session: AlloSession! = nil
     
+    private var micTrack: AudioTrack?
     private let sendMicrophone: Bool
     @Published public var micEnabled: Bool = false
     {
-        didSet { session.microphoneEnabled = micEnabled }
+        didSet { transport.microphoneEnabled = micEnabled }
     }
     
     var currentIntent = Intent(ackStateRev: 0) {
@@ -130,12 +132,20 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     private func reset()
     {
         print("Resetting AlloSession within client")
-        // Create ClientTransport instead of AlloSession directly
-        let transport = ClientTransport()
-        session = AlloSession(side: .client, sendMicrophone: sendMicrophone, transport: transport)
+        // TODO: have two different AlloClients, one for UI and one for headless.
+        let transport = UIWebRTCTransport(with: .direct, status: connectionStatus)
+        session = AlloSession(side: .client, transport: transport)
         session.delegate = self
         avatarId = nil
         isAnnounced = false
+        
+        if sendMicrophone {
+            do {
+                micTrack = try transport.createMicrophoneTrack()
+            } catch {
+                print("Failed to create microphone track: \(error)")
+            }
+        }
     }
 
     

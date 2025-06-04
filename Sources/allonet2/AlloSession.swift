@@ -1,6 +1,6 @@
 //
 //  File.swift
-//  
+//
 //
 //  Created by Nevyn Bengtsson on 2024-06-04.
 //
@@ -32,7 +32,6 @@ public class AlloSession : NSObject, TransportDelegate
     private var interactionChannel: DataChannel!
     private var worldstateChannel: DataChannel!
     
-    private var micTrack: AudioTrack?
     private var incomingStreams: [String/*StreamID*/: MediaStream] = [:]
     
     private var outstandingInteractions: [Interaction.RequestID: CheckedContinuation<Interaction, Never>] = [:]
@@ -40,7 +39,7 @@ public class AlloSession : NSObject, TransportDelegate
     public enum Side { case client, server }
     private let side: Side
     
-    public init(side: Side, sendMicrophone: Bool = false, transport: Transport)
+    public init(side: Side, transport: Transport)
     {
         self.side = side
         self.transport = transport
@@ -48,13 +47,6 @@ public class AlloSession : NSObject, TransportDelegate
         transport.delegate = self
         
         setupDataChannels()
-        if sendMicrophone {
-            do {
-                micTrack = try transport.createMicrophoneTrack()
-            } catch {
-                print("Failed to create microphone track: \(error)")
-            }
-        }
     }
     
     public var clientId: ClientId? { transport.clientId }
@@ -64,7 +56,7 @@ public class AlloSession : NSObject, TransportDelegate
     public func send(interaction: Interaction)
     {
         let data = try! encoder.encode(interaction)
-        transport.send(data: data, on: "interactions")
+        transport.send(data: data, on: .interactions)
     }
     
     public func request(interaction: Interaction) async -> Interaction
@@ -79,13 +71,13 @@ public class AlloSession : NSObject, TransportDelegate
     public func send(placeChangeSet: PlaceChangeSet)
     {
         let data = try! encoder.encode(placeChangeSet)
-        transport.send(data: data, on: "worldstate")
+        transport.send(data: data, on: .intentWorldState)
     }
     
     public func send(_ intent: Intent)
     {
         let data = try! encoder.encode(intent)
-        transport.send(data: data, on: "worldstate")
+        transport.send(data: data, on: .intentWorldState)
     }
     
     public func generateOffer() async throws -> SignallingPayload {
@@ -93,7 +85,7 @@ public class AlloSession : NSObject, TransportDelegate
     }
     
     public func generateAnswer(offer: SignallingPayload) async throws -> SignallingPayload {
-        return try await transport.generateAnswer(offer: offer)
+        return try await transport.generateAnswer(for: offer)
     }
     
     public func acceptAnswer(_ answer: SignallingPayload) async throws {
@@ -106,8 +98,8 @@ public class AlloSession : NSObject, TransportDelegate
     
     private func setupDataChannels()
     {
-        interactionChannel = transport.createDataChannel(label: "interactions", reliable: true)
-        worldstateChannel = transport.createDataChannel(label: "worldstate", reliable: false)
+        interactionChannel = transport.createDataChannel(label: .interactions, reliable: true)
+        worldstateChannel = transport.createDataChannel(label: .intentWorldState, reliable: false)
     }
     
     //MARK: - Transport delegates
@@ -122,9 +114,9 @@ public class AlloSession : NSObject, TransportDelegate
     }
     
     let decoder = BinaryDecoder()
-    public func transport(_ transport: Transport, didReceiveData data: Data, on channel: String)
+    public func transport(_ transport: Transport, didReceiveData data: Data, on channel: DataChannel)
     {
-        if channel == "interactions"
+        if channel.label == .interactions
         {
             do {
                 let inter = try decoder.decode(Interaction.self, from: data)
@@ -149,7 +141,7 @@ public class AlloSession : NSObject, TransportDelegate
                 print("Warning, dropped unparseable interaction: \(e)")
             }
         }
-        else if channel == "worldstate" && side == .client
+        else if channel.label == .intentWorldState && side == .client
         {
             do {
                 let worldstate = try decoder.decode(PlaceChangeSet.self, from: data)
@@ -160,7 +152,7 @@ public class AlloSession : NSObject, TransportDelegate
                 print("Warning, dropped unparseable worldstate: \(e)")
             }
         }
-        else if channel == "worldstate" && side == .server
+        else if channel.label == .intentWorldState && side == .server
         {
             guard let intent = try? decoder.decode(Intent.self, from: data) else
             {
@@ -181,7 +173,7 @@ public class AlloSession : NSObject, TransportDelegate
             }
             catch (let e)
             {
-                // TODO: store the error, mark as temporary, and force upper lever to reconnect
+                // TODO: store the error, mark as temporary, and force upper level to reconnect
                 print("Failed to renegotiate offer for \(transport.clientId!): \(e)")
                 transport.disconnect()
             }
@@ -228,7 +220,7 @@ public class AlloSession : NSObject, TransportDelegate
     
     func respondToRenegotiationInner(offer: SignallingPayload, request: Interaction) async throws
     {
-        let answer = try await transport.generateAnswer(offer: offer)
+        let answer = try await transport.generateAnswer(for: offer)
         
         let response = request.makeResponse(with: .internal_renegotiate(.answer, answer))
         self.send(interaction: response)
@@ -241,16 +233,5 @@ public class AlloSession : NSObject, TransportDelegate
     {
         incomingStreams[stream.streamId] = stream
         delegate?.session(self, didReceiveMediaStream: stream)
-    }
-    
-    public func addOutgoing(stream: MediaStream)
-    {
-        transport.addOutgoingStream(stream)
-    }
-    
-    public var microphoneEnabled: Bool = false {
-        didSet {
-            transport.setMicrophoneEnabled(microphoneEnabled)
-        }
     }
 }

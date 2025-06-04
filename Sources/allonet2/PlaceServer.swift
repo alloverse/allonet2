@@ -20,8 +20,8 @@ public struct AppDescription
 @MainActor
 public class PlaceServer : AlloSessionDelegate
 {
-    var clients : [RTCClientId: ConnectedClient] = [:]
-    var unannouncedClients : [RTCClientId: ConnectedClient] = [:]
+    var clients : [ClientId: ConnectedClient] = [:]
+    var unannouncedClients : [ClientId: ConnectedClient] = [:]
     
     let name: String
     let port:UInt16
@@ -134,7 +134,7 @@ public class PlaceServer : AlloSessionDelegate
     {
         let offer = try await JSONDecoder().decode(SignallingPayload.self, from: request.bodyData)
             
-        let transport = ServerTransport()
+        let transport = HeadlessWebRTCTransport()
         let session = AlloSession(side: .server, transport: transport)
         session.delegate = self
         let client = ConnectedClient(session: session)
@@ -208,7 +208,8 @@ public class PlaceServer : AlloSessionDelegate
             for (cid, client) in self.clients
             {
                 if cid == sess.clientId! { continue }
-                client.session.addOutgoing(stream: stream)
+                // TODO: Stream forwarding!
+                //client.session.addOutgoing(stream: stream)
             }
             // TODO: also attach to new clients that connect after this stream comes in
         }
@@ -245,7 +246,7 @@ public class PlaceServer : AlloSessionDelegate
         }
     }
     
-    var outstandingClientToClientInteractions: [Interaction.RequestID: RTCClientId] = [:]
+    var outstandingClientToClientInteractions: [Interaction.RequestID: ClientId] = [:]
     func handle(forwardingOfInteraction inter: Interaction, from client: ConnectedClient) async throws(AlloverseError)
     {
         // Go look for the recipient entity, and map it to recipient client.
@@ -378,7 +379,7 @@ public class PlaceServer : AlloSessionDelegate
         // TODO: Handle child entities
     }
     
-    func removeEntites(ownedBy cid: RTCClientId) async
+    func removeEntites(ownedBy cid: ClientId) async
     {
         for (eid, ent) in place.current.entities
         {
@@ -433,7 +434,7 @@ internal class ConnectedClient
     let session: AlloSession
     var announced = false
     var ackdRevision : StateRevision? // Last ack'd place contents revision, or nil if none
-    var cid: RTCClientId { session.clientId! }
+    var cid: ClientId { session.clientId! }
     
     init(session: AlloSession)
     {
