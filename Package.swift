@@ -18,6 +18,16 @@ let package = Package(
             targets: ["allonet2"]
         ),
         .library(
+            name: "alloclient",
+            type: .dynamic,
+            targets: ["alloclient"]
+        ),
+        .library(
+            name: "alloserver",
+            type: .dynamic,
+            targets: ["alloserver"]
+        ),
+        .library(
             name: "AlloReality",
             type: .dynamic,
             targets: ["AlloReality"]
@@ -39,20 +49,30 @@ let package = Package(
 
     ],
     targets: [
-        // Targets are the basic building blocks of a package, defining a module or a test suite.
-        // Targets can depend on other targets in this package and products from dependencies.
         .target(
             name: "allonet2",
             dependencies: [
-                .product(name: "LiveKitWebRTC", package: "webrtc-xcframework"),
                 "BinaryCodable",
                 "AnyCodable",
                 "FlyingFox"
             ]
         ),
         .target(
+            name: "alloclient",
+            dependencies: [
+                .product(name: "LiveKitWebRTC", package: "webrtc-xcframework"),
+                "allonet2"
+            ]
+        ),
+        .target(
+            name: "alloserver",
+            dependencies: [
+                "allonet2"
+            ]
+        ),
+        .target(
             name: "AlloReality",
-            dependencies: ["allonet2"]
+            dependencies: ["alloclient"]
         ),
         .testTarget(
             name: "allonet2Tests",
@@ -61,7 +81,7 @@ let package = Package(
         .executableTarget(
             name: "AlloPlace",
             dependencies: [
-                "allonet2",
+                "alloserver",
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ]
         ),

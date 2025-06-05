@@ -20,12 +20,13 @@ public struct AppDescription
 @MainActor
 public class PlaceServer : AlloSessionDelegate
 {
-    var clients : [RTCClientId: ConnectedClient] = [:]
-    var unannouncedClients : [RTCClientId: ConnectedClient] = [:]
+    var clients : [ClientId: ConnectedClient] = [:]
+    var unannouncedClients : [ClientId: ConnectedClient] = [:]
     
     let name: String
     let port:UInt16
     let appDescription: AppDescription
+    let transportClass: Transport.Type
     
     let connectionStatus = ConnectionStatus()
     let place = PlaceState()
@@ -43,12 +44,13 @@ public class PlaceServer : AlloSessionDelegate
     
     static let InteractionTimeout: TimeInterval = 10
     
-    public init(name: String, port: UInt16 = 9080, customApp: AppDescription = .alloverse)
+    public init(name: String, port: UInt16 = 9080, customApp: AppDescription = .alloverse, transportClass: Transport.Type)
     {
         Allonet.Initialize()
         self.name = name
         self.port = port
         self.appDescription = customApp
+        self.transportClass = transportClass
         self.http = HTTPServer(port: port)
     }
     
@@ -134,19 +136,16 @@ public class PlaceServer : AlloSessionDelegate
     {
         let offer = try await JSONDecoder().decode(SignallingPayload.self, from: request.bodyData)
             
-        let session = AlloSession(side: .server, status: connectionStatus)
+        let transport = transportClass.init(with: .direct, status: connectionStatus)
+        let session = AlloSession(side: .server, transport: transport)
         session.delegate = self
         let client = ConnectedClient(session: session)
         
         print("Received new client")
         
-        let response = SignallingPayload(
-            sdp: try await session.rtc.generateAnswer(offer: offer.desc(for: .offer), remoteCandidates: offer.rtcCandidates()),
-            candidates: (await session.rtc.gatherCandidates()).map { SignallingIceCandidate(candidate: $0) },
-            clientId: session.rtc.clientId!
-        )
-        self.unannouncedClients[session.rtc.clientId!] = client
-        print("Client is \(session.rtc.clientId!), shaking hands...")
+        let response = try await session.generateAnswer(offer: offer)
+        self.unannouncedClients[session.clientId!] = client
+        print("Client is \(session.clientId!), shaking hands...")
         
         return HTTPResponse(
             statusCode: .ok,
@@ -157,12 +156,12 @@ public class PlaceServer : AlloSessionDelegate
     
     nonisolated public func session(didConnect sess: AlloSession)
     {
-        print("Got connection from \(sess.rtc.clientId!)")
+        print("Got connection from \(sess.clientId!)")
     }
     
     nonisolated public func session(didDisconnect sess: AlloSession)
     {
-        let cid = sess.rtc.clientId!
+        let cid = sess.clientId!
         print("Lost client \(cid)")
         Task { @MainActor in
             if let _ = self.clients.removeValue(forKey: cid)
@@ -176,10 +175,10 @@ public class PlaceServer : AlloSessionDelegate
     
     nonisolated public func session(_ sess: AlloSession, didReceiveInteraction inter: Interaction)
     {
-        let cid = sess.rtc.clientId!
+        let cid = sess.clientId!
         //print("Received interaction from \(cid): \(inter)")
         Task { @MainActor in
-            let client = (clients[cid] ?? unannouncedClients[cid])!
+            let client = (self.clients[cid] ?? self.unannouncedClients[cid])!
             await self.handle(inter, from: client)
         }
     }
@@ -191,27 +190,28 @@ public class PlaceServer : AlloSessionDelegate
     
     nonisolated public func session(_ sess: AlloSession, didReceiveIntent intent: Intent)
     {
-        let cid = sess.rtc.clientId!
+        let cid = sess.clientId!
         Task { @MainActor in
-            if let client = clients[cid]
+            if let client = self.clients[cid]
             {
                 client.ackdRevision = intent.ackStateRev
             } else
             {
                 // If it's not in clients, it should be in unacknowledged... just double checking
-                assert(unannouncedClients[cid] != nil)
+                assert(self.unannouncedClients[cid] != nil)
                 // but we shouldn't even receive an intent before it's acknowledged anyway.
             }
         }
     }
     
-    nonisolated public func session(_ sess: AlloSession, didReceiveMediaStream stream: AlloMediaStream)
+    nonisolated public func session(_ sess: AlloSession, didReceiveMediaStream stream: MediaStream)
     {
         Task { @MainActor in
             for (cid, client) in self.clients
             {
-                if cid == sess.rtc.clientId! { continue }
-                client.session.addOutgoing(stream: stream)
+                if cid == sess.clientId! { continue }
+                // TODO: Stream forwarding!
+                //client.session.addOutgoing(stream: stream)
             }
             // TODO: also attach to new clients that connect after this stream comes in
         }
@@ -248,7 +248,7 @@ public class PlaceServer : AlloSessionDelegate
         }
     }
     
-    var outstandingClientToClientInteractions: [Interaction.RequestID: RTCClientId] = [:]
+    var outstandingClientToClientInteractions: [Interaction.RequestID: ClientId] = [:]
     func handle(forwardingOfInteraction inter: Interaction, from client: ConnectedClient) async throws(AlloverseError)
     {
         // Go look for the recipient entity, and map it to recipient client.
@@ -268,7 +268,7 @@ public class PlaceServer : AlloSessionDelegate
         let correctRecipient = outstandingClientToClientInteractions[inter.requestId]
         if inter.type == .request
         {
-            outstandingClientToClientInteractions[inter.requestId] = client.session.rtc.clientId!
+            outstandingClientToClientInteractions[inter.requestId] = client.session.clientId!
         }
         else if(inter.type == .response)
         {
@@ -321,7 +321,7 @@ public class PlaceServer : AlloSessionDelegate
         case .announce(let version, let avatarDescription):
             guard version == "2.0" else {
                 print("Client \(client.cid) has incompatible version, disconnecting.")
-                client.session.rtc.disconnect()
+                client.session.disconnect()
                 return
             }
             client.announced = true
@@ -381,7 +381,7 @@ public class PlaceServer : AlloSessionDelegate
         // TODO: Handle child entities
     }
     
-    func removeEntites(ownedBy cid: RTCClientId) async
+    func removeEntites(ownedBy cid: ClientId) async
     {
         for (eid, ent) in place.current.entities
         {
@@ -436,7 +436,7 @@ internal class ConnectedClient
     let session: AlloSession
     var announced = false
     var ackdRevision : StateRevision? // Last ack'd place contents revision, or nil if none
-    var cid: RTCClientId { session.rtc.clientId! }
+    var cid: ClientId { session.clientId! }
     
     init(session: AlloSession)
     {

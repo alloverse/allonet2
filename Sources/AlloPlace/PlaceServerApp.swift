@@ -1,6 +1,7 @@
 import Foundation
 import ArgumentParser
 import allonet2
+import alloserver
 
 @main @MainActor
 struct PlaceServerApp: AsyncParsableCommand
@@ -23,7 +24,7 @@ struct PlaceServerApp: AsyncParsableCommand
     mutating func run() async throws
     {
         let app = AppDescription(name: appName, downloadURL: appDownloadURL, URLProtocol: appURLProtocol)
-        let server = PlaceServer(name: name, port: port, customApp: app)
+        let server = PlaceServer(name: name, port: port, customApp: app, transportClass: HeadlessWebRTCTransport.self)
         try await server.start()
     }
 }
