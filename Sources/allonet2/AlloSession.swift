@@ -116,8 +116,9 @@ public class AlloSession : NSObject, TransportDelegate
     let decoder = BinaryDecoder()
     public func transport(_ transport: Transport, didReceiveData data: Data, on channel: DataChannel)
     {
-        if channel.label == .interactions
+        switch channel.label
         {
+        case  .interactions:
             do {
                 let inter = try decoder.decode(Interaction.self, from: data)
                 if case .internal_renegotiate(.offer, let payload) = inter.body
@@ -140,26 +141,27 @@ public class AlloSession : NSObject, TransportDelegate
             {
                 print("Warning, dropped unparseable interaction: \(e)")
             }
-        }
-        else if channel.label == .intentWorldState && side == .client
-        {
-            do {
-                let worldstate = try decoder.decode(PlaceChangeSet.self, from: data)
-                self.delegate?.session(self, didReceivePlaceChangeSet: worldstate)
+        case .intentWorldState where side == .client:
+            switch side {
+            case .client:
+                do {
+                    let worldstate = try decoder.decode(PlaceChangeSet.self, from: data)
+                    self.delegate?.session(self, didReceivePlaceChangeSet: worldstate)
+                }
+                catch (let e)
+                {
+                    print("Warning, dropped unparseable worldstate: \(e)")
+                }
+            case .server:
+                guard let intent = try? decoder.decode(Intent.self, from: data) else
+                {
+                    print("Warning, \(transport.clientId!.uuidString) dropped unparseable intent")
+                    return
+                }
+                self.delegate?.session(self, didReceiveIntent: intent)
             }
-            catch (let e)
-            {
-                print("Warning, dropped unparseable worldstate: \(e)")
-            }
-        }
-        else if channel.label == .intentWorldState && side == .server
-        {
-            guard let intent = try? decoder.decode(Intent.self, from: data) else
-            {
-                print("Warning, \(transport.clientId!.uuidString) dropped unparseable intent")
-                return
-            }
-            self.delegate?.session(self, didReceiveIntent: intent)
+        default:
+            fatalError("Unexpected message")
         }
     }
     

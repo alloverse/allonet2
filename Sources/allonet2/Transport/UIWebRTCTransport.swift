@@ -165,8 +165,10 @@ public class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate
     public func createDataChannel(label: DataChannelLabel, reliable: Bool) -> DataChannel?
     {
         let config = LKRTCDataChannelConfiguration()
+        config.isNegotiated = true
         config.isOrdered = reliable
         config.maxRetransmits = reliable ? -1 : 0
+        config.channelId = label.channelId
         
         guard let channel = peer.dataChannel(forLabel: label.rawValue, configuration: config) else {
             return nil
@@ -179,7 +181,10 @@ public class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate
     
     public func send(data: Data, on channelLabel: DataChannelLabel)
     {
-        guard let channel = channels[channelLabel] else { return }
+        guard let channel = channels[channelLabel] else {
+            fatalError("Missing channel for label \(channelLabel)");
+            return
+        }
         channel.sendData(LKRTCDataBuffer(data: data, isBinary: true))
     }
     
@@ -346,14 +351,7 @@ public class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate
     
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didOpen dataChannel: LKRTCDataChannel)
     {
-        if dataChannel.label == "interactions"
-        {
-            print("Got interaction channel")
-        }
-        else if dataChannel.label == "worldstate"
-        {
-            print("Got worldstate channel")
-        }
+        print("Data channel \(dataChannel.label) is now open")
         dataChannel.delegate = self
         self.maybeConnected()
     }
@@ -364,6 +362,7 @@ public class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate
         let readyState = dataChannel.readyState
         print("Data channel \(dataChannel.label) state \(readyState)")
         DispatchQueue.main.async {
+            // TODO: There are more than one data channel. Track them separately.
             self.connectionStatus.data = switch readyState
             {
                 case .closed, .closing: .idle
@@ -376,6 +375,7 @@ public class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate
     
     public func dataChannel(_ dataChannel: LKRTCDataChannel, didReceiveMessageWith buffer: LKRTCDataBuffer)
     {
+        //print("Message on data channel \(dataChannel.label): \(buffer.data.count) bytes")
         delegate?.transport(self, didReceiveData: buffer.data, on: dataChannel.wrapper)
     }
     

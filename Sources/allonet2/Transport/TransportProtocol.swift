@@ -35,8 +35,18 @@ public protocol Transport: AnyObject {
 
 public enum DataChannelLabel: String
 {
-    case intentWorldState = "worldstate"
     case interactions = "interactions"
+    case intentWorldState = "worldstate"
+}
+
+extension DataChannelLabel
+{
+    var channelId: Int32 { get {
+        switch self {
+        case .interactions: 1
+        case .intentWorldState: 2
+        }
+    } }
 }
 
 public protocol DataChannel {

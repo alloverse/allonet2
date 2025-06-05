@@ -158,7 +158,6 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         connectionLoopCancellable = nil
         connectionStatus.willReconnectAt = nil
         reconnectionAttempts = 0
-        // Use session's disconnect method
         session.disconnect()
         reset()
     }
@@ -173,7 +172,6 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         
         do {
             print("Trying to connect to \(url)...")
-            // Use session's transport methods
             let offer = try await session.generateOffer()
             
             // Original schema is alloplace2://. We call this with HTTP(S) to establish a WebRTC connection, which means we need to rewrite the
