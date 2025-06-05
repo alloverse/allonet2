@@ -26,6 +26,7 @@ public class PlaceServer : AlloSessionDelegate
     let name: String
     let port:UInt16
     let appDescription: AppDescription
+    let transportClass: Transport.Type
     
     let connectionStatus = ConnectionStatus()
     let place = PlaceState()
@@ -43,12 +44,13 @@ public class PlaceServer : AlloSessionDelegate
     
     static let InteractionTimeout: TimeInterval = 10
     
-    public init(name: String, port: UInt16 = 9080, customApp: AppDescription = .alloverse)
+    public init(name: String, port: UInt16 = 9080, customApp: AppDescription = .alloverse, transportClass: Transport.Type)
     {
         Allonet.Initialize()
         self.name = name
         self.port = port
         self.appDescription = customApp
+        self.transportClass = transportClass
         self.http = HTTPServer(port: port)
     }
     
@@ -134,7 +136,7 @@ public class PlaceServer : AlloSessionDelegate
     {
         let offer = try await JSONDecoder().decode(SignallingPayload.self, from: request.bodyData)
             
-        let transport = HeadlessWebRTCTransport()
+        let transport = transportClass.init(with: .direct, status: connectionStatus)
         let session = AlloSession(side: .server, transport: transport)
         session.delegate = self
         let client = ConnectedClient(session: session)

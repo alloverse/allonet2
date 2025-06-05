@@ -9,7 +9,7 @@ import Foundation
 import Combine
 
 @MainActor
-public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
+open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
 {
     /// Convenient access to the contents of the connected Place.
     public private(set) lazy var place = Place(state: placeState, client: self)
@@ -25,15 +25,8 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     }
     @Published public private(set) var isAnnounced: Bool = false
     public private(set) var placeName: String?
-    private var transport: UIWebRTCTransport! = nil
+    open var transport: Transport! = nil
     public var session: AlloSession! = nil
-    
-    private var micTrack: AudioTrack?
-    private let sendMicrophone: Bool
-    @Published public var micEnabled: Bool = false
-    {
-        didSet { transport.microphoneEnabled = micEnabled }
-    }
     
     var currentIntent = Intent(ackStateRev: 0) {
         didSet {
@@ -61,13 +54,11 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         }
     }
     
-    public init(url: URL, avatarDescription: EntityDescription, sendMicrophone: Bool = false)
+    public init(url: URL, avatarDescription: EntityDescription)
     {
         Allonet.Initialize()
         self.url = url
         self.avatarDesc = avatarDescription
-        self.micEnabled = sendMicrophone
-        self.sendMicrophone = sendMicrophone
         self.reset()
     }
     
@@ -129,23 +120,19 @@ public class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         }
     }
     
-    private func reset()
+    open func reset()
+    {
+        preconditionFailure("This method must be overridden by a concrete subclass, and it must call reset(with:)")
+    }
+    
+    open func reset(with transport: Transport)
     {
         print("Resetting AlloSession within client")
-        // TODO: have two different AlloClients, one for UI and one for headless.
-        let transport = UIWebRTCTransport(with: .direct, status: connectionStatus)
+        self.transport = transport
         session = AlloSession(side: .client, transport: transport)
         session.delegate = self
         avatarId = nil
         isAnnounced = false
-        
-        if sendMicrophone {
-            do {
-                micTrack = try transport.createMicrophoneTrack()
-            } catch {
-                print("Failed to create microphone track: \(error)")
-            }
-        }
     }
 
     

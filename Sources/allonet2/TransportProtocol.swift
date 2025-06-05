@@ -18,7 +18,10 @@ public protocol TransportDelegate: AnyObject {
 }
 
 // A Transport wraps a WebRTC peer connection with Alloverse specific peer semantics, but no business logic
-public protocol Transport: AnyObject {
+public protocol Transport: AnyObject
+{
+    init(with connectionOptions: TransportConnectionOptions, status: ConnectionStatus)
+    
     var clientId: ClientId? { get }
     var delegate: TransportDelegate? { get set }
     
@@ -33,6 +36,14 @@ public protocol Transport: AnyObject {
     func send(data: Data, on channel: DataChannelLabel)
 }
 
+public enum TransportConnectionOptions
+    {
+        case direct // no STUN nor TURN
+        // STUN allows NAT hole punching using a third party
+        case standardSTUN // Google, Twilio and some other free options
+        case STUN(servers: [String])
+    }
+
 public enum DataChannelLabel: String
 {
     case interactions = "interactions"
@@ -41,7 +52,7 @@ public enum DataChannelLabel: String
 
 extension DataChannelLabel
 {
-    var channelId: Int32 { get {
+    public var channelId: Int32 { get {
         switch self {
         case .interactions: 1
         case .intentWorldState: 2

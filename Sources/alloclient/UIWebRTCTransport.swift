@@ -8,9 +8,10 @@
 import Foundation
 import LiveKitWebRTC
 import Combine
+import allonet2
 
 /// Uses Google's WebRTC implementation meant for client-side UI apps.
-public class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTCDataChannelDelegate
+class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTCDataChannelDelegate
 {
     public private(set) var clientId: ClientId?
     private let peer: LKRTCPeerConnection
@@ -30,15 +31,8 @@ public class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate
     
     private let audioSessionActive = false
     
-    public enum ConnectionOptions
+    public required init(with connectionOptions: TransportConnectionOptions = .direct, status: ConnectionStatus)
     {
-        case direct // no STUN nor TURN
-        // STUN allows NAT hole punching using a third party
-        case standardSTUN // Google, Twilio and some other free options
-        case STUN(servers: [String])
-    }
-    
-    public init(with connectionOptions: ConnectionOptions = .direct, status: ConnectionStatus) {
         peer = Self.createPeerConnection(with: connectionOptions)
         connectionStatus = status
         super.init()
@@ -191,7 +185,7 @@ public class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate
     
     //MARK: - Internals
     
-    private static func createPeerConnection(with connectionOptions: ConnectionOptions) -> LKRTCPeerConnection
+    private static func createPeerConnection(with connectionOptions: TransportConnectionOptions) -> LKRTCPeerConnection
     {
         let config = LKRTCConfiguration()
         config.sdpSemantics = .unifiedPlan

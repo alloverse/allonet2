@@ -16,8 +16,8 @@ public enum SignallingDirection: Codable
 
 public struct SignallingPayload: Codable
 {
-    let sdp: String
-    let candidates: [SignallingIceCandidate]
+    public let sdp: String
+    public let candidates: [SignallingIceCandidate]
     public let clientId: UUID?
     public init(sdp: String, candidates: [SignallingIceCandidate], clientId: UUID?)
     {

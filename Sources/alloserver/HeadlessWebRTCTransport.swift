@@ -5,17 +5,20 @@
 //  Created by Nevyn Bengtsson on 2025-02-11.
 //
 
+import allonet2
 import Foundation
 
 // Temporary stub for server - you'll replace this with your chosen server WebRTC implementation
-public class HeadlessWebRTCTransport: Transport {
+public class HeadlessWebRTCTransport: Transport
+{
     public weak var delegate: TransportDelegate?
     public private(set) var clientId: ClientId?
     
     private var channels: [DataChannelLabel: ServerDataChannel] = [:]
     
-    public init() {
-        // TODO: Initialize your server-side WebRTC implementation
+    public required init(with connectionOptions: allonet2.TransportConnectionOptions, status: allonet2.ConnectionStatus)
+    {
+        // TODO
     }
     
     public func generateOffer() async throws -> SignallingPayload {
