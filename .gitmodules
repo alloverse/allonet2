@@ -1,0 +1,3 @@
+[submodule "Packages/AlloDataChannel"]
+	path = Packages/AlloDataChannel
+	url = https://github.com/alloverse/AlloDataChannel.git

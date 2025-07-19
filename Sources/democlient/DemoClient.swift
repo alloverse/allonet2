@@ -29,7 +29,7 @@ class DemoApp
                     material: .color(color: .hsv(hue: .random(in: 0...1), saturation: 0.9, value: 1, alpha: 1), metallic: true)
                 )
             ])
-        ]), sendMicrophone: false)
+        ]))
         
         Task {
             for await announced in self.client.$isAnnounced.values where announced == true {

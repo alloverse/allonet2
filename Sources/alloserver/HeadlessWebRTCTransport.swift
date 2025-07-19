@@ -7,76 +7,168 @@
 
 import allonet2
 import Foundation
+import AlloDataChannel
+import Combine
 
-// Temporary stub for server - you'll replace this with your chosen server WebRTC implementation
 public class HeadlessWebRTCTransport: Transport
 {
     public weak var delegate: TransportDelegate?
     public private(set) var clientId: ClientId?
     
-    private var channels: [DataChannelLabel: ServerDataChannel] = [:]
+    private var peer: AlloWebRTCPeer
+    private var channels: [String: ServerDataChannel] = [:] // track which channels are created
+    private var cancellables = Set<AnyCancellable>()
     
     public required init(with connectionOptions: allonet2.TransportConnectionOptions, status: allonet2.ConnectionStatus)
     {
-        // TODO
+        peer = AlloWebRTCPeer()
+        
+        peer.$state.sink { [weak self] state in
+            guard let self = self else { return }
+            if state == .connected {
+                self.delegate?.transport(didConnect: self)
+            } else if state == .closed || state == .failed {
+                self.delegate?.transport(didDisconnect: self)
+            }
+        }.store(in: &cancellables)
+        
+        /*webrtcPeer?.onMediaStreamAdded = { [weak self] streamId in
+            guard let self = self else { return }
+            let stream = ServerMediaStream(streamId: streamId)
+            self.delegate?.transport(self, didReceiveMediaStream: stream)
+        }*/
     }
     
-    public func generateOffer() async throws -> SignallingPayload {
-        // TODO: Implement with server WebRTC library
-        throw TransportError.notImplemented
+    public func generateOffer() async throws -> SignallingPayload
+    {
+        fatalError("Not available server-side")
     }
     
-    public func generateAnswer(for: SignallingPayload) async throws -> SignallingPayload
+    public func generateAnswer(for offer: SignallingPayload) async throws -> SignallingPayload
     {
         clientId = UUID()
-        // TODO: Implement with server WebRTC library
-        throw TransportError.notImplemented
+        
+        try peer.set(remote: offer.sdp, type: .offer)
+        try peer.lockLocalDescription(type: .answer)
+        // TODO: set remote ice candidates in peer from the offer
+        let answerSdp = try peer.createAnswer()
+        
+        let answerCandidates = peer.candidates.compactMap(\.alloCandidate)
+        
+        return SignallingPayload(
+            sdp: answerSdp,
+            candidates: answerCandidates,
+            clientId: clientId
+        )
     }
     
-    public func acceptAnswer(_ answer: SignallingPayload) async throws {
-        clientId = answer.clientId
-        // TODO: Implement with server WebRTC library
-        throw TransportError.notImplemented
+    public func acceptAnswer(_ answer: SignallingPayload) async throws
+    {
+        fatalError("Not available server-side")
     }
     
-    public func disconnect() {
-        // TODO: Implement cleanup
+    public func disconnect()
+    {
+        peer.close()
+        clientId = nil
     }
     
-    public func createDataChannel(label: DataChannelLabel, reliable: Bool) -> DataChannel? {
-        let channel = ServerDataChannel(label: label)
-        channels[label] = channel
+    public func createDataChannel(label: DataChannelLabel, reliable: Bool) -> DataChannel?
+    {
+        let achannel = try! peer.createDataChannel(label: label.rawValue, reliable: reliable, streamId: UInt16(label.channelId), negotiated: true)
+        let channel = ServerDataChannel(label: label, channel: achannel)
+        channels[label.rawValue] = channel
+        
+        achannel.$lastMessage.sink { [weak self] message in
+            guard let self = self, let message = message else { return }
+            self.delegate?.transport(self, didReceiveData: message, on: channel)
+        }.store(in: &cancellables)
+            
         return channel
     }
     
-    public func send(data: Data, on channelLabel: DataChannelLabel) {
-        // TODO: Implement with server WebRTC library
+    public func send(data: Data, on channelLabel: DataChannelLabel)
+    {
+        let ch = channels[channelLabel.rawValue]!
+        try! ch.channel.send(data: data)
     }
     
-    // Media operations not supported on server
-    public func createMicrophoneTrack() throws -> AudioTrack {
-        throw TransportError.mediaNotSupported
+    // Media operations - server can forward but not create
+    public func createMicrophoneTrack() throws -> AudioTrack
+    {
+        fatalError("Not available server-side")
     }
     
-    public func setMicrophoneEnabled(_ enabled: Bool) {
-        // No-op on server
+    public func setMicrophoneEnabled(_ enabled: Bool)
+    {
+        fatalError("Not available server-side")
     }
     
-    public func addOutgoingStream(_ stream: MediaStream) {
-        // TODO: Implement stream forwarding when you have server WebRTC library
+    public func addOutgoingStream(_ stream: MediaStream)
+    {
+        // TODO: Implement stream forwarding when you have multiple clients
+        // This would involve forwarding streams between HeadlessWebRTCTransport instances
+    }
+    
+    public func forwardStream(from otherTransport: HeadlessWebRTCTransport, streamId: String) -> Bool
+    {
+        return false
     }
 }
 
-public enum TransportError: Error {
-    case notImplemented
-    case mediaNotSupported
-}
-
-private class ServerDataChannel: DataChannel {
+private class ServerDataChannel: DataChannel
+{
     let label: DataChannelLabel
-    var isOpen: Bool = false
+    let channel: AlloWebRTCPeer.Channel
+    var isOpen: Bool { return channel.open }
     
-    init(label: DataChannelLabel) {
+    init(label: DataChannelLabel, channel: AlloWebRTCPeer.Channel)
+    {
         self.label = label
+        self.channel = channel
+    }
+}
+
+private class ServerMediaStream: MediaStream
+{
+    let streamId: String
+    
+    init(streamId: String) {
+        self.streamId = streamId
+    }
+}
+
+extension SignallingPayload
+{
+    public func adcCandidates() -> [AlloWebRTCPeer.ICECandidate]
+    {
+        return candidates.map { $0.adc() }
+    }
+}
+
+extension SignallingIceCandidate
+{
+    public init(candidate: AlloWebRTCPeer.ICECandidate)
+    {
+        self.init(
+            sdpMid: candidate.mid,
+            sdpMLineIndex: 0,
+            sdp: candidate.candidate,
+            serverUrl: nil
+        )
+    }
+    
+    public func adc() -> AlloWebRTCPeer.ICECandidate
+    {
+        return AlloWebRTCPeer.ICECandidate(candidate: sdp, mid: sdpMid)
+    }
+}
+
+extension AlloWebRTCPeer.ICECandidate
+{
+    var alloCandidate: SignallingIceCandidate {
+        get {
+            return SignallingIceCandidate(candidate: self)
+        }
     }
 }

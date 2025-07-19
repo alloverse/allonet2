@@ -232,7 +232,6 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
             peer.iceConnectionState == .connected &&
              channels.count > 0 &&
             channels.values.allSatisfy({$0.readyState == .open})
-            
         {
             didFullyConnect = true
             self.delegate?.transport(didConnect: self)
@@ -518,5 +517,35 @@ extension LKRTCAudioTrack {
             }
             return wrapper!
         }
+    }
+}
+
+extension SignallingPayload
+{
+    public func desc(for type: RTCSdpType) -> LKRTCSessionDescription
+    {
+        return LKRTCSessionDescription(type: type, sdp: self.sdp)
+    }
+    public func rtcCandidates() -> [LKRTCIceCandidate]
+    {
+        return candidates.map { $0.candidate() }
+    }
+}
+
+extension SignallingIceCandidate
+{
+    public init(candidate: LKRTCIceCandidate)
+    {
+        self.init(
+            sdpMid: candidate.sdpMid!,
+            sdpMLineIndex: candidate.sdpMLineIndex,
+            sdp: candidate.sdp,
+            serverUrl: candidate.serverUrl
+        )
+    }
+    
+    public func candidate() -> LKRTCIceCandidate
+    {
+        return LKRTCIceCandidate(sdp: sdp, sdpMLineIndex: sdpMLineIndex, sdpMid: sdpMid)
     }
 }
