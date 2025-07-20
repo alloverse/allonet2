@@ -31,8 +31,8 @@ let package = Package(
         .executable(name: "AlloPlace",
             targets: ["AlloPlace"]
         ),
-        .executable(name: "democlient",
-            targets: ["democlient"]
+        .executable(name: "demoapp",
+            targets: ["demoapp"]
         )
     ],
     dependencies: [
@@ -83,8 +83,8 @@ let package = Package(
             ]
         ),
         .executableTarget(
-            name: "democlient",
-            dependencies: ["allonet2"]
+            name: "demoapp",
+            dependencies: ["alloserver"]
         ),
     ],
     swiftLanguageModes: [.v5]

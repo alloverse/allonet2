@@ -1,6 +1,6 @@
 //
-//  democlient/main.swift
-//  
+//  demoapp/DemoApp.swift
+//
 //
 //  Created by Nevyn Bengtsson on 2024-04-03.
 //
@@ -8,6 +8,7 @@
 import Foundation
 import Combine
 import allonet2
+import alloserver
 
 @main @MainActor
 class DemoApp
@@ -17,7 +18,7 @@ class DemoApp
     {
         print("Connecting to alloverse swift place ", url)
 
-        self.client = AlloClient(url: url, avatarDescription: EntityDescription(components:[
+        self.client = AlloAppClient(url: url, avatarDescription: EntityDescription(components:[
             Model(
                 mesh: .sphere(radius: 0.5),
                 material: .color(color: .hsv(hue: .random(in: 0...1), saturation: 0.9, value: 1, alpha: 1), metallic: true)
