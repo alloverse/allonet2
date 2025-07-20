@@ -14,22 +14,18 @@ let package = Package(
         // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
             name: "allonet2",
-            type: .dynamic,
             targets: ["allonet2"]
         ),
         .library(
             name: "alloclient",
-            type: .dynamic,
             targets: ["alloclient"]
         ),
         .library(
             name: "alloserver",
-            type: .dynamic,
             targets: ["alloserver"]
         ),
         .library(
             name: "AlloReality",
-            type: .dynamic,
             targets: ["AlloReality"]
         ),
         .executable(name: "AlloPlace",
