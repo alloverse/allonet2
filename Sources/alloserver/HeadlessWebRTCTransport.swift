@@ -17,10 +17,12 @@ public class HeadlessWebRTCTransport: Transport
     
     private var peer: AlloWebRTCPeer
     private var channels: [String: ServerDataChannel] = [:] // track which channels are created
+    private var connectionStatus: ConnectionStatus
     private var cancellables = Set<AnyCancellable>()
     
-    public required init(with connectionOptions: allonet2.TransportConnectionOptions, status: allonet2.ConnectionStatus)
+    public required init(with connectionOptions: allonet2.TransportConnectionOptions, status: ConnectionStatus)
     {
+        self.connectionStatus = status
         peer = AlloWebRTCPeer()
         
         peer.$state.sink { [weak self] state in
@@ -32,6 +34,10 @@ public class HeadlessWebRTCTransport: Transport
             }
         }.store(in: &cancellables)
         
+        // TODO: subscribe to more callbacks and match UIWebRTCTransport's behavior
+        // TODO: Populate connectionStatus
+        // TODO: Manage renegotiation
+        
         /*webrtcPeer?.onMediaStreamAdded = { [weak self] streamId in
             guard let self = self else { return }
             let stream = ServerMediaStream(streamId: streamId)
@@ -41,7 +47,19 @@ public class HeadlessWebRTCTransport: Transport
     
     public func generateOffer() async throws -> SignallingPayload
     {
-        fatalError("Not available server-side")
+        Task { @MainActor in self.connectionStatus.signalling = .connecting }
+        
+        try peer.lockLocalDescription(type: .answer)
+        let offerSdp = try peer.createOffer()
+        
+        // TODO: await gathering status = complete
+        let offerCandidates = peer.candidates.compactMap(\.alloCandidate)
+        
+        return SignallingPayload(
+            sdp: offerSdp,
+            candidates: offerCandidates,
+            clientId: nil
+        )
     }
     
     public func generateAnswer(for offer: SignallingPayload) async throws -> SignallingPayload
@@ -53,6 +71,7 @@ public class HeadlessWebRTCTransport: Transport
         // TODO: set remote ice candidates in peer from the offer
         let answerSdp = try peer.createAnswer()
         
+        // TODO: await gathering status = complete
         let answerCandidates = peer.candidates.compactMap(\.alloCandidate)
         
         return SignallingPayload(
@@ -64,7 +83,12 @@ public class HeadlessWebRTCTransport: Transport
     
     public func acceptAnswer(_ answer: SignallingPayload) async throws
     {
-        fatalError("Not available server-side")
+        clientId = answer.clientId!
+        try peer.set(remote: answer.sdp, type: .answer)
+        for candidate in answer.candidates
+        {
+            try peer.add(remote: candidate.adc)
+        }
     }
     
     public func disconnect()
@@ -142,7 +166,7 @@ extension SignallingPayload
 {
     public func adcCandidates() -> [AlloWebRTCPeer.ICECandidate]
     {
-        return candidates.map { $0.adc() }
+        return candidates.map { $0.adc }
     }
 }
 
@@ -158,7 +182,7 @@ extension SignallingIceCandidate
         )
     }
     
-    public func adc() -> AlloWebRTCPeer.ICECandidate
+    public var adc : AlloWebRTCPeer.ICECandidate
     {
         return AlloWebRTCPeer.ICECandidate(candidate: sdp, mid: sdpMid)
     }

@@ -47,7 +47,7 @@ class DemoApp
         print("Demo app connected, setting up...")
         
         let avatar = self.client.avatar!
-        print("Avatar's transform: \(avatar.components[Transform.self])")
+        print("Avatar's transform: \(avatar.components[Transform.self]!)")
         
         // Example of interaction handler
         client.responders["custom"] = {
@@ -75,7 +75,7 @@ class DemoApp
     static func main() async
     {
         let url = URL(string: CommandLine.arguments[1])!
-        let app = DemoApp(connectingTo: url)
+        let _ = DemoApp(connectingTo: url)
 
         await parkToRunloop()
     }
