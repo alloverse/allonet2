@@ -141,7 +141,7 @@ public class AlloSession : NSObject, TransportDelegate
             {
                 print("Warning, dropped unparseable interaction: \(e)")
             }
-        case .intentWorldState where side == .client:
+        case .intentWorldState:
             switch side {
             case .client:
                 do {
