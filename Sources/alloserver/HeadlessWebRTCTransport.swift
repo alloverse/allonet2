@@ -26,6 +26,7 @@ public class HeadlessWebRTCTransport: Transport
         peer = AlloWebRTCPeer()
         
         peer.$state.sink { [weak self] state in
+            // TODO: replicate UIWebRTCTransport's behavior and only signal connected when data channels are connected?
             guard let self = self else { return }
             if state == .connected {
                 self.delegate?.transport(didConnect: self)
@@ -49,7 +50,7 @@ public class HeadlessWebRTCTransport: Transport
     {
         Task { @MainActor in self.connectionStatus.signalling = .connecting }
         
-        try peer.lockLocalDescription(type: .answer)
+        try peer.lockLocalDescription(type: .offer)
         let offerSdp = try peer.createOffer()
         
         // TODO: await gathering status = complete
