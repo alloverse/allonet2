@@ -1,12 +1,11 @@
 //
 //  File.swift
-//  
+//
 //
 //  Created by Nevyn Bengtsson on 2024-06-04.
 //
 
 import Foundation
-import LiveKitWebRTC
 import BinaryCodable
 
 public protocol AlloSessionDelegate: AnyObject
@@ -20,56 +19,44 @@ public protocol AlloSessionDelegate: AnyObject
     func session(_: AlloSession, didReceivePlaceChangeSet changeset: PlaceChangeSet)
     func session(_: AlloSession, didReceiveIntent intent: Intent)
     
-    func session(_: AlloSession, didReceiveMediaStream: AlloMediaStream)
+    func session(_: AlloSession, didReceiveMediaStream: MediaStream)
 }
 
-public class AlloMediaStream
-{
-    internal let stream: LKRTCMediaStream
-    
-    internal init(stream: LKRTCMediaStream) {
-        self.stream = stream
-    }
-}
-
-/// Wrapper of RTCSession, adding Alloverse-specific channels and data types
-public class AlloSession : NSObject, RTCSessionDelegate
+/// Wrapper of Transport, adding Alloverse-specific channels and data types
+public class AlloSession : NSObject, TransportDelegate
 {
     public weak var delegate: AlloSessionDelegate?
 
-    internal let rtc: RTCSession
+    internal let transport: Transport
     
-    private var interactionChannel: LKRTCDataChannel!
-    private var worldstateChannel: LKRTCDataChannel!
+    private var interactionChannel: DataChannel!
+    private var worldstateChannel: DataChannel!
     
-    private var micTrack: LKRTCAudioTrack!
-    private var incomingStreams: [String/*StreamID*/: AlloMediaStream] = [:]
+    private var incomingStreams: [String/*StreamID*/: MediaStream] = [:]
     
     private var outstandingInteractions: [Interaction.RequestID: CheckedContinuation<Interaction, Never>] = [:]
     
     public enum Side { case client, server }
     private let side: Side
     
-    public init(side: Side, sendMicrophone: Bool = false, status: ConnectionStatus)
+    public init(side: Side, transport: Transport)
     {
         self.side = side
-        self.rtc = RTCSession(status: status)
+        self.transport = transport
         super.init()
-        rtc.delegate = self
+        transport.delegate = self
         
         setupDataChannels()
-        if sendMicrophone
-        {
-            micTrack = rtc.createMicrophoneTrack()
-        }
     }
+    
+    public var clientId: ClientId? { transport.clientId }
     
     let encoder = BinaryEncoder()
     
     public func send(interaction: Interaction)
     {
         let data = try! encoder.encode(interaction)
-        interactionChannel.sendData(LKRTCDataBuffer(data: data, isBinary: true))
+        transport.send(data: data, on: .interactions)
     }
     
     public func request(interaction: Interaction) async -> Interaction
@@ -84,48 +71,54 @@ public class AlloSession : NSObject, RTCSessionDelegate
     public func send(placeChangeSet: PlaceChangeSet)
     {
         let data = try! encoder.encode(placeChangeSet)
-        worldstateChannel.sendData(LKRTCDataBuffer(data: data, isBinary: true))
+        transport.send(data: data, on: .intentWorldState)
     }
     
     public func send(_ intent: Intent)
     {
         let data = try! encoder.encode(intent)
-        worldstateChannel.sendData(LKRTCDataBuffer(data: data, isBinary: true))
+        transport.send(data: data, on: .intentWorldState)
+    }
+    
+    public func generateOffer() async throws -> SignallingPayload {
+        return try await transport.generateOffer()
+    }
+    
+    public func generateAnswer(offer: SignallingPayload) async throws -> SignallingPayload {
+        return try await transport.generateAnswer(for: offer)
+    }
+    
+    public func acceptAnswer(_ answer: SignallingPayload) async throws {
+        try await transport.acceptAnswer(answer)
+    }
+    
+    public func disconnect() {
+        transport.disconnect()
     }
     
     private func setupDataChannels()
     {
-        interactionChannel = rtc.createDataChannel(as: "interactions", configuration: with(LKRTCDataChannelConfiguration()) {
-            $0.isNegotiated = true
-            $0.isOrdered = true
-            $0.maxRetransmits = -1
-            $0.channelId = 1
-        })
-        worldstateChannel = rtc.createDataChannel(as: "worldstate", configuration: with(LKRTCDataChannelConfiguration()) {
-            $0.isNegotiated = true
-            $0.isOrdered = false
-            $0.maxRetransmits = 0
-            $0.channelId = 2
-        })
+        interactionChannel = transport.createDataChannel(label: .interactions, reliable: true)
+        worldstateChannel = transport.createDataChannel(label: .intentWorldState, reliable: false)
     }
     
-    
-    //MARK: - RTC delegates
-    public func session(didConnect: RTCSession)
+    //MARK: - Transport delegates
+    public func transport(didConnect transport: Transport)
     {
         self.delegate?.session(didConnect: self)
     }
     
-    public func session(didDisconnect: RTCSession)
+    public func transport(didDisconnect transport: Transport)
     {
         self.delegate?.session(didDisconnect: self)
     }
     
     let decoder = BinaryDecoder()
-    public func session(_: RTCSession, didReceiveData data: Data, on channel: LKRTCDataChannel)
+    public func transport(_ transport: Transport, didReceiveData data: Data, on channel: DataChannel)
     {
-        if channel == interactionChannel
+        switch channel.label
         {
+        case  .interactions:
             do {
                 let inter = try decoder.decode(Interaction.self, from: data)
                 if case .internal_renegotiate(.offer, let payload) = inter.body
@@ -148,30 +141,31 @@ public class AlloSession : NSObject, RTCSessionDelegate
             {
                 print("Warning, dropped unparseable interaction: \(e)")
             }
-        }
-        else if channel == worldstateChannel && side == .client
-        {
-            do {
-                let worldstate = try decoder.decode(PlaceChangeSet.self, from: data)
-                self.delegate?.session(self, didReceivePlaceChangeSet: worldstate)
+        case .intentWorldState:
+            switch side {
+            case .client:
+                do {
+                    let worldstate = try decoder.decode(PlaceChangeSet.self, from: data)
+                    self.delegate?.session(self, didReceivePlaceChangeSet: worldstate)
+                }
+                catch (let e)
+                {
+                    print("Warning, dropped unparseable worldstate: \(e)")
+                }
+            case .server:
+                guard let intent = try? decoder.decode(Intent.self, from: data) else
+                {
+                    print("Warning, \(transport.clientId!.uuidString) dropped unparseable intent")
+                    return
+                }
+                self.delegate?.session(self, didReceiveIntent: intent)
             }
-            catch (let e)
-            {
-                print("Warning, dropped unparseable worldstate: \(e)")
-            }
-        }
-        else if channel == worldstateChannel && side == .server
-        {
-            guard let intent = try? decoder.decode(Intent.self, from: data) else
-            {
-                print("Warning, \(rtc.clientId!.uuidString) dropped unparseable intent")
-                return
-            }
-            self.delegate?.session(self, didReceiveIntent: intent)
+        default:
+            fatalError("Unexpected message")
         }
     }
     
-    public func session(requestsRenegotiation session: RTCSession)
+    public func transport(requestsRenegotiation transport: Transport)
     {
         Task
         {
@@ -181,20 +175,16 @@ public class AlloSession : NSObject, RTCSessionDelegate
             }
             catch (let e)
             {
-                // TODO: store the error, mark as temporary, and force upper lever to reconnect
-                print("Failed to renegotiate offer for \(rtc.clientId!): \(e)")
-                rtc.disconnect()
+                // TODO: store the error, mark as temporary, and force upper level to reconnect
+                print("Failed to renegotiate offer for \(transport.clientId!): \(e)")
+                transport.disconnect()
             }
         }
     }
 
     private func renegotiateInner() async throws
     {
-        let offer = SignallingPayload(
-            sdp: try await rtc.generateOffer(),
-            candidates: (await rtc.gatherCandidates()).map { SignallingIceCandidate(candidate: $0) },
-            clientId: rtc.clientId!
-        )
+        let offer = try await transport.generateOffer()
         print("Sending renegotiation offer over RPC")
         let response = await request(interaction: Interaction(type: .request, senderEntityId: "", receiverEntityId: Interaction.PlaceEntity, body: .internal_renegotiate(.offer, offer)))
         guard case .internal_renegotiate(.answer, let answer) = response.body else
@@ -206,11 +196,7 @@ public class AlloSession : NSObject, RTCSessionDelegate
             )
         }
         
-        try await rtc.receive(
-            client: rtc.clientId!,
-            answer: answer.desc(for: .answer),
-            candidates: answer.rtcCandidates()
-        )
+        try await transport.acceptAnswer(answer)
         
         print("RTC renegotiation complete on the offering side")
     }
@@ -227,8 +213,8 @@ public class AlloSession : NSObject, RTCSessionDelegate
             catch(let e)
             {
                 // TODO: store the error, mark as temporary, and force upper lever to reconnect
-                print("Failed to renegotiate answer for \(rtc.clientId!): \(e)")
-                rtc.disconnect()
+                print("Failed to renegotiate answer for \(transport.clientId!): \(e)")
+                transport.disconnect()
 
             }
         }
@@ -236,11 +222,7 @@ public class AlloSession : NSObject, RTCSessionDelegate
     
     func respondToRenegotiationInner(offer: SignallingPayload, request: Interaction) async throws
     {
-        let answer = SignallingPayload(
-            sdp: try await rtc.generateAnswer(offer: offer.desc(for: .offer), remoteCandidates: offer.rtcCandidates()),
-            candidates: (await rtc.gatherCandidates()).map { SignallingIceCandidate(candidate: $0) },
-            clientId: rtc.clientId!
-        )
+        let answer = try await transport.generateAnswer(for: offer)
         
         let response = request.makeResponse(with: .internal_renegotiate(.answer, answer))
         self.send(interaction: response)
@@ -249,15 +231,9 @@ public class AlloSession : NSObject, RTCSessionDelegate
     }
     
     // MARK: - Audio
-    public func session(_: RTCSession, didReceiveMediaStream stream: LKRTCMediaStream)
+    public func transport(_ transport: Transport, didReceiveMediaStream stream: MediaStream)
     {
-        let allostream = AlloMediaStream(stream: stream)
-        incomingStreams[stream.streamId] = allostream
-        delegate?.session(self, didReceiveMediaStream: allostream)
-    }
-    
-    public func addOutgoing(stream: AlloMediaStream)
-    {
-        rtc.addOutgoing(stream: stream.stream)
+        incomingStreams[stream.streamId] = stream
+        delegate?.session(self, didReceiveMediaStream: stream)
     }
 }

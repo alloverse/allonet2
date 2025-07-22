@@ -1,5 +1,5 @@
 //
-//  File.swift
+//  RTCExtensions.swift
 //  
 //
 //  Created by Nevyn Bengtsson on 2024-05-09.

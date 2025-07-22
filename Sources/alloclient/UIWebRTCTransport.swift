@@ -8,27 +8,16 @@
 import Foundation
 import LiveKitWebRTC
 import Combine
+import allonet2
 
-public protocol RTCSessionDelegate: AnyObject
+/// Uses Google's WebRTC implementation meant for client-side UI apps.
+class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTCDataChannelDelegate
 {
-    func session(didConnect: RTCSession)
-    func session(didDisconnect: RTCSession)
-    func session(_: RTCSession, didReceiveData data: Data, on channel: LKRTCDataChannel)
-    func session(_: RTCSession, didReceiveMediaStream: LKRTCMediaStream)
-    
-    func session(requestsRenegotiation session: RTCSession)
-}
-
-public typealias RTCClientId = UUID
-
-/// Wrapper of RTCPeerConnection with Alloverse-specific peer semantics, but no business logic
-public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannelDelegate
-{
-    public private(set) var clientId: RTCClientId?
+    public private(set) var clientId: ClientId?
     private let peer: LKRTCPeerConnection
-    private var channels: [LKRTCDataChannel] = []
+    private var channels: [DataChannelLabel: LKRTCDataChannel] = [:]
     
-    public weak var delegate: RTCSessionDelegate?
+    public weak var delegate: TransportDelegate?
     
     private var localCandidates : [LKRTCIceCandidate] = []
     private var candidatesLocked = false
@@ -42,16 +31,9 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
     
     private let audioSessionActive = false
     
-    public enum ConnectionOptions
+    public required init(with connectionOptions: TransportConnectionOptions = .direct, status: ConnectionStatus)
     {
-        case direct // no STUN nor TURN
-        // STUN allows NAT hole punching using a third party
-        case standardSTUN // Google, Twilio and some other free options
-        case STUN(servers: [String])
-    }
-    
-    public init(with connectionOptions: ConnectionOptions = .direct, status: ConnectionStatus) {
-        peer = RTCSession.createPeerConnection(with: connectionOptions)
+        peer = Self.createPeerConnection(with: connectionOptions)
         connectionStatus = status
         super.init()
         peer.delegate = self
@@ -66,10 +48,10 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
         }
     }
     
-    public func generateOffer() async throws -> String
+    public func generateOffer() async throws -> SignallingPayload
     {
         Task { @MainActor in self.connectionStatus.signalling = .connecting }
-        return try await withCheckedThrowingContinuation { cont in
+        let sdp: String = try await withCheckedThrowingContinuation { cont in
             renegotiationNeeded = false
             peer.offer(for: offerAnswerConstraints) { (sdp, error) in
                 guard let sdp = sdp else {
@@ -85,17 +67,23 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
                 }
             }
         }
+        
+        let candidates = await gatherCandidates()
+        return SignallingPayload(
+            sdp: sdp,
+            candidates: candidates.map { SignallingIceCandidate(candidate: $0) },
+            clientId: nil
+        )
     }
     
-    public func generateAnswer(offer: LKRTCSessionDescription, remoteCandidates: [LKRTCIceCandidate]) async throws -> String
-    {
+    public func generateAnswer(for offer: SignallingPayload) async throws -> SignallingPayload {
         clientId = UUID()
-        try await set(remoteSdp: offer)
-        for cand in remoteCandidates
-        {
-            try await set(remoteCandidate: cand)
+        try await set(remoteDescription: offer.desc(for: .offer))
+        for candidate in offer.rtcCandidates() {
+            try await add(remoteCandidate: candidate)
         }
-        return try await withCheckedThrowingContinuation { cont in
+        
+        let sdp: String = try await withCheckedThrowingContinuation { cont in
             renegotiationNeeded = false
             peer.answer(for: offerAnswerConstraints) { (sdp, error) in
                 guard let sdp = sdp else {
@@ -111,22 +99,29 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
                 }
             }
         }
+        
+        let candidates = await gatherCandidates()
+        return SignallingPayload(
+            sdp: sdp,
+            candidates: candidates.map { SignallingIceCandidate(candidate: $0) },
+            clientId: clientId
+        )
     }
     
-    public func receive(client id: UUID, answer: LKRTCSessionDescription, candidates: [LKRTCIceCandidate]) async throws
+    public func acceptAnswer(_ answer: SignallingPayload) async throws
     {
-        clientId = id
-        try await set(remoteSdp: answer)
-        for cand in candidates
+        clientId = answer.clientId!
+        try await set(remoteDescription: answer.desc(for: .answer))
+        for candidate in answer.candidates
         {
-            try await set(remoteCandidate: cand)
+            try await add(remoteCandidate: candidate.candidate())
         }
     }
     
-    private func set(remoteSdp: LKRTCSessionDescription) async throws
+    private func set(remoteDescription: LKRTCSessionDescription) async throws
     {
         return try await withCheckedThrowingContinuation() { cont in
-            peer.setRemoteDescription(remoteSdp) { err in
+            peer.setRemoteDescription(remoteDescription) { err in
                 if let err2 = err {
                     cont.resume(throwing: err2)
                     return
@@ -135,7 +130,7 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
             }
         }
     }
-    public func set(remoteCandidate: LKRTCIceCandidate) async throws
+    public func add(remoteCandidate: LKRTCIceCandidate) async throws
     {
         return try await withCheckedThrowingContinuation() { cont in
             peer.add(remoteCandidate) { err in
@@ -160,20 +155,37 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
         }
         return localCandidates
     }
-    
-    public func createDataChannel(as label: String, configuration: LKRTCDataChannelConfiguration) -> LKRTCDataChannel?
+
+    public func createDataChannel(label: DataChannelLabel, reliable: Bool) -> DataChannel?
     {
-        guard let chan = peer.dataChannel(forLabel: label, configuration: configuration)
-            else { return nil }
-        chan.delegate = self
-        self.channels.append(chan)
-        return chan
+        let config = LKRTCDataChannelConfiguration()
+        config.isNegotiated = true
+        config.isOrdered = reliable
+        config.maxRetransmits = reliable ? -1 : 0
+        config.channelId = label.channelId
+        
+        guard let channel = peer.dataChannel(forLabel: label.rawValue, configuration: config) else {
+            return nil
+        }
+        
+        channel.delegate = self
+        self.channels[label] = channel
+        return channel.wrapper
     }
+    
+    public func send(data: Data, on channelLabel: DataChannelLabel)
+    {
+        guard let channel = channels[channelLabel] else {
+            fatalError("Missing channel for label \(channelLabel)");
+            return
+        }
+        channel.sendData(LKRTCDataBuffer(data: data, isBinary: true))
+    }
+    
     
     //MARK: - Internals
     
-
-    private static func createPeerConnection(with connectionOptions: ConnectionOptions) -> LKRTCPeerConnection
+    private static func createPeerConnection(with connectionOptions: TransportConnectionOptions) -> LKRTCPeerConnection
     {
         let config = LKRTCConfiguration()
         config.sdpSemantics = .unifiedPlan
@@ -198,7 +210,7 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
         let constraints = LKRTCMediaConstraints(mandatoryConstraints: nil,
                                               optionalConstraints: ["DtlsSrtpKeyAgreement":kRTCMediaConstraintsValueTrue])
         
-        guard let peerConnection = RTCSession.factory.peerConnection(with: config, constraints: constraints, delegate: nil) else {
+        guard let peerConnection = Self.factory.peerConnection(with: config, constraints: constraints, delegate: nil) else {
             fatalError("Could not create new RTCPeerConnection")
         }
         
@@ -219,11 +231,10 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
             !didFullyConnect &&
             peer.iceConnectionState == .connected &&
              channels.count > 0 &&
-            channels.allSatisfy({$0.readyState == .open})
-            
+            channels.values.allSatisfy({$0.readyState == .open})
         {
             didFullyConnect = true
-            self.delegate?.session(didConnect: self)
+            self.delegate?.transport(didConnect: self)
             
             if(renegotiationNeeded)
             {
@@ -243,7 +254,7 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didAdd stream: LKRTCMediaStream)
     {
         print("Received stream: \(clientId!): \(stream)")
-        delegate?.session(self, didReceiveMediaStream: stream)
+        delegate?.transport(self, didReceiveMediaStream: stream.wrapper)
     }
     
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didRemove stream: LKRTCMediaStream)
@@ -264,7 +275,7 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
     
     func renegotiate()
     {
-        delegate?.session(requestsRenegotiation: self)
+        delegate?.transport(requestsRenegotiation: self)
     }
     
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: RTCIceConnectionState)
@@ -292,7 +303,7 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
         }
         else if newState == .closed
         {
-            self.delegate?.session(didDisconnect: self)
+            self.delegate?.transport(didDisconnect: self)
         }
     }
     
@@ -333,14 +344,7 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
     
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didOpen dataChannel: LKRTCDataChannel)
     {
-        if dataChannel.label == "interactions"
-        {
-            print("Got interaction channel")
-        }
-        else if dataChannel.label == "worldstate"
-        {
-            print("Got worldstate channel")
-        }
+        print("Data channel \(dataChannel.label) is now open")
         dataChannel.delegate = self
         self.maybeConnected()
     }
@@ -351,6 +355,7 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
         let readyState = dataChannel.readyState
         print("Data channel \(dataChannel.label) state \(readyState)")
         DispatchQueue.main.async {
+            // TODO: There are more than one data channel. Track them separately.
             self.connectionStatus.data = switch readyState
             {
                 case .closed, .closing: .idle
@@ -363,7 +368,8 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
     
     public func dataChannel(_ dataChannel: LKRTCDataChannel, didReceiveMessageWith buffer: LKRTCDataBuffer)
     {
-        delegate?.session(self, didReceiveData: buffer.data, on: dataChannel)
+        //print("Message on data channel \(dataChannel.label): \(buffer.data.count) bytes")
+        delegate?.transport(self, didReceiveData: buffer.data, on: dataChannel.wrapper)
     }
     
     // MARK: - Audio
@@ -403,17 +409,17 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
     
     let micTrackName = "mic"
     // Start capturing audio from microphone
-    public func createMicrophoneTrack() -> LKRTCAudioTrack
+    public func createMicrophoneTrack() -> AudioTrack
     {
         if !audioSessionActive
         {
             beginAudioSession()
         }
         let audioConstraints = LKRTCMediaConstraints(mandatoryConstraints: [:], optionalConstraints: [:])
-        let audioSource = RTCSession.factory.audioSource(with: audioConstraints)
-        let audioTrack = RTCSession.factory.audioTrack(with: audioSource, trackId: micTrackName)
+        let audioSource = Self.factory.audioSource(with: audioConstraints)
+        let audioTrack = Self.factory.audioTrack(with: audioSource, trackId: micTrackName)
         peer.add(audioTrack, streamIds: ["voice"])
-        return audioTrack
+        return audioTrack.wrapper
     }
     
     public var microphoneEnabled: Bool
@@ -435,5 +441,111 @@ public class RTCSession: NSObject, LKRTCPeerConnectionDelegate, LKRTCDataChannel
     {
         outgoingStreamSender = peer.add(stream.audioTracks[0], streamIds: [stream.streamId])
         print("Forwarding audio stream with sender \(outgoingStreamSender!)")
+    }
+}
+
+// MARK: - Wrapper classes
+
+private class ClientDataChannel: DataChannel {
+    weak var channel: LKRTCDataChannel?
+    
+    init(channel: LKRTCDataChannel) {
+        self.channel = channel
+        self.label = DataChannelLabel(rawValue: channel.label)!
+    }
+    
+    var label: DataChannelLabel
+    var isOpen: Bool { (channel?.readyState ?? .closed) == .open }
+}
+extension LKRTCDataChannel {
+    static var wrapperKey: Void = ()
+    fileprivate var wrapper: ClientDataChannel {
+        get {
+            var wrapper = objc_getAssociatedObject(self, &Self.wrapperKey) as? ClientDataChannel
+            if wrapper == nil {
+                wrapper = ClientDataChannel(channel: self)
+                objc_setAssociatedObject(self, &Self.wrapperKey, wrapper, .OBJC_ASSOCIATION_RETAIN)
+            }
+            return wrapper!
+        }
+    }
+}
+
+private class ClientMediaStream: MediaStream {
+    let stream: LKRTCMediaStream
+    
+    init(stream: LKRTCMediaStream) {
+        self.stream = stream
+    }
+    
+    var streamId: String { stream.streamId }
+}
+extension LKRTCMediaStream {
+    static var wrapperKey: Void = ()
+    fileprivate var wrapper: ClientMediaStream {
+        get {
+            var wrapper = objc_getAssociatedObject(self, &Self.wrapperKey) as? ClientMediaStream
+            if wrapper == nil {
+                wrapper = ClientMediaStream(stream: self)
+                objc_setAssociatedObject(self, &Self.wrapperKey, wrapper, .OBJC_ASSOCIATION_RETAIN)
+            }
+            return wrapper!
+        }
+    }
+}
+
+private class ClientAudioTrack: AudioTrack {
+    let track: LKRTCAudioTrack
+    
+    init(track: LKRTCAudioTrack) {
+        self.track = track
+    }
+    
+    var isEnabled: Bool {
+        get { track.isEnabled }
+        set { track.isEnabled = newValue }
+    }
+}
+extension LKRTCAudioTrack {
+    static var wrapperKey: Void = ()
+    fileprivate var wrapper: ClientAudioTrack {
+        get {
+            var wrapper = objc_getAssociatedObject(self, &Self.wrapperKey) as? ClientAudioTrack
+            if wrapper == nil {
+                wrapper = ClientAudioTrack(track: self)
+                objc_setAssociatedObject(self, &Self.wrapperKey, wrapper, .OBJC_ASSOCIATION_RETAIN)
+            }
+            return wrapper!
+        }
+    }
+}
+
+extension SignallingPayload
+{
+    public func desc(for type: RTCSdpType) -> LKRTCSessionDescription
+    {
+        return LKRTCSessionDescription(type: type, sdp: self.sdp)
+    }
+    public func rtcCandidates() -> [LKRTCIceCandidate]
+    {
+        return candidates.map { $0.candidate() }
+    }
+}
+
+extension SignallingIceCandidate
+{
+    public init(candidate: LKRTCIceCandidate)
+    {
+        self.init(
+            sdpMid: candidate.sdpMid!,
+            sdpMLineIndex: candidate.sdpMLineIndex,
+            sdp: candidate.sdp,
+            serverUrl: candidate.serverUrl
+        )
+    }
+    
+    public func candidate() -> LKRTCIceCandidate
+    {
+        return LKRTCIceCandidate(sdp: sdp, sdpMLineIndex: sdpMLineIndex, sdpMid: sdpMid)
     }
 }

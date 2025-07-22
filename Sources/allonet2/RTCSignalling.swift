@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import LiveKitWebRTC
 
 public enum SignallingDirection: Codable
 {
@@ -16,8 +15,8 @@ public enum SignallingDirection: Codable
 
 public struct SignallingPayload: Codable
 {
-    let sdp: String
-    let candidates: [SignallingIceCandidate]
+    public let sdp: String
+    public let candidates: [SignallingIceCandidate]
     public let clientId: UUID?
     public init(sdp: String, candidates: [SignallingIceCandidate], clientId: UUID?)
     {
@@ -25,33 +24,20 @@ public struct SignallingPayload: Codable
         self.candidates = candidates
         self.clientId = clientId
     }
-    
-    public func desc(for type: RTCSdpType) -> LKRTCSessionDescription
-    {
-        return LKRTCSessionDescription(type: type, sdp: self.sdp)
-    }
-    public func rtcCandidates() -> [LKRTCIceCandidate]
-    {
-        return candidates.map { $0.candidate() }
-    }
 }
 
 public struct SignallingIceCandidate: Codable
 {
-    let sdpMid: String
-    let sdpMLineIndex: Int32
-    let sdp: String
-    let serverUrl: String?
-    public init(candidate: LKRTCIceCandidate)
-    {
-        sdpMid = candidate.sdpMid!
-        sdpMLineIndex = candidate.sdpMLineIndex
-        sdp = candidate.sdp
-        serverUrl = candidate.serverUrl
-    }
+    public let sdpMid: String
+    public let sdpMLineIndex: Int32
+    public let sdp: String
+    public let serverUrl: String?
     
-    public func candidate() -> LKRTCIceCandidate
+    public init(sdpMid: String, sdpMLineIndex: Int32, sdp: String, serverUrl: String?)
     {
-        return LKRTCIceCandidate(sdp: sdp, sdpMLineIndex: sdpMLineIndex, sdpMid: sdpMid)
+        self.sdpMid = sdpMid
+        self.sdpMLineIndex = sdpMLineIndex
+        self.sdp = sdp
+        self.serverUrl = serverUrl
     }
 }

@@ -1,6 +1,6 @@
 //
-//  democlient/main.swift
-//  
+//  demoapp/DemoApp.swift
+//
 //
 //  Created by Nevyn Bengtsson on 2024-04-03.
 //
@@ -8,6 +8,7 @@
 import Foundation
 import Combine
 import allonet2
+import alloheadless
 
 @main @MainActor
 class DemoApp
@@ -17,7 +18,7 @@ class DemoApp
     {
         print("Connecting to alloverse swift place ", url)
 
-        self.client = AlloClient(url: url, avatarDescription: EntityDescription(components:[
+        self.client = AlloAppClient(url: url, avatarDescription: EntityDescription(components:[
             Model(
                 mesh: .sphere(radius: 0.5),
                 material: .color(color: .hsv(hue: .random(in: 0...1), saturation: 0.9, value: 1, alpha: 1), metallic: true)
@@ -29,7 +30,7 @@ class DemoApp
                     material: .color(color: .hsv(hue: .random(in: 0...1), saturation: 0.9, value: 1, alpha: 1), metallic: true)
                 )
             ])
-        ]), sendMicrophone: false)
+        ]))
         
         Task {
             for await announced in self.client.$isAnnounced.values where announced == true {
@@ -46,7 +47,7 @@ class DemoApp
         print("Demo app connected, setting up...")
         
         let avatar = self.client.avatar!
-        print("Avatar's transform: \(avatar.components[Transform.self])")
+        print("Avatar's transform: \(avatar.components[Transform.self]!)")
         
         // Example of interaction handler
         client.responders["custom"] = {
@@ -74,7 +75,7 @@ class DemoApp
     static func main() async
     {
         let url = URL(string: CommandLine.arguments[1])!
-        let app = DemoApp(connectingTo: url)
+        let _ = DemoApp(connectingTo: url)
 
         await parkToRunloop()
     }
