@@ -8,7 +8,7 @@
 import Foundation
 import Combine
 import allonet2
-import alloserver
+import alloheadless
 
 @main @MainActor
 class DemoApp

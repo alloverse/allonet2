@@ -1,7 +1,7 @@
 import Foundation
 import ArgumentParser
 import allonet2
-import alloserver
+import alloheadless
 
 @main @MainActor
 struct PlaceServerApp: AsyncParsableCommand

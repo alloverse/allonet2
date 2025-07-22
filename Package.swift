@@ -21,8 +21,8 @@ let package = Package(
             targets: ["alloclient"]
         ),
         .library(
-            name: "alloserver",
-            targets: ["alloserver"]
+            name: "alloheadless",
+            targets: ["alloheadless"]
         ),
         .library(
             name: "AlloReality",
@@ -61,7 +61,7 @@ let package = Package(
             ]
         ),
         .target(
-            name: "alloserver",
+            name: "alloheadless",
             dependencies: [
                 "AlloDataChannel",
                 "allonet2"
@@ -78,13 +78,13 @@ let package = Package(
         .executableTarget(
             name: "AlloPlace",
             dependencies: [
-                "alloserver",
+                "alloheadless",
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ]
         ),
         .executableTarget(
             name: "demoapp",
-            dependencies: ["alloserver"]
+            dependencies: ["alloheadless"]
         ),
     ],
     swiftLanguageModes: [.v5]
