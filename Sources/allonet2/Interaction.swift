@@ -48,14 +48,18 @@ public enum InteractionType: Codable
 public enum InteractionBody : Codable
 {
     // - Agent to Place
-    case announce(version: String, avatar: EntityDescription) // -> .announceResponse
+    case announce(version: String, authentication: AuthenticationContext, avatar: EntityDescription) // -> .announceResponse
     case announceResponse(avatarId: String, placeName: String)
     
     case createEntity(EntityDescription) // -> .createEntityResponse
     case createEntityResponse(entityId: EntityID)
     case removeEntity(entityId: EntityID, mode: EntityRemovalMode) // -> .success or .error
     case changeEntity(entityId: EntityID, addOrChange: [AnyComponent], remove: [ComponentTypeID]) // -> .success or .error
-    
+
+    // - Authentication (App agent to place)
+    case registerAsAuthenticationProvider // -> .success or .error
+    case authenticationRequest(authentication: AuthenticationContext) // -> .success or .error
+
     // - Agent to agent
     case tap(at: SIMD3<Float>) // oneway
     
@@ -78,6 +82,12 @@ public enum InteractionBody : Codable
         }
         return description
     }
+}
+
+public enum AuthenticationContext: Equatable, Hashable, Codable, Sendable {
+    case none
+    case existingUser(username: String, password: String)
+    case registerUser(username: String, password: String)
 }
 
 public enum EntityRemovalMode: String, Codable

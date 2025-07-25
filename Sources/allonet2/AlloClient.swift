@@ -20,6 +20,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     public let placeState = PlaceState()
     
     let url: URL
+    let authentication: AuthenticationContext
     let avatarDesc: EntityDescription
     @Published public private(set) var avatarId: EntityID? { didSet { isAnnounced = avatarId != nil } }
     public var avatar: Entity? {
@@ -57,10 +58,11 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         }
     }
     
-    public init(url: URL, avatarDescription: EntityDescription)
+    public init(url: URL, authentication: AuthenticationContext, avatarDescription: EntityDescription)
     {
         Allonet.Initialize()
         self.url = url
+        self.authentication = authentication
         self.avatarDesc = avatarDescription
         self.reset()
     }
@@ -214,7 +216,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
                 type: .request,
                 senderEntityId: "",
                 receiverEntityId: Interaction.PlaceEntity,
-                body: .announce(version: "2.0", avatar: avatarDesc)
+                body: .announce(version: "2.0", authentication: authentication, avatar: avatarDesc)
             ))
             guard case .announceResponse(let avatarId, let placeName) = response.body else
             {
