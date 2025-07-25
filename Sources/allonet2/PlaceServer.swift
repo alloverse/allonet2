@@ -180,7 +180,10 @@ public class PlaceServer : AlloSessionDelegate
     
     nonisolated public func session(didDisconnect sess: AlloSession)
     {
-        let cid = sess.clientId!
+        guard let cid = sess.clientId else {
+            print("Lost client before a client ID was set - this may be due to an auth failure")
+            return
+        }
         print("Lost client \(cid)")
         Task { @MainActor in
             if let _ = self.clients.removeValue(forKey: cid)
