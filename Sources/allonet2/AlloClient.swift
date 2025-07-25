@@ -349,7 +349,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     
     // MARK: - Convenience API
     
-    func request(receiverEntityId: EntityID, body: InteractionBody) async -> Interaction
+    public func request(receiverEntityId: EntityID, body: InteractionBody) async -> Interaction
     {
         precondition(avatarId != nil, "Must be connected and announced to send a request")
         return await session.request(interaction: Interaction(type: .request, senderEntityId: avatarId!, receiverEntityId: receiverEntityId, body: body))
