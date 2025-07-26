@@ -43,6 +43,7 @@ let package = Package(
         .package(url: "https://github.com/Flight-School/AnyCodable", from: "0.6.0"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
         .package(url: "https://github.com/OpenCombine/OpenCombine.git", from: "0.14.0"), // So we can use Combine on Linux.
+        .package(url: "https://github.com/keyvariable/kvSIMD.swift.git", from: "1.1.0"), // So we can use simd on Linux
         .package(path: "Packages/AlloDataChannel"),
     ],
     targets: [
@@ -52,6 +53,7 @@ let package = Package(
                 "BinaryCodable",
                 "AnyCodable",
                 "FlyingFox",
+                .product(name: "kvSIMD", package: "kvSIMD.swift"),
                 .product(name: "OpenCombineShim", package: "opencombine"),
             ]
         ),
