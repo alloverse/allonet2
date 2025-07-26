@@ -1,5 +1,5 @@
 {
-  "originHash" : "a2c7d3e32f4ca4823e5a9e91abf416cd106c769b26ce1b8b882cf527889a0dc5",
+  "originHash" : "4778ce0690d0b74eaebecfb9bf817688c5c19f32f0f4b0dffe46d189a7638725",
   "pins" : [
     {
       "identity" : "anycodable",
@@ -25,6 +25,15 @@
       "location" : "https://github.com/swhitty/FlyingFox.git",
       "state" : {
         "revision" : "c9e0d358e6fcab4b4a4589bc88d110875c96d739",
+        "version" : "0.14.0"
+      }
+    },
+    {
+      "identity" : "opencombine",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/OpenCombine/OpenCombine.git",
+      "state" : {
+        "revision" : "8576f0d579b27020beccbccc3ea6844f3ddfc2c2",
         "version" : "0.14.0"
       }
     },

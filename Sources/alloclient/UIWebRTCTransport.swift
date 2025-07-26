@@ -7,7 +7,7 @@
 
 import Foundation
 import LiveKitWebRTC
-import Combine
+import OpenCombineShim
 import allonet2
 
 /// Uses Google's WebRTC implementation meant for client-side UI apps.

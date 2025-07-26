@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import Combine
+import OpenCombineShim
 
 @MainActor
 open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable

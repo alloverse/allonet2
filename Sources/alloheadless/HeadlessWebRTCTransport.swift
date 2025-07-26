@@ -8,7 +8,7 @@
 import allonet2
 import Foundation
 import AlloDataChannel
-import Combine
+import OpenCombineShim
 
 public class HeadlessWebRTCTransport: Transport
 {

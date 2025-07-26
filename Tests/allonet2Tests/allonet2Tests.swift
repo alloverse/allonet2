@@ -1,5 +1,5 @@
 import XCTest
-import Combine
+import OpenCombineShim
 @testable import allonet2
 
 public struct TestComponent: Component

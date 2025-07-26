@@ -1,5 +1,5 @@
 import Foundation
-import Combine
+import OpenCombineShim
 
 /// This file contains the low-level data API for accessing and listening to changes of the contents of a connected Place.
 

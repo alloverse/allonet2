@@ -5,7 +5,7 @@
 //  Created by Nevyn Bengtsson on 2025-05-05.
 //
 import Foundation
-import Combine
+import OpenCombineShim
 
 /// Overall status of the client, including whether it is trying to reconnect
 public enum ReconnectionState : Equatable

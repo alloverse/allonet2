@@ -42,6 +42,7 @@ let package = Package(
         .package(url: "https://github.com/swhitty/FlyingFox.git", .upToNextMajor(from: "0.14.0")),
         .package(url: "https://github.com/Flight-School/AnyCodable", from: "0.6.0"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
+        .package(url: "https://github.com/OpenCombine/OpenCombine.git", from: "0.14.0"), // So we can use Combine on Linux.
         .package(path: "Packages/AlloDataChannel"),
     ],
     targets: [
@@ -50,19 +51,22 @@ let package = Package(
             dependencies: [
                 "BinaryCodable",
                 "AnyCodable",
-                "FlyingFox"
+                "FlyingFox",
+                .product(name: "OpenCombineShim", package: "opencombine"),
             ]
         ),
         .target(
             name: "alloclient",
             dependencies: [
                 .product(name: "LiveKitWebRTC", package: "webrtc-xcframework"),
+                .product(name: "OpenCombineShim", package: "opencombine"),
                 "allonet2"
             ]
         ),
         .target(
             name: "alloheadless",
             dependencies: [
+                .product(name: "OpenCombineShim", package: "opencombine"),
                 "AlloDataChannel",
                 "allonet2"
             ]

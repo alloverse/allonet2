@@ -6,7 +6,7 @@
 //
 
 import RealityKit
-import Combine
+import OpenCombineShim
 import allonet2
 import SwiftUICore
 

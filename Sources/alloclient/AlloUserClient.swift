@@ -6,7 +6,7 @@
 //
 
 import allonet2
-import Combine
+import OpenCombineShim
 import Foundation
 
 public class AlloUserClient : AlloClient
