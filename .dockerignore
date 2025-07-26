@@ -1,0 +1,5 @@
+.build
+./Packages/AlloDataChannel/.build
+./Packages/AlloDataChannel/mbedtls
+./Packages/AlloDataChannel/libdatachannel
+./Packages/AlloDataChannel/.git
