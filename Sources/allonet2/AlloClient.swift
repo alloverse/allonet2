@@ -6,6 +6,9 @@
 //
 
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import OpenCombineShim
 
 @MainActor
@@ -168,7 +171,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
             httpcomps.scheme = scheme.last == "s" ? "https" : "http"
             guard let httpUrl = httpcomps.url else { throw URLError(.badURL) }
             
-            let request = NSMutableURLRequest(url: httpUrl)
+            var request = URLRequest(url: httpUrl)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONEncoder().encode(offer)
