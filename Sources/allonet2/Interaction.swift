@@ -48,7 +48,7 @@ public enum InteractionType: Codable
 public enum InteractionBody : Codable
 {
     // - Agent to Place
-    case announce(version: String, authentication: AuthenticationContext, avatar: EntityDescription) // -> .announceResponse
+    case announce(version: String, identity: Identity, avatar: EntityDescription) // -> .announceResponse
     case announceResponse(avatarId: String, placeName: String)
     
     case createEntity(EntityDescription) // -> .createEntityResponse
@@ -58,7 +58,7 @@ public enum InteractionBody : Codable
 
     // - Authentication (App agent to place)
     case registerAsAuthenticationProvider // -> .success or .error
-    case authenticationRequest(authentication: AuthenticationContext) // -> .success or .error
+    case authenticationRequest(identity: Identity) // -> .success or .error
 
     // - Agent to agent
     case tap(at: SIMD3<Float>) // oneway
@@ -84,10 +84,27 @@ public enum InteractionBody : Codable
     }
 }
 
-public enum AuthenticationContext: Equatable, Hashable, Codable, Sendable {
-    case none
-    case existingUser(username: String, password: String)
-    case registerUser(username: String, password: String)
+public struct Identity: Equatable, Hashable, Codable, Sendable
+{
+    public enum Expectation: Equatable, Hashable, Codable, Sendable
+    {
+        case none // The originating party has no expectations about the status of the identity.
+        case existingUser // The originating party expects that this is a previously-registered user.
+        case newUser // The originating party expects that this is a registration for a brand new user.
+    }
+
+    public init(expectation: Identity.Expectation, displayName: String, emailAddress: String, authenticationToken: String)
+    {
+        self.expectation = expectation
+        self.displayName = displayName
+        self.emailAddress = emailAddress
+        self.authenticationToken = authenticationToken
+    }
+    
+    public let expectation: Expectation
+    public let displayName: String
+    public let emailAddress: String
+    public let authenticationToken: String // Could be a password, a passkey token, etc.
 }
 
 public enum EntityRemovalMode: String, Codable
