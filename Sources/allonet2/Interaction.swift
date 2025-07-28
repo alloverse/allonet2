@@ -86,6 +86,8 @@ public enum InteractionBody : Codable
 
 public struct Identity: Equatable, Hashable, Codable, Sendable
 {
+    public static let none = Identity(expectation: .none, displayName: "", emailAddress: "", authenticationToken: "")
+
     public enum Expectation: Equatable, Hashable, Codable, Sendable
     {
         case none // The originating party has no expectations about the status of the identity.
