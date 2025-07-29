@@ -27,7 +27,9 @@ public class PlaceServer : AlloSessionDelegate
     let port:UInt16
     let appDescription: AppDescription
     let transportClass: Transport.Type
-    
+
+    private var authenticationProvider: ConnectedClient?
+
     let connectionStatus = ConnectionStatus()
     let place = PlaceState()
     lazy var heartbeat: HeartbeatTimer = {
@@ -161,7 +163,11 @@ public class PlaceServer : AlloSessionDelegate
     
     nonisolated public func session(didDisconnect sess: AlloSession)
     {
-        let cid = sess.clientId!
+        guard let cid = sess.clientId else
+        {
+            print("Lost client before a client ID was set - this may be due to an auth failure")
+            return
+        }
         print("Lost client \(cid)")
         Task { @MainActor in
             if let _ = self.clients.removeValue(forKey: cid)
@@ -169,7 +175,11 @@ public class PlaceServer : AlloSessionDelegate
                 await self.removeEntites(ownedBy: cid)
             }
             self.unannouncedClients[cid] = nil
-            
+            if authenticationProvider?.cid == cid
+            {
+                print("Lost client was our authentication provider")
+                authenticationProvider = nil
+            }
         }
     }
     
@@ -318,16 +328,61 @@ public class PlaceServer : AlloSessionDelegate
     {
         switch inter.body
         {
-        case .announce(let version, let avatarDescription):
+
+        case .registerAsAuthenticationProvider:
+            // Reasons this is bad:
+            // - First wins
+            // - Only one provider per place server
+            // - No verification that the client is actually allowed to authenticate others
+            // - A client could authenticate itself
+            if authenticationProvider == nil
+            {
+                // TODO: Authenticate all currently connected clients to make sure they're allowed by our new provider
+                authenticationProvider = client
+                client.session.send(interaction: inter.makeResponse(with: .success))
+            }
+            else
+            {
+                throw AlloverseError(domain: PlaceErrorCode.domain, code: PlaceErrorCode.invalidRequest.rawValue,
+                                     description: "Place server already has an authentication provider")
+            }
+
+        case .announce(let version, let identity, let avatarDescription):
+            // TODO: Since we added authentication, should the version go up?
             guard version == "2.0" else {
                 print("Client \(client.cid) has incompatible version, disconnecting.")
                 client.session.disconnect()
                 return
             }
+
+            if let authenticationProvider, let authenticationId = authenticationProvider.avatar {
+
+                let request = Interaction(type: .request, senderEntityId: Interaction.PlaceEntity,
+                                          receiverEntityId: authenticationId,
+                                          body: .authenticationRequest(identity: identity))
+
+                let answer = await authenticationProvider.session.request(interaction: request)
+
+                switch answer.body {
+                case .success: break
+                case .error(let domain, let code, let description): fallthrough
+                default:
+                    // Should we forward the error details back to the client?
+                    let error: InteractionBody = .error(domain: PlaceErrorCode.domain,
+                                                        code: PlaceErrorCode.unauthorized.rawValue,
+                                                        description: "Authentication failed")
+                    client.session.send(interaction: inter.makeResponse(with: error))
+                    // TODO: Send error as disconnection reason
+                    client.session.disconnect()
+                    return
+                }
+            }
+
             client.announced = true
             // Client is now announced, so move it into the main list of clients so it can get world states etc.
             clients[client.cid] = unannouncedClients.removeValue(forKey: client.cid)!
             let ent = await self.createEntity(from: avatarDescription, for: client)
+            client.avatar = ent.id
             print("Accepted client \(client.cid) with avatar id \(ent.id)")
             await heartbeat.awaitNextSync() // make it exist before we tell client about it
             
@@ -437,7 +492,8 @@ internal class ConnectedClient
     var announced = false
     var ackdRevision : StateRevision? // Last ack'd place contents revision, or nil if none
     var cid: ClientId { session.clientId! }
-    
+    var avatar: EntityID? // Assigned in the place server upon successful client announce
+
     init(session: AlloSession)
     {
         self.session = session
