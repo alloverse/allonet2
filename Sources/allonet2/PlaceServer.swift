@@ -24,7 +24,8 @@ public class PlaceServer : AlloSessionDelegate
     var unannouncedClients : [ClientId: ConnectedClient] = [:]
     
     let name: String
-    let port:UInt16
+    let httpPort:UInt16
+    let webrtcPortRange: Range<Int>
     let appDescription: AppDescription
     let transportClass: Transport.Type
     
@@ -44,14 +45,21 @@ public class PlaceServer : AlloSessionDelegate
     
     static let InteractionTimeout: TimeInterval = 10
     
-    public init(name: String, port: UInt16 = 9080, customApp: AppDescription = .alloverse, transportClass: Transport.Type)
+    public init(
+        name: String,
+        httpPort: UInt16 = 9080,
+        webrtcPortRange: Range<Int> = 10000 ..< 11000,
+        customApp: AppDescription = .alloverse,
+        transportClass: Transport.Type
+    )
     {
         Allonet.Initialize()
         self.name = name
-        self.port = port
+        self.httpPort = httpPort
+        self.webrtcPortRange = webrtcPortRange
         self.appDescription = customApp
         self.transportClass = transportClass
-        self.http = HTTPServer(port: port)
+        self.http = HTTPServer(port: httpPort)
     }
     
     // MARK: - HTTP server
@@ -59,7 +67,7 @@ public class PlaceServer : AlloSessionDelegate
     let http: HTTPServer
     public func start() async throws
     {
-        print("Serving '\(name)' at http://localhost:\(port)/")
+        print("Serving '\(name)' at http://localhost:\(httpPort)/ and UDP ports \(webrtcPortRange)")
 
         // On incoming connection, create a WebRTC socket.
         await http.appendRoute("POST /", handler: self.handleIncomingClient)
