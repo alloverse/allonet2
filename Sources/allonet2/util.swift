@@ -192,6 +192,18 @@ public struct LazyMap<K: Hashable, V, V2>: Collection
 }
 
 // Utility for command line AlloApps. Run as last line to keep process running while app is processing requests.
-public func parkToRunloop() async -> Never {
-    await withUnsafeContinuation { _ in }
+// Will return when a `SIGINT` is received by the process.
+public func parkToRunloop() async {
+    await withUnsafeContinuation
+    { continuation in
+        signal(SIGINT, SIG_IGN)
+        let signalSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+        signalSource.setEventHandler
+        {
+            signal(SIGINT, SIG_DFL)
+            signalSource.cancel()
+            continuation.resume()
+        }
+        signalSource.resume()
+    }
 }
