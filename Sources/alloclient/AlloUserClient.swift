@@ -18,10 +18,10 @@ public class AlloUserClient : AlloClient
         didSet { userTransport.microphoneEnabled = micEnabled }
     }
     
-    public override init(url: URL, avatarDescription: EntityDescription)
+    public override init(url: URL, identity: Identity, avatarDescription: EntityDescription)
     {
         self.micEnabled = true
-        super.init(url: url, avatarDescription: avatarDescription)
+        super.init(url: url, identity: identity, avatarDescription: avatarDescription)
     }
     
     open override func reset()
