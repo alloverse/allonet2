@@ -1,6 +1,8 @@
 # Based on the official documentation at 
 # https://docs.github.com/en/actions/tutorials/publish-packages/publish-docker-images#publishing-images-to-docker-hub
 
+# TODO: Make it multiplatform for arm64 https://docs.docker.com/build/ci/github-actions/multi-platform/
+
 name: Publish Docker image
 
 on:

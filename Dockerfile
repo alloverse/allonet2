@@ -1,7 +1,9 @@
 # Dockerfile for running AlloPlace
 
+ARG SWIFT_VERSION=6.1.2
+
 # ---------- Build stage ------------------------------------------------------
-FROM swift:6.1.2-noble AS build
+FROM swift:$SWIFT_VERSION AS build
 
 # libdatachannel-dev build dependency
 RUN echo "deb http://www.deb-multimedia.org sid main" >> /etc/apt/sources.list && \
@@ -11,12 +13,20 @@ RUN echo "deb http://www.deb-multimedia.org sid main" >> /etc/apt/sources.list &
     DEBIAN_FRONTEND=noninteractive apt-get install -y libdatachannel-dev && \
     rm -rf /var/lib/apt/lists/*
 
-WORKDIR /app
+WORKDIR /place
+
+# Build dependencies as a separate layer
+COPY ./Package.* ./
+COPY Packages ./Packages
+RUN --mount=type=cache,target=/place/.build \
+    swift package resolve
+
 COPY . .
-RUN swift build -c release -Xswiftc -static-stdlib --product AlloPlace
+RUN --mount=type=cache,target=/place/.build \
+    swift build -c release -Xswiftc -static-stdlib --product AlloPlace && cp .build/release/AlloPlace .
 
 # ---------- Runtime stage ----------------------------------------------------
-FROM ubuntu:24.04
+FROM swift:$SWIFT_VERSION-slim
 
 # libdatachannel runtime without dev
 RUN echo "deb http://www.deb-multimedia.org sid main" >> /etc/apt/sources.list && \
@@ -29,7 +39,7 @@ RUN echo "deb http://www.deb-multimedia.org sid main" >> /etc/apt/sources.list &
     rm -rf /var/lib/apt/lists/*
 
 # Copy the compiled binary and Swift runtime libs from the build stage
-COPY --from=build /app/.build/release/AlloPlace /usr/local/bin/AlloPlace
+COPY --from=build /place/AlloPlace /usr/local/bin/AlloPlace
 COPY --from=build /usr/lib/swift /usr/lib/swift
 
 # Listen on the default AlloPlace HTTP port
