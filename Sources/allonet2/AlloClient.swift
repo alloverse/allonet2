@@ -142,6 +142,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     /// Disconnect from peers and remain disconnected until asked to connect again by user
     public func disconnect()
     {
+        print("Disconnecting...")
         connectTask?.cancel()
         connectTask = nil
         connectionLoopCancellable?.cancel()
