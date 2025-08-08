@@ -27,9 +27,19 @@ struct PlaceServerApp: AsyncParsableCommand
     mutating func run() async throws
     {
         configurePrintBuffering()
-        
+        let name = name
         let app = AppDescription(name: appName, downloadURL: appDownloadURL, URLProtocol: appURLProtocol)
         let server = PlaceServer(name: name, httpPort: httpPort, webrtcPortRange: webrtcPortRange, customApp: app, transportClass: HeadlessWebRTCTransport.self)
+        
+        signal(SIGINT, SIG_IGN)
+        let sigint = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+        sigint.setEventHandler {
+            print("Received sigint, terminating '\(name)'...")
+            Task {
+                await server.stop()
+            }
+        }
+        sigint.resume()
         
         try await server.start()
     }

@@ -208,12 +208,6 @@ public func parkToRunloop() async {
     }
 }
 
-#if os(Linux)
-import Glibc
-#else
-import Darwin
-#endif
-
 public func configurePrintBuffering()
 {
     setvbuf(stdout, nil, _IOLBF, 0)   // line-buffered

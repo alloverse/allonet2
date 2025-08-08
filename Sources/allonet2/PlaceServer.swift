@@ -76,6 +76,15 @@ public class PlaceServer : AlloSessionDelegate
         try await http.start()
     }
     
+    public func stop() async
+    {
+        await http.stop()
+        for client in Array(clients.values) + Array(unannouncedClients.values)
+        {
+            client.session.disconnect()
+        }
+    }
+    
     @Sendable
     func landingPage(_ request: HTTPRequest) async -> HTTPResponse
     {
