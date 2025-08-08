@@ -26,8 +26,11 @@ struct PlaceServerApp: AsyncParsableCommand
     
     mutating func run() async throws
     {
+        configurePrintBuffering()
+        
         let app = AppDescription(name: appName, downloadURL: appDownloadURL, URLProtocol: appURLProtocol)
         let server = PlaceServer(name: name, httpPort: httpPort, webrtcPortRange: webrtcPortRange, customApp: app, transportClass: HeadlessWebRTCTransport.self)
+        
         try await server.start()
     }
 }

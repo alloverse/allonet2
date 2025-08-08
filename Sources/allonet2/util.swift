@@ -207,3 +207,15 @@ public func parkToRunloop() async {
         signalSource.resume()
     }
 }
+
+#if os(Linux)
+import Glibc
+#else
+import Darwin
+#endif
+
+public func configurePrintBuffering()
+{
+    setvbuf(stdout, nil, _IOLBF, 0)   // line-buffered
+    setvbuf(stderr, nil, _IONBF, 0)   // unbuffered
+}
