@@ -41,6 +41,11 @@ class DemoApp
         client.stayConnected()
     }
     
+    func stop()
+    {
+        client.disconnect()
+    }
+    
     var timer: Timer?
     func setup() async throws
     {
@@ -75,8 +80,9 @@ class DemoApp
     static func main() async
     {
         let url = URL(string: CommandLine.arguments[1])!
-        let _ = DemoApp(connectingTo: url)
+        let app = DemoApp(connectingTo: url)
 
         await parkToRunloop()
+        app.stop()
     }
 }
