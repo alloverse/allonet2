@@ -20,6 +20,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     public let placeState = PlaceState()
     
     let url: URL
+    let identity: Identity
     let avatarDesc: EntityDescription
     @Published public private(set) var avatarId: EntityID? { didSet { isAnnounced = avatarId != nil } }
     public var avatar: Entity? {
@@ -57,10 +58,11 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         }
     }
     
-    public init(url: URL, avatarDescription: EntityDescription)
+    public init(url: URL, identity: Identity, avatarDescription: EntityDescription)
     {
         Allonet.Initialize()
         self.url = url
+        self.identity = identity
         self.avatarDesc = avatarDescription
         self.reset()
     }
@@ -214,7 +216,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
                 type: .request,
                 senderEntityId: "",
                 receiverEntityId: Interaction.PlaceEntity,
-                body: .announce(version: "2.0", avatar: avatarDesc)
+                body: .announce(version: "2.0", identity: identity, avatar: avatarDesc)
             ))
             guard case .announceResponse(let avatarId, let placeName) = response.body else
             {
@@ -347,7 +349,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     
     // MARK: - Convenience API
     
-    func request(receiverEntityId: EntityID, body: InteractionBody) async -> Interaction
+    public func request(receiverEntityId: EntityID, body: InteractionBody) async -> Interaction
     {
         precondition(avatarId != nil, "Must be connected and announced to send a request")
         return await session.request(interaction: Interaction(type: .request, senderEntityId: avatarId!, receiverEntityId: receiverEntityId, body: body))
