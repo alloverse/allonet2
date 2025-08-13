@@ -75,7 +75,10 @@ let package = Package(
         ),
         .target(
             name: "AlloReality",
-            dependencies: ["alloclient"]
+            dependencies: [
+                .product(name: "OpenCombineShim", package: "opencombine"),
+                "alloclient",
+            ]
         ),
         .testTarget(
             name: "allonet2Tests",
