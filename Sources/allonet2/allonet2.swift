@@ -22,14 +22,14 @@ public struct Allonet
     }
 }
 
-extension PackageBuild
+public extension PackageBuild
 {
     public var version: Version
     {
         return Version(tolerant: tag!)!
     }
     
-    var describe: String
+    public var describe: String
     {
         if tag == nil,
            digest.isEmpty {
@@ -50,7 +50,7 @@ extension PackageBuild
     }
 }
 
-extension Version
+public extension Version
 {
     func serverIsCompatibleWith(clientVersion: Version) -> Bool
     {
