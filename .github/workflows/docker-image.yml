@@ -102,7 +102,7 @@ jobs:
               '',
               '```bash',
               `docker pull ${image}`,
-              `docker run --rm -it -p 9080:9080 ${image}
+              `docker run --rm -it -p 9080:9080 ${image}`,
               '```',
               '',
               'Multi-arch: `linux/amd64, linux/arm64`.',
