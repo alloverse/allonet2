@@ -14,7 +14,7 @@ let package = Package(
         // Products define the executables and libraries a package produces, making them visible to other packages.
         .library(
             name: "allonet2",
-            targets: ["allonet2"]
+            targets: ["allonet2"],
         ),
         .library(
             name: "alloclient",
@@ -45,6 +45,8 @@ let package = Package(
         .package(url: "https://github.com/OpenCombine/OpenCombine.git", from: "0.14.0"), // So we can use Combine on Linux.
         .package(url: "https://github.com/keyvariable/kvSIMD.swift.git", from: "1.1.0"), // So we can use simd on Linux
         .package(path: "Packages/AlloDataChannel"),
+        .package(url: "https://github.com/DimaRU/PackageBuildInfo", branch: "master"),
+        .package(url: "https://github.com/mxcl/Version.git", from: "2.0.0"),
     ],
     targets: [
         .target(
@@ -53,8 +55,12 @@ let package = Package(
                 "BinaryCodable",
                 "AnyCodable",
                 "FlyingFox",
+                "Version",
                 .product(name: "kvSIMD", package: "kvSIMD.swift"),
                 .product(name: "OpenCombineShim", package: "opencombine"),
+            ],
+            plugins: [
+                .plugin(name: "PackageBuildInfoPlugin", package: "PackageBuildInfo")
             ]
         ),
         .target(
