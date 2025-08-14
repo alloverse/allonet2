@@ -7,6 +7,7 @@
 
 import Foundation
 import FlyingFox
+import Version
 
 public struct AppDescription
 {
@@ -365,9 +366,11 @@ public class PlaceServer : AlloSessionDelegate
             }
 
         case .announce(let version, let identity, let avatarDescription):
-            // TODO: Since we added authentication, should the version go up?
-            guard version == "2.0" else {
-                print("Client \(client.cid) has incompatible version, disconnecting.")
+            guard
+                let semantic = Version(version),
+                Allonet.version().serverIsCompatibleWith(clientVersion: semantic)
+            else {
+                print("Client \(client.cid) has incompatible version (server \(Allonet.version()), client \(version)), disconnecting.")
                 client.session.disconnect()
                 return
             }

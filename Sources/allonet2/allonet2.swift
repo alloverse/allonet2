@@ -49,3 +49,13 @@ extension PackageBuild
 
     }
 }
+
+extension Version
+{
+    func serverIsCompatibleWith(clientVersion: Version) -> Bool
+    {
+        return
+            major == clientVersion.major &&
+            minor == clientVersion.minor
+    }
+}

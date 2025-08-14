@@ -216,7 +216,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
                 type: .request,
                 senderEntityId: "",
                 receiverEntityId: Interaction.PlaceEntity,
-                body: .announce(version: "2.0", identity: identity, avatar: avatarDesc)
+                body: .announce(version: Allonet.version().description, identity: identity, avatar: avatarDesc)
             ))
             guard case .announceResponse(let avatarId, let placeName) = response.body else
             {
