@@ -403,7 +403,7 @@ public class PlaceServer : AlloSessionDelegate
             clients[client.cid] = unannouncedClients.removeValue(forKey: client.cid)!
             let ent = await self.createEntity(from: avatarDescription, for: client)
             client.avatar = ent.id
-            print("Accepted client \(client.cid) with avatar id \(ent.id)")
+            print("Accepted client \(client.cid) with email \(identity.emailAddress), display name \(identity.displayName), assigned avatar id \(ent.id)")
             await heartbeat.awaitNextSync() // make it exist before we tell client about it
             
             client.session.send(interaction: inter.makeResponse(with: .announceResponse(avatarId: ent.id, placeName: name)))
