@@ -53,9 +53,11 @@ public class HeadlessWebRTCTransport: Transport
         
         try peer.lockLocalDescription(type: .offer)
         let offerSdp = try peer.createOffer()
+        print("Generated Offer: \(offerSdp)")
         
         // TODO: await gathering status = complete
         let offerCandidates = peer.candidates.compactMap(\.alloCandidate)
+        print("Offer candidates: \(offerCandidates)")
         
         return SignallingPayload(
             sdp: offerSdp,
@@ -68,13 +70,17 @@ public class HeadlessWebRTCTransport: Transport
     {
         clientId = UUID()
         
+        print("Received Offer: \(offer)")
+        
         try peer.set(remote: offer.sdp, type: .offer)
         try peer.lockLocalDescription(type: .answer)
         // TODO: set remote ice candidates in peer from the offer
         let answerSdp = try peer.createAnswer()
+        print("Generated Answer: \(answerSdp)")
         
         // TODO: await gathering status = complete
         let answerCandidates = peer.candidates.compactMap(\.alloCandidate)
+        print("Answer candidates: \(answerCandidates)")
         
         return SignallingPayload(
             sdp: answerSdp,
@@ -86,6 +92,7 @@ public class HeadlessWebRTCTransport: Transport
     public func acceptAnswer(_ answer: SignallingPayload) async throws
     {
         clientId = answer.clientId!
+        print("Received Answer: \(answer)")
         try peer.set(remote: answer.sdp, type: .answer)
         for candidate in answer.candidates
         {
