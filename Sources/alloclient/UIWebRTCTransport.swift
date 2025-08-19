@@ -302,7 +302,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     {
         print("Session \(clientId?.debugDescription ?? "unknown") ICE state \(newState)")
         DispatchQueue.main.async {
-            self.connectionStatus.iceGathering = switch newState
+            self.connectionStatus.iceConnection = switch newState
             {
                 case .new: .idle
                 case .checking: .connecting
