@@ -17,8 +17,8 @@ class DemoApp
     init(connectingTo url: URL)
     {
         print("Connecting to alloverse swift place ", url)
-
-        self.client = AlloAppClient(url: url, avatarDescription: EntityDescription(components:[
+        let identity = Identity(expectation: .none, displayName: "DemoApp", emailAddress: "", authenticationToken: "")
+        self.client = AlloAppClient(url: url, identity: identity, avatarDescription: EntityDescription(components:[
             Model(
                 mesh: .sphere(radius: 0.5),
                 material: .color(color: .hsv(hue: .random(in: 0...1), saturation: 0.9, value: 1, alpha: 1), metallic: true)
