@@ -40,10 +40,13 @@ public struct TransportConnectionOptions
 {
     public let routing: TransportRouting
     public let ipOverride: IPOverride?
+    public let portRange: Range<Int>?
     
-    public init(routing: TransportRouting = .direct, ipOverride: IPOverride? = nil) {
+    public init(routing: TransportRouting = .direct, ipOverride: IPOverride? = nil, portRange: Range<Int>? = nil)
+    {
         self.routing = routing
         self.ipOverride = ipOverride
+        self.portRange = portRange
     }
 }
 

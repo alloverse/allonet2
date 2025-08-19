@@ -24,7 +24,7 @@ public class HeadlessWebRTCTransport: Transport
     {
         self.connectionStatus = status
         AlloWebRTCPeer.enableLogging(at: .debug)
-        peer = AlloWebRTCPeer(ipOverride: connectionOptions.ipOverride?.adc)
+        peer = AlloWebRTCPeer(portRange: connectionOptions.portRange, ipOverride: connectionOptions.ipOverride?.adc)
         
         peer.$state.sink { [weak self] state in
             // TODO: replicate UIWebRTCTransport's behavior and only signal connected when data channels are connected?

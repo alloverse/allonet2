@@ -35,10 +35,9 @@ struct PlaceServerApp: AsyncParsableCommand
         let server = PlaceServer(
             name: name,
             httpPort: httpPort,
-            webrtcPortRange: webrtcPortRange,
             customApp: app,
             transportClass: HeadlessWebRTCTransport.self,
-            options: TransportConnectionOptions(routing: .direct, ipOverride: ipOverride)
+            options: TransportConnectionOptions(routing: .direct, ipOverride: ipOverride, portRange: webrtcPortRange)
         )
         
         signal(SIGINT, SIG_IGN)
