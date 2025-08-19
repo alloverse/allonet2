@@ -187,8 +187,26 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     
     //MARK: - Internals
     
+    static var logger : LKRTCCallbackLogger? = nil
     private static func createPeerConnection(with connectionOptions: TransportConnectionOptions) -> LKRTCPeerConnection
     {
+        if logger == nil
+        {
+            print("Starting RTC callback logger")
+            logger = LKRTCCallbackLogger()
+            logger!.severity = .warning
+            logger!.start(messageAndSeverityHandler: { (message, severity) in
+                let sevM = switch severity {
+                case .verbose: "v"
+                case .info: "i"
+                case .warning: "!! W"
+                case .error: "!!! E"
+                case .none: "?"
+                }
+                print("RTC[\(sevM)]: \(message)")
+            })
+        }
+        
         let config = LKRTCConfiguration()
         config.sdpSemantics = .unifiedPlan
         
