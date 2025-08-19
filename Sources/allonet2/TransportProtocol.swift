@@ -36,7 +36,7 @@ public protocol Transport: AnyObject
     func send(data: Data, on channel: DataChannelLabel)
 }
 
-public struct TransportConnectionOptions
+public struct TransportConnectionOptions: Sendable
 {
     public let routing: TransportRouting
     public let ipOverride: IPOverride?
