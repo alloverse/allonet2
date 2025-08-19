@@ -23,6 +23,7 @@ public class HeadlessWebRTCTransport: Transport
     public required init(with connectionOptions: allonet2.TransportConnectionOptions, status: ConnectionStatus)
     {
         self.connectionStatus = status
+        AlloWebRTCPeer.enableLogging(at: .debug)
         peer = AlloWebRTCPeer(ipOverride: connectionOptions.ipOverride?.adc)
         
         peer.$state.sink { [weak self] state in
