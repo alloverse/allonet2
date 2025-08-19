@@ -1,5 +1,5 @@
 {
-  "originHash" : "296d73ebe2df9759d8329e651adec013db4e3c798ed5b66bac63ffb74f7fa0cf",
+  "originHash" : "585088fdaf34f0709c8407a8657678fbafdfd04f79388eaad8172aab68b4fc5b",
   "pins" : [
     {
       "identity" : "anycodable",
@@ -47,12 +47,30 @@
       }
     },
     {
+      "identity" : "packagebuildinfo",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/DimaRU/PackageBuildInfo",
+      "state" : {
+        "branch" : "master",
+        "revision" : "b58288cada24fdaaedaaa329afe52d910794fdb2"
+      }
+    },
+    {
       "identity" : "swift-argument-parser",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-argument-parser",
       "state" : {
         "revision" : "41982a3656a71c768319979febd796c6fd111d5c",
         "version" : "1.5.0"
+      }
+    },
+    {
+      "identity" : "version",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mxcl/Version.git",
+      "state" : {
+        "revision" : "67ce582bb9de70e1eb2ee41fd71aad3b5f86d97b",
+        "version" : "2.2.0"
       }
     },
     {
