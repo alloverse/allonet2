@@ -15,7 +15,7 @@ public class AlloAppClient : AlloClient
         
     open override func reset()
     {
-        userTransport = HeadlessWebRTCTransport(with: .direct, status: connectionStatus)
+        userTransport = HeadlessWebRTCTransport(with: self.connectionOptions, status: connectionStatus)
         reset(with: userTransport)
     }
 }

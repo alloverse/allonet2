@@ -18,15 +18,15 @@ public class AlloUserClient : AlloClient
         didSet { userTransport.microphoneEnabled = micEnabled }
     }
     
-    public override init(url: URL, identity: Identity, avatarDescription: EntityDescription)
+    public override init(url: URL, identity: Identity, avatarDescription: EntityDescription, connectionOptions: TransportConnectionOptions)
     {
         self.micEnabled = true
-        super.init(url: url, identity: identity, avatarDescription: avatarDescription)
+        super.init(url: url, identity: identity, avatarDescription: avatarDescription, connectionOptions: connectionOptions)
     }
     
     open override func reset()
     {
-        userTransport = UIWebRTCTransport(with: .direct, status: connectionStatus)
+        userTransport = UIWebRTCTransport(with: self.connectionOptions, status: connectionStatus)
         do {
             micTrack = try userTransport.createMicrophoneTrack()
         } catch {

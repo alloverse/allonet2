@@ -23,7 +23,7 @@ public class HeadlessWebRTCTransport: Transport
     public required init(with connectionOptions: allonet2.TransportConnectionOptions, status: ConnectionStatus)
     {
         self.connectionStatus = status
-        peer = AlloWebRTCPeer()
+        peer = AlloWebRTCPeer(ipOverride: connectionOptions.ipOverride?.adc)
         
         peer.$state.sink { [weak self] state in
             // TODO: replicate UIWebRTCTransport's behavior and only signal connected when data channels are connected?
@@ -195,5 +195,13 @@ extension AlloWebRTCPeer.ICECandidate
         get {
             return SignallingIceCandidate(candidate: self)
         }
+    }
+}
+
+extension allonet2.IPOverride
+{
+    var adc: AlloWebRTCPeer.IPOverride
+    {
+        return AlloWebRTCPeer.IPOverride(from: self.from, to: self.to)
     }
 }

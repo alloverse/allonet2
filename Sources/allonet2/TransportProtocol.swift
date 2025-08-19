@@ -36,13 +36,36 @@ public protocol Transport: AnyObject
     func send(data: Data, on channel: DataChannelLabel)
 }
 
-public enum TransportConnectionOptions
-    {
-        case direct // no STUN nor TURN
-        // STUN allows NAT hole punching using a third party
-        case standardSTUN // Google, Twilio and some other free options
-        case STUN(servers: [String])
+public struct TransportConnectionOptions
+{
+    public let routing: TransportRouting
+    public let ipOverride: IPOverride?
+    
+    public init(routing: TransportRouting = .direct, ipOverride: IPOverride? = nil) {
+        self.routing = routing
+        self.ipOverride = ipOverride
     }
+}
+
+public enum TransportRouting
+{
+    case direct // no STUN nor TURN
+    // STUN allows NAT hole punching using a third party
+    case standardSTUN // Google, Twilio and some other free options
+    case STUN(servers: [String])
+}
+
+public struct IPOverride
+{
+    public let from: String
+    public let to: String
+    
+    public init(from: String, to: String)
+    {
+        self.from = from
+        self.to = to
+    }
+}
 
 public enum DataChannelLabel: String
 {

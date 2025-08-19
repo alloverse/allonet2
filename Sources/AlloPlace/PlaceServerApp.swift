@@ -9,6 +9,9 @@ struct PlaceServerApp: AsyncParsableCommand
     @Option(name: [.customShort("n"), .long], help: "Human-facing name of this Alloverse place.")
     var name: String = "Unnamed Alloverse Place"
     
+    @Option(name: [.customShort("l"), .long], help: "WebRTC IP override, e g for replacing a Docker internal IP with the host's public IP in WebRTC's published SDP candidates. Format: from_ip-to_ip. Example: 172.0.0.3-35.34.72.23")
+    var ipOverride: IPOverride? = nil
+    
     @Option(name: [.customShort("p"), .long], help: "TCP port to open HTTP listener on.")
     var httpPort: UInt16 = 9080
     
@@ -29,7 +32,14 @@ struct PlaceServerApp: AsyncParsableCommand
         configurePrintBuffering()
         let name = name
         let app = AppDescription(name: appName, downloadURL: appDownloadURL, URLProtocol: appURLProtocol)
-        let server = PlaceServer(name: name, httpPort: httpPort, webrtcPortRange: webrtcPortRange, customApp: app, transportClass: HeadlessWebRTCTransport.self)
+        let server = PlaceServer(
+            name: name,
+            httpPort: httpPort,
+            webrtcPortRange: webrtcPortRange,
+            customApp: app,
+            transportClass: HeadlessWebRTCTransport.self,
+            options: TransportConnectionOptions(routing: .direct, ipOverride: ipOverride)
+        )
         
         signal(SIGINT, SIG_IGN)
         let sigint = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
@@ -54,6 +64,13 @@ extension Range<Int> : ExpressibleByArgument
         guard pair[0] < pair[1] else { return nil }
         self.init(uncheckedBounds: (lower: pair[0], upper: pair[1]))
     }
-    
-    
+}
+
+extension IPOverride : ExpressibleByArgument
+{
+    public init?(argument: String) {
+        let pair = argument.split(separator: "-")
+        guard pair.count == 2 else { return nil }
+        self.init(from: String(pair[0]), to: String(pair[1]))
+    }
 }

@@ -30,6 +30,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     @Published public private(set) var isAnnounced: Bool = false
     public private(set) var placeName: String?
     open var transport: Transport! = nil
+    public let connectionOptions: TransportConnectionOptions
     public var session: AlloSession! = nil
     
     var currentIntent = Intent(ackStateRev: 0) {
@@ -58,12 +59,13 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         }
     }
     
-    public init(url: URL, identity: Identity, avatarDescription: EntityDescription)
+    public init(url: URL, identity: Identity, avatarDescription: EntityDescription, connectionOptions: TransportConnectionOptions = TransportConnectionOptions(routing: .direct))
     {
         Allonet.Initialize()
         self.url = url
         self.identity = identity
         self.avatarDesc = avatarDescription
+        self.connectionOptions = connectionOptions
         self.reset()
     }
     
@@ -192,7 +194,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
             
             // Use session's transport methods
             try await session.acceptAnswer(answer)
-            print("All the RTC stuff should be done now")
+            print("AlloClient RTC initial signalling complete")
         } catch (let e) {
             print("failed to connect: \(e)")
             DispatchQueue.main.async {

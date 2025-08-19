@@ -31,8 +31,10 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     
     private let audioSessionActive = false
     
-    public required init(with connectionOptions: TransportConnectionOptions = .direct, status: ConnectionStatus)
-    {
+    public required init(
+        with connectionOptions: TransportConnectionOptions,
+        status: ConnectionStatus
+    ) {
         peer = Self.createPeerConnection(with: connectionOptions)
         connectionStatus = status
         super.init()
@@ -193,7 +195,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
         // NOTE: Having both STUN and .gatherOnce forces a 10s connection time as candidates need to be gathered through a remote party.
         config.continualGatheringPolicy = .gatherOnce
         
-        switch(connectionOptions)
+        switch(connectionOptions.routing)
         {
             case .standardSTUN:
                 config.iceServers = [LKRTCIceServer(urlStrings: [
@@ -309,6 +311,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: RTCIceGatheringState)
     {
+        print("Session \(clientId?.debugDescription ?? "unknown") ICE gathering state \(newState)")
         DispatchQueue.main.async {
             self.connectionStatus.iceGathering = switch newState
             {
