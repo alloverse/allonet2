@@ -249,10 +249,11 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     {
         if
             !didFullyConnect &&
-            peer.iceConnectionState == .connected &&
+            (peer.iceConnectionState == .connected || peer.iceConnectionState == .completed) &&
              channels.count > 0 &&
             channels.values.allSatisfy({$0.readyState == .open})
         {
+            print("Transport is fully connected")
             didFullyConnect = true
             self.delegate?.transport(didConnect: self)
             
