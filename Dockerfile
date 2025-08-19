@@ -23,7 +23,7 @@ RUN --mount=type=cache,target=/place/.build \
 
 COPY . .
 RUN --mount=type=cache,target=/place/.build \
-    swift build -c release -Xswiftc -static-stdlib --product AlloPlace && cp .build/release/AlloPlace .
+    swift build -c debug -Xswiftc -static-stdlib --product AlloPlace && cp .build/debug/AlloPlace .
 
 # ---------- Runtime stage ----------------------------------------------------
 FROM swift:$SWIFT_VERSION-slim
