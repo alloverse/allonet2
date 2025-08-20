@@ -42,7 +42,7 @@ let package = Package(
         .package(url: "https://github.com/swhitty/FlyingFox.git", .upToNextMajor(from: "0.14.0")),
         .package(url: "https://github.com/Flight-School/AnyCodable", from: "0.6.0"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
-        .package(url: "https://github.com/OpenCombine/OpenCombine.git", from: "0.14.0"), // So we can use Combine on Linux.
+        .package(url: "https://github.com/alloverse/OpenCombine.git", branch: "fix/vision-support"), // So we can use Combine on Linux.
         .package(url: "https://github.com/keyvariable/kvSIMD.swift.git", from: "1.1.0"), // So we can use simd on Linux
         .package(path: "Packages/AlloDataChannel"),
         .package(url: "https://github.com/DimaRU/PackageBuildInfo", branch: "master"),
