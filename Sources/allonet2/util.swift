@@ -7,6 +7,7 @@
 
 import Foundation
 import simd
+import OpenCombineShim
 
 func with<T>(_ value: T, using closure: (inout T) -> Void) -> T {
     var copy = value
@@ -188,6 +189,35 @@ public struct LazyMap<K: Hashable, V, V2>: Collection
         guard let v = storage[key] else { return nil }
         // Lazily transform only when requested.
         return mapper(key, v)
+    }
+}
+
+
+extension Publisher
+where Output: BidirectionalCollection & RangeReplaceableCollection,
+      Output.Element: Equatable,
+      Failure == Never
+{
+    /// Observe a published collection and get element-level add/remove callbacks.
+    public func sinkChanges(
+        added: @escaping (Output.Element) -> Void,
+        removed: @escaping (Output.Element) -> Void
+    ) -> AnyCancellable {
+        self
+            // Keep (old, new) pair as we stream values.
+            .scan((Output(), Output())) { ($0.1, $1) }
+            // Build the diff as "what changed to get from old -> new".
+            .map { old, new in new.difference(from: old) }
+            .sink { diff in
+                for change in diff {
+                    switch change {
+                    case let .insert(_, element, _):
+                        added(element)
+                    case let .remove(_, element, _):
+                        removed(element)
+                    }
+                }
+            }
     }
 }
 
