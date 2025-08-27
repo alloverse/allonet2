@@ -87,12 +87,12 @@ extension DataChannelLabel
 }
 
 public protocol DataChannel {
-    var label: DataChannelLabel { get }
+    var alloLabel: DataChannelLabel { get }
     var isOpen: Bool { get }
 }
 
 public protocol MediaStream {
-    var streamId: String { get }
+    var mediaId: String { get }
 }
 
 public protocol AudioTrack {

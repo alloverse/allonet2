@@ -457,13 +457,6 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
             micTrack?.isEnabled = newValue
         }
     }
-    
-    var outgoingStreamSender: LKRTCRtpSender?
-    public func addOutgoing(stream: LKRTCMediaStream)
-    {
-        outgoingStreamSender = peer.add(stream.audioTracks[0], streamIds: [stream.streamId])
-        print("Forwarding audio stream with sender \(outgoingStreamSender!)")
-    }
 }
 
 // MARK: - Wrapper classes
@@ -473,10 +466,10 @@ private class ClientDataChannel: DataChannel {
     
     init(channel: LKRTCDataChannel) {
         self.channel = channel
-        self.label = DataChannelLabel(rawValue: channel.label)!
+        self.alloLabel = DataChannelLabel(rawValue: channel.label)!
     }
     
-    var label: DataChannelLabel
+    var alloLabel: DataChannelLabel
     var isOpen: Bool { (channel?.readyState ?? .closed) == .open }
 }
 extension LKRTCDataChannel {
@@ -500,7 +493,7 @@ private class ClientMediaStream: MediaStream {
         self.stream = stream
     }
     
-    var streamId: String { stream.streamId }
+    var mediaId: String { stream.streamId }
 }
 extension LKRTCMediaStream {
     static var wrapperKey: Void = ()

@@ -16,7 +16,7 @@ public class HeadlessWebRTCTransport: Transport
     public private(set) var clientId: ClientId?
     
     private var peer: AlloWebRTCPeer
-    private var channels: [String: ServerDataChannel] = [:] // track which channels are created
+    private var channels: [String: AlloWebRTCPeer.DataChannel] = [:] // track which channels are created
     private var connectionStatus: ConnectionStatus
     private var cancellables = Set<AnyCancellable>()
     
@@ -36,6 +36,12 @@ public class HeadlessWebRTCTransport: Transport
             }
         }.store(in: &cancellables)
         
+        peer.$tracks.sinkChanges(added: { track in
+            self.delegate?.transport(self, didReceiveMediaStream: track)
+        }, removed: { track in
+            // TODO: notify track removals too
+        }).store(in: &cancellables)
+        
         // TODO: subscribe to more callbacks and match UIWebRTCTransport's behavior
         // TODO: Populate connectionStatus
         // TODO: Manage renegotiation
@@ -50,6 +56,8 @@ public class HeadlessWebRTCTransport: Transport
     public func generateOffer() async throws -> SignallingPayload
     {
         Task { @MainActor in self.connectionStatus.signalling = .connecting }
+        
+        
         
         try peer.lockLocalDescription(type: .offer)
         let offerSdp = try peer.createOffer()
@@ -104,26 +112,26 @@ public class HeadlessWebRTCTransport: Transport
     {
         peer.close()
         clientId = nil
+        cancellables.forEach { $0.cancel() }
     }
     
     public func createDataChannel(label: DataChannelLabel, reliable: Bool) -> DataChannel?
     {
-        let achannel = try! peer.createDataChannel(label: label.rawValue, reliable: reliable, streamId: UInt16(label.channelId), negotiated: true)
-        let channel = ServerDataChannel(label: label, channel: achannel)
+        let channel = try! peer.createDataChannel(label: label.rawValue, reliable: reliable, streamId: UInt16(label.channelId), negotiated: true)
         channels[label.rawValue] = channel
         
-        achannel.$lastMessage.sink { [weak self] message in
+        channel.$lastMessage.sink { [weak self] message in
             guard let self = self, let message = message else { return }
             self.delegate?.transport(self, didReceiveData: message, on: channel)
         }.store(in: &cancellables)
-            
+        
         return channel
     }
     
     public func send(data: Data, on channelLabel: DataChannelLabel)
     {
         let ch = channels[channelLabel.rawValue]!
-        try! ch.channel.send(data: data)
+        try! ch.send(data: data)
     }
     
     // Media operations - server can forward but not create
@@ -149,27 +157,22 @@ public class HeadlessWebRTCTransport: Transport
     }
 }
 
-private class ServerDataChannel: DataChannel
+extension AlloWebRTCPeer.DataChannel : DataChannel
 {
-    let label: DataChannelLabel
-    let channel: AlloWebRTCPeer.Channel
-    var isOpen: Bool { return channel.open }
-    
-    init(label: DataChannelLabel, channel: AlloWebRTCPeer.Channel)
+    public var alloLabel: DataChannelLabel
     {
-        self.label = label
-        self.channel = channel
+        return DataChannelLabel(rawValue: self.label)!
     }
 }
 
-private class ServerMediaStream: MediaStream
+extension AlloWebRTCPeer.Track : MediaStream
 {
-    let streamId: String
-    
-    init(streamId: String) {
-        self.streamId = streamId
+    public var mediaId: String
+    {
+        "\(self.streamId).\(self.trackId)"
     }
 }
+
 
 extension SignallingPayload
 {

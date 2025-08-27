@@ -20,6 +20,8 @@ public protocol AlloSessionDelegate: AnyObject
     func session(_: AlloSession, didReceiveIntent intent: Intent)
     
     func session(_: AlloSession, didReceiveMediaStream: MediaStream)
+    // TODO: handle losing a media stream too
+    //func session(_: AlloSession, didRemoveMediaStream: MediaStream)
 }
 
 /// Wrapper of Transport, adding Alloverse-specific channels and data types
@@ -116,7 +118,7 @@ public class AlloSession : NSObject, TransportDelegate
     let decoder = BinaryDecoder()
     public func transport(_ transport: Transport, didReceiveData data: Data, on channel: DataChannel)
     {
-        switch channel.label
+        switch channel.alloLabel
         {
         case  .interactions:
             do {
@@ -233,7 +235,7 @@ public class AlloSession : NSObject, TransportDelegate
     // MARK: - Audio
     public func transport(_ transport: Transport, didReceiveMediaStream stream: MediaStream)
     {
-        incomingStreams[stream.streamId] = stream
+        incomingStreams[stream.mediaId] = stream
         delegate?.session(self, didReceiveMediaStream: stream)
     }
 }
