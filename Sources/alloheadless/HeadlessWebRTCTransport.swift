@@ -57,8 +57,6 @@ public class HeadlessWebRTCTransport: Transport
     {
         Task { @MainActor in self.connectionStatus.signalling = .connecting }
         
-        
-        
         try peer.lockLocalDescription(type: .offer)
         let offerSdp = try peer.createOffer()
         print("Generated Offer: \(offerSdp)")
@@ -99,7 +97,11 @@ public class HeadlessWebRTCTransport: Transport
     
     public func acceptAnswer(_ answer: SignallingPayload) async throws
     {
-        clientId = answer.clientId!
+        // Don't override clientId in case of renegotiation
+        if clientId == nil
+        {
+            clientId = answer.clientId!
+        }
         print("Received Answer: \(answer)")
         try peer.set(remote: answer.sdp, type: .answer)
         for candidate in answer.candidates
@@ -152,6 +154,7 @@ public class HeadlessWebRTCTransport: Transport
         let peer = (transport as! HeadlessWebRTCTransport).peer
         let sfu = try MediaForwardingUnit(forwarding: track, to: peer)
         try peer.lockLocalDescription(type: .unspecified)
+        transport.delegate?.transport(requestsRenegotiation: transport)
         return sfu
     }
 }

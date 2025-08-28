@@ -99,7 +99,10 @@ public class PlaceServer : AlloSessionDelegate
             } else
             {
                 // If it's not in clients, it should be in unacknowledged... just double checking
-                assert(self.unannouncedClients[cid] != nil)
+                if self.unannouncedClients[cid] == nil
+                {
+                    print("Warning: Received intent from unknown client \(cid)")
+                }
                 // but we shouldn't even receive an intent before it's acknowledged anyway.
             }
         }

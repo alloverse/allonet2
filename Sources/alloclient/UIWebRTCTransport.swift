@@ -78,8 +78,14 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
         )
     }
     
-    public func generateAnswer(for offer: SignallingPayload) async throws -> SignallingPayload {
-        clientId = UUID()
+    public func generateAnswer(for offer: SignallingPayload) async throws -> SignallingPayload
+    {
+        // In case of server-side initiated renegotiation, don't override the existing ClientID
+        if clientId == nil
+        {
+            clientId = UUID()
+        }
+        
         try await set(remoteDescription: offer.desc(for: .offer))
         for candidate in offer.rtcCandidates() {
             try await add(remoteCandidate: candidate)

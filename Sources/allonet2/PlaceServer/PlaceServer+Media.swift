@@ -52,7 +52,7 @@ extension PlaceServer
         {
             return
         }
-        
+        print("PlaceServer forwarding \(sender.cid).\(stream.mediaId) -> \(receiver.cid)")
         let sfu = try transportClass.forward(mediaStream: stream, to: transport)
         sfus[id] = sfu
     }
