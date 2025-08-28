@@ -20,8 +20,7 @@ public protocol AlloSessionDelegate: AnyObject
     func session(_: AlloSession, didReceiveIntent intent: Intent)
     
     func session(_: AlloSession, didReceiveMediaStream: MediaStream)
-    // TODO: handle losing a media stream too
-    //func session(_: AlloSession, didRemoveMediaStream: MediaStream)
+    func session(_: AlloSession, didRemoveMediaStream: MediaStream)
 }
 
 /// Wrapper of Transport, adding Alloverse-specific channels and data types
@@ -34,7 +33,7 @@ public class AlloSession : NSObject, TransportDelegate
     private var interactionChannel: DataChannel!
     private var worldstateChannel: DataChannel!
     
-    private var incomingStreams: [String/*StreamID*/: MediaStream] = [:]
+    public private(set) var incomingStreams: [String/*StreamID*/: MediaStream] = [:]
     
     private var outstandingInteractions: [Interaction.RequestID: CheckedContinuation<Interaction, Never>] = [:]
     
@@ -238,4 +237,11 @@ public class AlloSession : NSObject, TransportDelegate
         incomingStreams[stream.mediaId] = stream
         delegate?.session(self, didReceiveMediaStream: stream)
     }
+    
+    public func transport(_ transport: Transport, didRemoveMediaStream stream: MediaStream)
+    {
+        incomingStreams[stream.mediaId] = nil
+        delegate?.session(self, didRemoveMediaStream: stream)
+    }
+    
 }

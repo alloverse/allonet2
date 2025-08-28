@@ -262,6 +262,12 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         // TODO: Playback
     }
     
+    nonisolated public func session(_: AlloSession, didRemoveMediaStream: MediaStream)
+    {
+        print("Client lost audio track")
+        // TODO: Stop playback
+    }
+    
     // MARK: - Interactions, intent and place state
     
     public struct InteractionHandler<T>

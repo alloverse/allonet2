@@ -39,7 +39,7 @@ public class HeadlessWebRTCTransport: Transport
         peer.$tracks.sinkChanges(added: { track in
             self.delegate?.transport(self, didReceiveMediaStream: track)
         }, removed: { track in
-            // TODO: notify track removals too
+            self.delegate?.transport(self, didRemoveMediaStream: track)
         }).store(in: &cancellables)
         
         // TODO: subscribe to more callbacks and match UIWebRTCTransport's behavior
@@ -145,15 +145,14 @@ public class HeadlessWebRTCTransport: Transport
         fatalError("Not available server-side")
     }
     
-    public func addOutgoingStream(_ stream: MediaStream)
+    public static func forward(mediaStream: MediaStream, to transport: any Transport) throws -> MediaStreamForwarder
     {
-        // TODO: Implement stream forwarding when you have multiple clients
-        // This would involve forwarding streams between HeadlessWebRTCTransport instances
-    }
-    
-    public func forwardStream(from otherTransport: HeadlessWebRTCTransport, streamId: String) -> Bool
-    {
-        return false
+        print("Forwarding media stream \(mediaStream.mediaId) to \(transport.clientId)")
+        let track = mediaStream as! AlloWebRTCPeer.Track
+        let peer = (transport as! HeadlessWebRTCTransport).peer
+        let sfu = try MediaForwardingUnit(forwarding: track, to: peer)
+        try peer.lockLocalDescription(type: .unspecified)
+        return sfu
     }
 }
 
@@ -171,6 +170,10 @@ extension AlloWebRTCPeer.Track : MediaStream
     {
         "\(self.streamId).\(self.trackId)"
     }
+}
+
+extension MediaForwardingUnit : MediaStreamForwarder
+{
 }
 
 

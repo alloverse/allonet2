@@ -14,6 +14,7 @@ public protocol TransportDelegate: AnyObject {
     func transport(didDisconnect transport: Transport)
     func transport(_ transport: Transport, didReceiveData data: Data, on channel: DataChannel)
     func transport(_ transport: Transport, didReceiveMediaStream stream: MediaStream)
+    func transport(_ transport: Transport, didRemoveMediaStream stream: MediaStream)
     func transport(requestsRenegotiation transport: Transport)
 }
 
@@ -34,6 +35,9 @@ public protocol Transport: AnyObject
     // Data channels
     func createDataChannel(label: DataChannelLabel, reliable: Bool) -> DataChannel?
     func send(data: Data, on channel: DataChannelLabel)
+    
+    // Media channels
+    static func forward(mediaStream: MediaStream, to: any Transport) throws -> MediaStreamForwarder
 }
 
 public struct TransportConnectionOptions: Sendable
@@ -97,4 +101,9 @@ public protocol MediaStream {
 
 public protocol AudioTrack {
     var isEnabled: Bool { get set }
+}
+
+public protocol MediaStreamForwarder
+{
+    func stop()
 }

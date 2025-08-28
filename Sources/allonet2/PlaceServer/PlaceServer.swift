@@ -22,7 +22,7 @@ public class PlaceServer : AlloSessionDelegate
     let options: TransportConnectionOptions
     
     var outstandingClientToClientInteractions: [Interaction.RequestID: ClientId] = [:]
-
+    internal var sfus: [SFUIdentifier: MediaStreamForwarder] = [:]
     internal var authenticationProvider: ConnectedClient?
 
     let connectionStatus = ConnectionStatus()
@@ -68,8 +68,9 @@ public class PlaceServer : AlloSessionDelegate
         }
         print("Lost session for client \(cid)")
         Task { @MainActor in
-            if let _ = self.clients.removeValue(forKey: cid)
+            if let client = self.clients.removeValue(forKey: cid)
             {
+                self.stop(forwarding: client)
                 await self.removeEntites(ownedBy: cid)
             }
             self.unannouncedClients[cid] = nil
@@ -78,6 +79,8 @@ public class PlaceServer : AlloSessionDelegate
                 print("Lost client was our authentication provider, removing it")
                 authenticationProvider = nil
             }
+            
+            
         }
     }
     
@@ -102,16 +105,19 @@ public class PlaceServer : AlloSessionDelegate
         }
     }
     
-    nonisolated public func session(_ sess: AlloSession, didReceiveMediaStream stream: MediaStream)
+    nonisolated public func session(_ sess: AlloSession, didReceiveMediaStream stream: any MediaStream)
+    {
+        let cid = sess.clientId!
+        Task { @MainActor in
+            guard let client = self.clients[cid] else { return }
+            self.handle(incoming: stream, from: client)
+        }
+    }
+    
+    nonisolated public func session(_: AlloSession, didRemoveMediaStream stream: any MediaStream)
     {
         Task { @MainActor in
-            for (cid, client) in self.clients
-            {
-                if cid == sess.clientId! { continue }
-                // TODO: Stream forwarding!
-                //client.session.addOutgoing(stream: stream)
-            }
-            // TODO: also attach to new clients that connect after this stream comes in -- or maybe not, it's up to them to subscribe with interactions, right?
+            self.stop(forwarding: stream)
         }
     }
 }

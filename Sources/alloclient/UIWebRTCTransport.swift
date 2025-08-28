@@ -280,7 +280,8 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didRemove stream: LKRTCMediaStream)
     {
-        
+        print("Lost stream: \(clientId!): \(stream)")
+        delegate?.transport(self, didRemoveMediaStream: stream.wrapper)
     }
     
     var renegotiationNeeded = false
@@ -456,6 +457,11 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
             let micTrack = peer.transceivers.first { $0.sender.track?.trackId == micTrackName }?.sender.track as? LKRTCAudioTrack
             micTrack?.isEnabled = newValue
         }
+    }
+    
+    static func forward(mediaStream: any MediaStream, to: any Transport) throws -> any MediaStreamForwarder
+    {
+        fatalError("Not implemented")
     }
 }
 
