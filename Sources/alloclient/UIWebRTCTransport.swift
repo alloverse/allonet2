@@ -465,7 +465,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
         }
     }
     
-    static func forward(mediaStream: any MediaStream, to: any Transport) throws -> any MediaStreamForwarder
+    public static func forward(mediaStream: MediaStream, from sender: any Transport, to receiver: any Transport) throws -> MediaStreamForwarder
     {
         fatalError("Not implemented")
     }
@@ -498,7 +498,8 @@ extension LKRTCDataChannel {
     }
 }
 
-private class ClientMediaStream: MediaStream {
+private class ClientMediaStream: MediaStream
+{
     let stream: LKRTCMediaStream
     
     init(stream: LKRTCMediaStream) {
@@ -506,6 +507,13 @@ private class ClientMediaStream: MediaStream {
     }
     
     var mediaId: String { stream.streamId }
+    
+    var streamDirection: allonet2.MediaStreamDirection
+    {
+        // TODO: This isn't exposed in Google WebRTC, but also, maybe we don't need it on the client?
+        // If I need it, look at RTCRtpTransceiverDirection
+        .unknown
+    }
 }
 extension LKRTCMediaStream {
     static var wrapperKey: Void = ()

@@ -180,14 +180,15 @@ public class HeadlessWebRTCTransport: Transport
         fatalError("Not available server-side")
     }
     
-    public static func forward(mediaStream: MediaStream, to transport: any Transport) throws -> MediaStreamForwarder
+    public static func forward(mediaStream: MediaStream, from sender: any Transport, to receiver: any Transport) throws -> MediaStreamForwarder
     {
-        print("Forwarding media stream \(mediaStream.mediaId) to \(transport.clientId)")
+        print("Forwarding media stream \(mediaStream.mediaId) to \(receiver.clientId)")
         let track = mediaStream as! AlloWebRTCPeer.Track
-        let headless = (transport as! HeadlessWebRTCTransport)
-        let peer = headless.peer
-        let sfu = try MediaForwardingUnit(forwarding: track, to: peer)
-        headless.scheduleRenegotiation()
+        let receiverHeadless = (receiver as! HeadlessWebRTCTransport)
+        let peer = receiverHeadless.peer
+        let shortId = sender.clientId!.uuidString.split(separator: "-").first!
+        let sfu = try MediaForwardingUnit(forwarding: track, fromClientId: String(shortId) , to: peer)
+        receiverHeadless.scheduleRenegotiation()
         return sfu
     }
 }
@@ -205,6 +206,11 @@ extension AlloWebRTCPeer.Track : MediaStream
     public var mediaId: String
     {
         "\(self.streamId).\(self.trackId)"
+    }
+    
+    public var streamDirection: MediaStreamDirection
+    {
+        MediaStreamDirection(rawValue: direction.rawValue)!
     }
 }
 

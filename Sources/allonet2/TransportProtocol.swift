@@ -37,7 +37,7 @@ public protocol Transport: AnyObject
     func send(data: Data, on channel: DataChannelLabel)
     
     // Media channels
-    static func forward(mediaStream: MediaStream, to: any Transport) throws -> MediaStreamForwarder
+    static func forward(mediaStream: MediaStream, from sender: any Transport, to receiver: any Transport) throws -> MediaStreamForwarder
 }
 
 public struct TransportConnectionOptions: Sendable
@@ -95,8 +95,20 @@ public protocol DataChannel {
     var isOpen: Bool { get }
 }
 
+public enum MediaStreamDirection: UInt32
+{
+    case unknown = 0
+    case sendonly = 1
+    case recvonly = 2
+    case sendrecv = 3
+    
+    var isRecv: Bool { self == .recvonly || self == .sendrecv }
+}
+
 public protocol MediaStream {
+    
     var mediaId: String { get }
+    var streamDirection: MediaStreamDirection { get }
 }
 
 public protocol AudioTrack {

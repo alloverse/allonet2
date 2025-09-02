@@ -44,6 +44,8 @@ extension PlaceServer
     {
         // Don't forward the stream back to its source
         if sender.session.clientId == receiver.session.clientId { return }
+        // Don't forward streams going TO the client
+        if !stream.streamDirection.isRecv { return }
         
         let transport = receiver.session.transport
         
@@ -53,7 +55,7 @@ extension PlaceServer
             return
         }
         print("PlaceServer forwarding \(sender.cid).\(stream.mediaId) -> \(receiver.cid)")
-        let sfu = try transportClass.forward(mediaStream: stream, to: transport)
+        let sfu = try transportClass.forward(mediaStream: stream, from: sender.session.transport, to: transport)
         sfus[id] = sfu
     }
     
