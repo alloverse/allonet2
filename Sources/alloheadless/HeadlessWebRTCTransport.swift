@@ -29,14 +29,24 @@ public class HeadlessWebRTCTransport: Transport
         peer.$state.sink { [weak self] state in
             // TODO: replicate UIWebRTCTransport's behavior and only signal connected when data channels are connected?
             guard let self = self else { return }
+            print("\(self) state changed to \(state)")
             if state == .connected {
                 self.delegate?.transport(didConnect: self)
             } else if state == .closed || state == .failed {
                 self.delegate?.transport(didDisconnect: self)
             }
         }.store(in: &cancellables)
+        peer.$signalingState.sink { [weak self] state in
+            guard let self = self else { return }
+            print("\(self) signalling state changed to \(state)")
+            if state == .stable && self.renegotiationNeeded
+            {
+                renegotiate()
+            }
+        }.store(in: &cancellables)
         
         peer.$tracks.sinkChanges(added: { track in
+            
             self.delegate?.transport(self, didReceiveMediaStream: track)
         }, removed: { track in
             self.delegate?.transport(self, didRemoveMediaStream: track)
@@ -110,6 +120,29 @@ public class HeadlessWebRTCTransport: Transport
         }
     }
     
+    var renegotiationNeeded = false
+    public func scheduleRenegotiation()
+    {
+        renegotiationNeeded = true
+        if self.peer.signalingState == .stable
+        {
+            print("\(self) Renegotiation requested while stable, performing immediately.")
+            self.renegotiate()
+        }
+        else
+        {
+            print("\(self) Renegotiation requested while unstable, scheduling...")
+        }
+    }
+    
+    private func renegotiate()
+    {
+        renegotiationNeeded = false
+        print("\(self) setting local description and renegotiating...")
+        // Note: AlloSession will attempt to generateOffer, which will then lockLocalDescription, so we don't need to do that here.
+        self.delegate!.transport(requestsRenegotiation: self)
+    }
+    
     public func disconnect()
     {
         peer.close()
@@ -151,10 +184,10 @@ public class HeadlessWebRTCTransport: Transport
     {
         print("Forwarding media stream \(mediaStream.mediaId) to \(transport.clientId)")
         let track = mediaStream as! AlloWebRTCPeer.Track
-        let peer = (transport as! HeadlessWebRTCTransport).peer
+        let headless = (transport as! HeadlessWebRTCTransport)
+        let peer = headless.peer
         let sfu = try MediaForwardingUnit(forwarding: track, to: peer)
-        try peer.lockLocalDescription(type: .unspecified)
-        transport.delegate?.transport(requestsRenegotiation: transport)
+        headless.scheduleRenegotiation()
         return sfu
     }
 }

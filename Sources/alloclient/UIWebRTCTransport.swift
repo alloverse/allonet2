@@ -280,13 +280,13 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didAdd stream: LKRTCMediaStream)
     {
-        print("Received stream: \(clientId!): \(stream)")
+        print("Received stream for client \(clientId!): \(stream)")
         delegate?.transport(self, didReceiveMediaStream: stream.wrapper)
     }
     
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didRemove stream: LKRTCMediaStream)
     {
-        print("Lost stream: \(clientId!): \(stream)")
+        print("Lost stream for client \(clientId!): \(stream)")
         delegate?.transport(self, didRemoveMediaStream: stream.wrapper)
     }
     

@@ -39,7 +39,7 @@ extension PlaceServer
         }
     }
     
-    /// Perform the
+    /// Begin forwarding one specific stream from one sender to one receiver
     internal func start(forwarding stream: MediaStream, from sender: ConnectedClient, to receiver: ConnectedClient) throws
     {
         // Don't forward the stream back to its source
@@ -57,10 +57,12 @@ extension PlaceServer
         sfus[id] = sfu
     }
     
+    /// Disconnect a specific incoming stream from being transmitted to a specific client
     internal func stop(forwarding stream: MediaStream, to client: ConnectedClient)
     {
         stop(forwarding: stream, toClientId: client.cid)
     }
+    /// Disconnect all forwards that are outgoing to a specific client (likely because it disconnected)
     internal func stop(forwarding stream: MediaStream, toClientId: ClientId)
     {
         let id = SFUIdentifier(fromMediaId: stream.mediaId, toClient: toClientId)
@@ -69,6 +71,7 @@ extension PlaceServer
         sfus[id] = nil
     }
     
+    /// Disconnect all forwards of one specific incoming stream (likely because *
     public func stop(forwarding stream: MediaStream)
     {
         for id in sfus.keys
