@@ -13,7 +13,7 @@ public enum SignallingDirection: Codable
     case answer
 }
 
-public struct SignallingPayload: Codable
+public struct SignallingPayload: Codable, CustomStringConvertible
 {
     public let sdp: String
     public let candidates: [SignallingIceCandidate]
@@ -24,6 +24,11 @@ public struct SignallingPayload: Codable
         self.candidates = candidates
         self.clientId = clientId
     }
+    public var description: String {"""
+        SignallingPayload<\(clientId)>
+            SDP: \(sdp)
+            Candidates: \(candidates)
+        """}
 }
 
 public struct SignallingIceCandidate: Codable
