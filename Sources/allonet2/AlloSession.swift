@@ -19,7 +19,9 @@ public protocol AlloSessionDelegate: AnyObject
     func session(_: AlloSession, didReceivePlaceChangeSet changeset: PlaceChangeSet)
     func session(_: AlloSession, didReceiveIntent intent: Intent)
     
+    /// New audio or video track connected.
     func session(_: AlloSession, didReceiveMediaStream: MediaStream)
+    /// The audio or video track disconnected. In contrast to the Transport delegate, this layer will also call didRemove... for all connected streams right before the session disconnects, so you can clean up.
     func session(_: AlloSession, didRemoveMediaStream: MediaStream)
 }
 
@@ -111,6 +113,11 @@ public class AlloSession : NSObject, TransportDelegate
     
     public func transport(didDisconnect transport: Transport)
     {
+        for (_mid, stream) in incomingStreams
+        {
+            self.delegate?.session(self, didRemoveMediaStream: stream)
+        }
+        incomingStreams.removeAll()
         self.delegate?.session(didDisconnect: self)
     }
     

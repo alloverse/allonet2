@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import OpenCombineShim
 import FlyingFox
 
 @MainActor
@@ -21,8 +22,9 @@ public class PlaceServer : AlloSessionDelegate
     let transportClass: Transport.Type
     let options: TransportConnectionOptions
     
+    var sfu: PlaceServerSFU!
+    
     var outstandingClientToClientInteractions: [Interaction.RequestID: ClientId] = [:]
-    internal var sfus: [SFUIdentifier: MediaStreamForwarder] = [:]
     internal var authenticationProvider: ConnectedClient?
 
     let connectionStatus = ConnectionStatus()
@@ -35,7 +37,6 @@ public class PlaceServer : AlloSessionDelegate
     internal var outstandingPlaceChanges: [PlaceChange] = []
     
     static let InteractionTimeout: TimeInterval = 10
-    
     
     public init(
         name: String,
@@ -52,6 +53,7 @@ public class PlaceServer : AlloSessionDelegate
         self.transportClass = transportClass
         self.http = HTTPServer(port: httpPort)
         self.options = options
+        self.sfu = PlaceServerSFU(server: self)
     }
     
     nonisolated public func session(didConnect sess: AlloSession)
@@ -70,7 +72,6 @@ public class PlaceServer : AlloSessionDelegate
         Task { @MainActor in
             if let client = self.clients.removeValue(forKey: cid)
             {
-                self.stop(forwarding: client)
                 await self.removeEntites(ownedBy: cid)
             }
             self.unannouncedClients[cid] = nil
@@ -113,14 +114,16 @@ public class PlaceServer : AlloSessionDelegate
         let cid = sess.clientId!
         Task { @MainActor in
             guard let client = self.clients[cid] else { return }
-            self.handle(incoming: stream, from: client)
+            sfu.handle(incoming: stream, from: client)
         }
     }
     
-    nonisolated public func session(_: AlloSession, didRemoveMediaStream stream: any MediaStream)
+    nonisolated public func session(_ sess: AlloSession, didRemoveMediaStream stream: any MediaStream)
     {
+        let cid = sess.clientId!
         Task { @MainActor in
-            self.stop(forwarding: stream)
+            guard let client = self.clients[cid] else { return }
+            sfu.handle(lost: stream, from: client)
         }
     }
 }

@@ -37,6 +37,7 @@ extension PlaceServer
         {
             client.session.disconnect()
         }
+        sfu.stop()
     }
     
     @Sendable

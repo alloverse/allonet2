@@ -46,7 +46,6 @@ public class HeadlessWebRTCTransport: Transport
         }.store(in: &cancellables)
         
         peer.$tracks.sinkChanges(added: { track in
-            
             self.delegate?.transport(self, didReceiveMediaStream: track)
         }, removed: { track in
             self.delegate?.transport(self, didRemoveMediaStream: track)

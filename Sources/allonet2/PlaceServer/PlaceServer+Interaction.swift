@@ -177,8 +177,6 @@ extension PlaceServer
             print("Accepted client \(client.cid) with email \(identity.emailAddress), display name \(identity.displayName), assigned avatar id \(ent.id)")
             await heartbeat.awaitNextSync() // make it exist before we tell client about it
             
-            self.start(forwardingTo: client)
-            
             client.session.send(interaction: inter.makeResponse(with: .announceResponse(avatarId: ent.id, placeName: name)))
         case .createEntity(let description):
             let ent = await self.createEntity(from: description, for: client)

@@ -120,6 +120,35 @@ public struct Billboard: Component
     }
 }
 
+/// The LiveMedia component describes an available media stream that can be consumed in real time by other connected agents. For example, it can be attached to the "mouth" of an avatar to correspond to live audio chat for that avatar, with the corresponding mediaId track broadcasting the user's microphone audio.
+public struct LiveMedia: Component
+{
+    public var mediaId: String
+    public enum AudioCodec: Codable, Equatable
+    {
+        case opus
+    }
+    public enum VideoCodec: Codable, Equatable
+    {
+        case mjpeg
+        case h264
+    }
+    public enum Format: Codable, Equatable
+    {
+        case audio(codec: AudioCodec, sampleRate: Int, channelCount: Int)
+        case video(codec: VideoCodec, width: Int, height: Int)
+    }
+    public var format: Format
+}
+
+// TODO: An equivalent of SpatialAudioComponent, which pairs up with LiveMedia to control how the audio coming out of the entity they're both attached to comes out in the spatial audio field.
+
+/// The LiveMediaListener component tells the AlloPlace which `LiveMedia` streams that the agent that owns this entity wants to receive. By adding a mediaId to this list, a corresponding WebRTC audio track will come in with that ID as `mid`. The receiving agent process can then play that audio back at the spatial location of the entity with the corresponding `LiveMedia` component.
+public struct LiveMediaListener: Component
+{
+    public var mediaIds: Set<String>
+}
+
 // MARK: - Custom components
 // These shouldn't be in StandardComponents, but because Alloverse v2 doesn't have support
 // for schemas outside of the built-in component types yet, they go in here anyway.
@@ -166,4 +195,6 @@ func RegisterStandardComponents()
     Opacity.register()
     Billboard.register()
     VisorInfo.register()
+    LiveMedia.register()
+    LiveMediaListener.register()
 }
