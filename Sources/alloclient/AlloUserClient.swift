@@ -36,14 +36,16 @@ public class AlloUserClient : AlloClient
             createTrackCancellable = $isAnnounced.sink { [weak self] in
                 guard let self, let avatar = self.avatar, $0 else { return }
                 let scid = session.clientId!.shortClientId
-                let tid = "voice" // TODO: Fill in with real track ID, or maybe MID
+                let tid = "voice" // TODO: Fill in with real track ID
                 Task { @MainActor in
-                    print("Registering our microphone track output as a LiveMedia...")
+                    let liveMedia = LiveMedia(
+                        mediaId: PlaceStreamId(shortClientId: scid, incomingMediaId: tid).outgoingMediaId,
+                        // TODO: set format from actual track metadata, probably as part of createTrack refactor
+                        format: .audio(codec: .opus, sampleRate: 44100, channelCount: 1)
+                    )
+                    print("Registering our microphone track output as a \(liveMedia)...")
                     do {
-                        try await avatar.components.set(LiveMedia(
-                            mediaId: PlaceStreamId(shortClientId: scid, incomingMediaId: tid).outgoingMediaId,
-                            format: .audio(codec: .opus, sampleRate: 44100, channelCount: 1)
-                        ))
+                        try await avatar.components.set(liveMedia)
                     } catch {
                         print("FAILED!! to register our mic track output as LiveMedia! \(error)")
                     }
