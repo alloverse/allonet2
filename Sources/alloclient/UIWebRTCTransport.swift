@@ -442,6 +442,9 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
         let audioSource = Self.factory.audioSource(with: audioConstraints)
         let audioTrack = Self.factory.audioTrack(with: audioSource, trackId: micTrackName)
         peer.add(audioTrack, streamIds: ["voice"])
+        
+        // TODO: Replace this with some createTrack() in session or something, so that we can also create a LiveMedia component
+        
         return audioTrack.wrapper
     }
     

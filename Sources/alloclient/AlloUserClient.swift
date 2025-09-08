@@ -24,11 +24,32 @@ public class AlloUserClient : AlloClient
         super.init(url: url, identity: identity, avatarDescription: avatarDescription, connectionOptions: connectionOptions)
     }
     
+    var createTrackCancellable: AnyCancellable? = nil
     open override func reset()
     {
+        createTrackCancellable?.cancel(); createTrackCancellable = nil
         userTransport = UIWebRTCTransport(with: self.connectionOptions, status: connectionStatus)
         do {
             micTrack = try userTransport.createMicrophoneTrack()
+            
+            // TODO: Move LiveMedia component registration into AlloSession in some sort of createTrack() API
+            createTrackCancellable = $isAnnounced.sink { [weak self] in
+                guard let self, let avatar = self.avatar, $0 else { return }
+                let scid = session.clientId!.shortClientId
+                let tid = "voice" // TODO: Fill in with real track ID, or maybe MID
+                Task { @MainActor in
+                    print("Registering our microphone track output as a LiveMedia...")
+                    do {
+                        try await avatar.components.set(LiveMedia(
+                            mediaId: PlaceStreamId(shortClientId: scid, incomingMid: tid).outgoingMid,
+                            format: .audio(codec: .opus, sampleRate: 44100, channelCount: 1)
+                        ))
+                    } catch {
+                        print("FAILED!! to register our mic track output as LiveMedia! \(error)")
+                    }
+                }
+                self.createTrackCancellable?.cancel(); self.createTrackCancellable = nil
+            }
         } catch {
             print("Failed to create microphone track: \(error)")
         }
