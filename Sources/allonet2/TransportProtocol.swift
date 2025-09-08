@@ -8,6 +8,13 @@
 import Foundation
 
 public typealias ClientId = UUID
+extension ClientId
+{
+    // Used when describing media IDs, because a full UUID is too long
+    public var shortClientId: String {
+        return String(uuidString.split(separator: "-").first!)
+    }
+}
 
 public protocol TransportDelegate: AnyObject {
     func transport(didConnect transport: Transport)
@@ -23,7 +30,7 @@ public protocol Transport: AnyObject
 {
     init(with connectionOptions: TransportConnectionOptions, status: ConnectionStatus)
     
-    var clientId: ClientId? { get }
+    var clientId: ClientId? { get set }
     var delegate: TransportDelegate? { get set }
     
     // Connection lifecycle
@@ -105,17 +112,41 @@ public enum MediaStreamDirection: UInt32
     var isRecv: Bool { self == .recvonly || self == .sendrecv }
 }
 
-public protocol MediaStream {
-    
+public protocol MediaStream
+{
+    // PlaceServer side for incoming streams: This will be a single-component stream ID in the client's own namespace
+    // In all other cases (clients, place outgoing streams): This will be a two-component PlaceStreamId
     var mediaId: String { get }
     var streamDirection: MediaStreamDirection { get }
 }
 
-public protocol AudioTrack {
+public protocol AudioTrack
+{
     var isEnabled: Bool { get set }
 }
 
 public protocol MediaStreamForwarder
 {
     func stop()
+}
+
+// Identifies a single `MediaStream` in the namespace of the entire place. Used as key for hash lookups of `PlaceStream`s
+public struct PlaceStreamId: Equatable, Hashable, Codable, CustomStringConvertible
+{
+    // Shortened version of the sending client's ID (shortened because MIDs have a strict size limit)
+    public let shortClientId: String
+    // A single MediaStream ID in the namespace of the sending client. Should not contain a period.
+    public let incomingMid: String
+    // String version of the place stream ID, that is used in WebRTC as the MID sent to receiving clients. Contains a period separating the shortened client ID and the incoming MID.
+    public var outgoingMid: String {
+        return "\(shortClientId).\(incomingMid)"
+    }
+    public var description: String { return outgoingMid }
+    
+    public init(shortClientId: String, incomingMid: String) {
+        self.shortClientId = shortClientId
+        self.incomingMid = incomingMid
+    }
+    
+    // TODO: Just have the server allocate stream IDs, so we don't need to have per-client stream namespaces
 }

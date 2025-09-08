@@ -8,20 +8,6 @@
 import Foundation
 import OpenCombineShim
 
-// Identifies a single `MediaStream` in the namespace of the entire place. Used as key for hash lookups of `PlaceStream`s
-internal struct PlaceStreamId: Equatable, Hashable, CustomStringConvertible
-{
-    // Shortened version of the sending client's ID (shortened because MIDs have a strict size limit)
-    let shortClientId: String
-    // A single MediaStream ID in the namespace of the sending client. Should not contain a period.
-    let incomingMid: String
-    // String version of the place stream ID, that is used in WebRTC as the MID sent to receiving clients. Contains a period separating the shortened client ID and the incoming MID.
-    var outgoingMid: String {
-        return "\(shortClientId).\(incomingMid)"
-    }
-    public var description: String { return outgoingMid }
-}
-
 extension String
 {
     var psi: PlaceStreamId? {
@@ -31,20 +17,17 @@ extension String
     }
 }
 
-extension ClientId
-{
-    var shortClientId: String {
-        return String(uuidString.split(separator: "-").first!)
-    }
-}
-
 // The actual stream that a PlaceStreamId refers to
-internal struct PlaceStream
+internal struct PlaceStream: CustomStringConvertible
 {
     let sender: ConnectedClient
     let stream: MediaStream
     var psi: PlaceStreamId {
         return PlaceStreamId(shortClientId: sender.cid.shortClientId, incomingMid: stream.mediaId)
+    }
+    
+    public var description: String {
+        "<PlaceStream for \(psi)>"
     }
 }
 
@@ -99,9 +82,11 @@ class PlaceServerSFU
             let new = comp.mediaIds
             let old = olds.updateValue(new, forKey: eid) ?? []
             for lostMediaId in old.subtracting(new).flatMap(\.psi) {
+                print("PlaceServer SFU lost request \(lostMediaId) -> \(cid)")
                 self.desired.remove(ForwardingId(source: lostMediaId, target: cid))
             }
             for addedMediaId in new.subtracting(old).flatMap(\.psi) {
+                print("PlaceServer SFU gained request \(addedMediaId) -> \(cid)")
                 self.desired.insert(ForwardingId(source: addedMediaId, target: cid))
             }
             self.reconcile()
@@ -110,6 +95,7 @@ class PlaceServerSFU
             let cid = self.server.place.current.entities[eid]!.ownerClientId
             let gone = olds.removeValue(forKey: eid) ?? comp.mediaIds
             for lostMediaId in comp.mediaIds.flatMap(\.psi) {
+                print("PlaceServer SFU lost request from removal \(lostMediaId) -> \(cid)")
                 self.desired.remove(ForwardingId(source: lostMediaId, target: cid))
             }
             self.reconcile()
@@ -121,6 +107,7 @@ class PlaceServerSFU
     internal func handle(incoming stream: MediaStream, from sender: ConnectedClient)
     {
         let incoming = PlaceStream(sender: sender, stream: stream)
+        print("PlaceServer SFU got new stream \(incoming)")
         available[incoming.psi] = incoming
         reconcile()
     }
@@ -129,6 +116,7 @@ class PlaceServerSFU
     internal func handle(lost stream: MediaStream, from sender: ConnectedClient)
     {
         let psi = PlaceStreamId(shortClientId: sender.cid.shortClientId, incomingMid: stream.mediaId)
+        print("PlaceServer SFU lost stream \(psi)")
         available[psi] = nil
         reconcile()
     }
