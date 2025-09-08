@@ -41,7 +41,7 @@ public class AlloUserClient : AlloClient
                     print("Registering our microphone track output as a LiveMedia...")
                     do {
                         try await avatar.components.set(LiveMedia(
-                            mediaId: PlaceStreamId(shortClientId: scid, incomingMid: tid).outgoingMid,
+                            mediaId: PlaceStreamId(shortClientId: scid, incomingMediaId: tid).outgoingMediaId,
                             format: .audio(codec: .opus, sampleRate: 44100, channelCount: 1)
                         ))
                     } catch {

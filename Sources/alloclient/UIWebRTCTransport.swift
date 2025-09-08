@@ -503,6 +503,7 @@ private class ClientMediaStream: MediaStream
         self.stream = stream
     }
     
+    // !! This should be "streamId-trackId", but we're mixing up streams and track :S 
     var mediaId: String { stream.streamId }
     
     var streamDirection: allonet2.MediaStreamDirection

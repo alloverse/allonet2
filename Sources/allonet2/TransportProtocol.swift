@@ -133,19 +133,19 @@ public protocol MediaStreamForwarder
 // Identifies a single `MediaStream` in the namespace of the entire place. Used as key for hash lookups of `PlaceStream`s
 public struct PlaceStreamId: Equatable, Hashable, Codable, CustomStringConvertible
 {
-    // Shortened version of the sending client's ID (shortened because MIDs have a strict size limit)
+    // Shortened version of the sending client's ID (to fit in sdp)
     public let shortClientId: String
-    // A single MediaStream ID in the namespace of the sending client. Should not contain a period.
-    public let incomingMid: String
-    // String version of the place stream ID, that is used in WebRTC as the MID sent to receiving clients. Contains a period separating the shortened client ID and the incoming MID.
-    public var outgoingMid: String {
-        return "\(shortClientId).\(incomingMid)"
+    // A single MediaStream ID in the namespace of the sending client. "streamId-trackId". Should not contain a period.
+    public let incomingMediaId: String
+    // String version of the place stream ID, that is used in WebRTC as the MID sent to receiving clients. Contains a period separating the shortened client ID and the mediaId.
+    public var outgoingMediaId: String {
+        return "\(shortClientId).\(incomingMediaId)"
     }
-    public var description: String { return outgoingMid }
+    public var description: String { return outgoingMediaId }
     
-    public init(shortClientId: String, incomingMid: String) {
+    public init(shortClientId: String, incomingMediaId: String) {
         self.shortClientId = shortClientId
-        self.incomingMid = incomingMid
+        self.incomingMediaId = incomingMediaId
     }
     
     // TODO: Just have the server allocate stream IDs, so we don't need to have per-client stream namespaces

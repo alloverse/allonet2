@@ -202,7 +202,7 @@ extension AlloWebRTCPeer.Track : MediaStream
 {
     public var mediaId: String
     {
-        "\(self.streamId).\(self.trackId)"
+        "\(self.streamId)-\(self.trackId)"
     }
     
     public var streamDirection: MediaStreamDirection

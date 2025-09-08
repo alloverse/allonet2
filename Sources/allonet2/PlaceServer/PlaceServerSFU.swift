@@ -13,7 +13,7 @@ extension String
     var psi: PlaceStreamId? {
         let parts = self.split(separator: ".")
         guard parts.count == 2 else { return nil }
-        return PlaceStreamId(shortClientId: String(parts[0]), incomingMid: String(parts[1]))
+        return PlaceStreamId(shortClientId: String(parts[0]), incomingMediaId: String(parts[1]))
     }
 }
 
@@ -23,7 +23,7 @@ internal struct PlaceStream: CustomStringConvertible
     let sender: ConnectedClient
     let stream: MediaStream
     var psi: PlaceStreamId {
-        return PlaceStreamId(shortClientId: sender.cid.shortClientId, incomingMid: stream.mediaId)
+        return PlaceStreamId(shortClientId: sender.cid.shortClientId, incomingMediaId: stream.mediaId)
     }
     
     public var description: String {
@@ -38,7 +38,7 @@ internal struct ForwardingId: Equatable, Hashable, CustomStringConvertible
     let target: ClientId
     
     public var description: String {
-        "<ForwardingId \(source.outgoingMid) -> \(target.shortClientId)>"
+        "<ForwardingId \(source.outgoingMediaId) -> \(target.shortClientId)>"
     }
 }
 
@@ -115,7 +115,7 @@ class PlaceServerSFU
     /// Either the client disconnected, or at least its stream was lost. Stop forwarding it.
     internal func handle(lost stream: MediaStream, from sender: ConnectedClient)
     {
-        let psi = PlaceStreamId(shortClientId: sender.cid.shortClientId, incomingMid: stream.mediaId)
+        let psi = PlaceStreamId(shortClientId: sender.cid.shortClientId, incomingMediaId: stream.mediaId)
         print("PlaceServer SFU lost stream \(psi)")
         available[psi] = nil
         reconcile()
