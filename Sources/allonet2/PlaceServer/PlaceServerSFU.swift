@@ -91,9 +91,9 @@ class PlaceServerSFU
             }
             self.reconcile()
         }.store(in: &cancellables)
-        server.place.observers[LiveMediaListener.self].removed.sink { (eid, comp) in
-            let cid = self.server.place.current.entities[eid]!.ownerClientId
-            let gone = olds.removeValue(forKey: eid) ?? comp.mediaIds
+        server.place.observers[LiveMediaListener.self].removed.sink { (edata, comp) in
+            let cid = edata.ownerClientId
+            let gone = olds.removeValue(forKey: edata.id) ?? comp.mediaIds
             for lostMediaId in comp.mediaIds.flatMap(\.psi) {
                 print("PlaceServer SFU lost request from removal \(lostMediaId) -> \(cid)")
                 self.desired.remove(ForwardingId(source: lostMediaId, target: cid))
