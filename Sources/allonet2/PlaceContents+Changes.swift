@@ -87,7 +87,7 @@ extension PlaceContents
                 let new = newOrUpdatedComponents[entityId]
                 if new == nil
                 {
-                    removed.append(.componentRemoved(entityId, prevComponent))
+                    removed.append(.componentRemoved(previous.entities[entityId]!, prevComponent))
                 }
             }
         }
@@ -99,9 +99,9 @@ extension PlaceContents
             let newOrUpdatedComponents = components.lists[componentTypeId]
             if newOrUpdatedComponents == nil
             {
-                for (entityId, prevComponent) in prevComponents
+                for (eid, prevComponent) in prevComponents
                 {
-                    removed.append(.componentRemoved(entityId, prevComponent))
+                    removed.append(.componentRemoved(previous.entities[eid]!, prevComponent))
                 }
             }
         }
@@ -135,8 +135,8 @@ extension PlaceContents
             case .componentUpdated(let eid, let component):
                 let key = type(of:component).componentTypeId
                 lists[key]![eid]! = component
-            case .componentRemoved(let eid, let component):
-                lists[type(of:component).componentTypeId]![eid] = nil
+            case .componentRemoved(let edata, let component):
+                lists[type(of:component).componentTypeId]![edata.id] = nil
             }
         }
         return PlaceContents(revision: changeSet.toRevision, entities: entities, components: ComponentLists(lists: lists))

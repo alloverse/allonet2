@@ -96,8 +96,8 @@ public class RealityViewMapper
             guard let guient = self.guiroot.findEntity(named: eid) else { return }
             updater(guient, netcomp)
         }.store(in: &cancellables)
-        netstate.observers[networkComponentType.self].removed.sink { (eid, netcomp) in
-            guard let guient = self.guiroot.findEntity(named: eid) else { return }
+        netstate.observers[networkComponentType.self].removed.sink { (edata, netcomp) in
+            guard let guient = self.guiroot.findEntity(named: edata.id) else { return }
             remover(guient, netcomp)
         }.store(in: &cancellables)
     }

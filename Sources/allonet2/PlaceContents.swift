@@ -47,8 +47,8 @@ public class PlaceState
                 observers[type(of: comp).componentTypeId].sendUpdated(entityID: entityID, component: comp)
             case .componentUpdated(let entityID, let comp):
                 observers[type(of: comp).componentTypeId].sendUpdated(entityID: entityID, component: comp)
-            case .componentRemoved(let entityID, let comp):
-                observers[type(of: comp).componentTypeId].sendRemoved(entityID: entityID, component: comp)
+            case .componentRemoved(let entityData, let comp):
+                observers[type(of: comp).componentTypeId].sendRemoved(entityData: entityData, component: comp)
             }
         }
     }
@@ -159,7 +159,7 @@ public enum PlaceChange
     case entityRemoved(EntityData)
     case componentAdded(EntityID, any Component)
     case componentUpdated(EntityID, any Component)
-    case componentRemoved(EntityID, any Component)
+    case componentRemoved(EntityData, any Component)
 }
 
 /// Convenience callbacks, including per-component-typed callbacks for when entities and components change in the place.
@@ -196,14 +196,14 @@ public struct ComponentCallbacks<T: Component>  : AnyComponentCallbacksProtocol
     /// An entity has received an update to a component with the following contents. NOTE: This is also called immediately after `added`, so you can put all your "react to property changes regardless of add or update" in one place.
     public var updated: AnyPublisher<(EntityID, T), Never> { updatedSubject.eraseToAnyPublisher() }
     /// A component has been removed from an entity.
-    public var removed: AnyPublisher<(EntityID, T), Never> { removedSubject.eraseToAnyPublisher() }
+    public var removed: AnyPublisher<(EntityData, T), Never> { removedSubject.eraseToAnyPublisher() }
 
     internal func sendAdded  (entityID: String, component: any Component) { addedSubject.send((entityID, component as! T)) }
     internal func sendUpdated(entityID: String, component: any Component) { updatedSubject.send((entityID, component as! T)) }
-    internal func sendRemoved(entityID: String, component: any Component) { removedSubject.send((entityID, component as! T)) }
+    internal func sendRemoved(entityData: EntityData, component: any Component) { removedSubject.send((entityData, component as! T)) }
     private let addedSubject = PassthroughSubject<(EntityID, T), Never>()
     private let updatedSubject = PassthroughSubject<(EntityID, T), Never>()
-    private let removedSubject = PassthroughSubject<(EntityID, T), Never>()
+    private let removedSubject = PassthroughSubject<(EntityData, T), Never>()
 }
 
 
@@ -212,7 +212,7 @@ public struct ComponentCallbacks<T: Component>  : AnyComponentCallbacksProtocol
 protocol AnyComponentCallbacksProtocol {
     func sendAdded(entityID: EntityID, component: any Component)
     func sendUpdated(entityID: EntityID, component: any Component)
-    func sendRemoved(entityID: EntityID, component: any Component)
+    func sendRemoved(entityData: EntityData, component: any Component)
 }
 
 extension Component

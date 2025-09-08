@@ -204,9 +204,9 @@ extension PlaceChange: Codable
             try container.encode(ChangeKind.componentUpdated, forKey: .kind)
             try container.encode(eid, forKey: .entityID)
             try container.encode(AnyComponent(component), forKey: .component)
-        case .componentRemoved(let eid, let component):
+        case .componentRemoved(let edata, let component):
             try container.encode(ChangeKind.componentRemoved, forKey: .kind)
-            try container.encode(eid, forKey: .entityID)
+            try container.encode(edata, forKey: .entity)
             try container.encode(AnyComponent(component), forKey: .component)
         }
     }
@@ -232,9 +232,9 @@ extension PlaceChange: Codable
             let anyComp = try container.decode(AnyComponent.self, forKey: .component)
             self = .componentUpdated(eid, anyComp.base)
         case .componentRemoved:
-            let eid = try container.decode(EntityID.self, forKey: .entityID)
+            let edata = try container.decode(EntityData.self, forKey: .entity)
             let anyComp = try container.decode(AnyComponent.self, forKey: .component)
-            self = .componentRemoved(eid, anyComp.base)
+            self = .componentRemoved(edata, anyComp.base)
         }
     }
 }

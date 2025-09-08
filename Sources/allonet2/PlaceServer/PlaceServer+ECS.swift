@@ -52,7 +52,7 @@ extension PlaceServer
         await appendChanges([
             .entityRemoved(ent)
         ] + place.current.components.componentsForEntity(id).map {
-            PlaceChange.componentRemoved(id, $0.value)
+            PlaceChange.componentRemoved(ent, $0.value)
         })
                 
         // TODO: Handle child entities
@@ -98,7 +98,7 @@ extension PlaceServer
             guard let existing = place.current.components[ctid]?[eid] else {
                 throw AlloverseError(domain: PlaceErrorCode.domain, code: PlaceErrorCode.notFound.rawValue, description: "No such entity")
             }
-            return PlaceChange.componentRemoved(eid, existing)
+            return PlaceChange.componentRemoved(ent, existing)
         }
         
         await appendChanges(addOrChanges + removals)
