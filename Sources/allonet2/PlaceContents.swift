@@ -85,7 +85,7 @@ public struct EntityData: Codable, Equatable, Identifiable
     public let id: EntityID
     
     /// ID of the user/process that owns this ID. Only available server-side.
-    public let ownerAgentId: String
+    public let ownerClientId: ClientId
 }
 
 /// Base for all component types.

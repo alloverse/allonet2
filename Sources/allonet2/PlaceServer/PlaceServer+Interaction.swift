@@ -26,7 +26,7 @@ extension PlaceServer
         {
             let senderEnt = place.current.entities[inter.senderEntityId]
             let isValidAnnounce = inter.body.caseName == "announce" && inter.senderEntityId == ""
-            let isValidOtherMessage = (senderEnt != nil) && senderEnt!.ownerAgentId == client.cid.uuidString
+            let isValidOtherMessage = (senderEnt != nil) && senderEnt!.ownerClientId == client.cid
             if !(isValidAnnounce || isValidOtherMessage)
             {
                 throw AlloverseError(domain: PlaceErrorCode.domain, code: PlaceErrorCode.unauthorized.rawValue, description: "You may only send interactions from entities you own")
@@ -53,8 +53,7 @@ extension PlaceServer
     {
         // Go look for the recipient entity, and map it to recipient client.
         guard let receivingEntity = place.current.entities[inter.receiverEntityId],
-              let ownerAgentId = UUID(uuidString: receivingEntity.ownerAgentId),
-              let recipient = clients[ownerAgentId] else
+              let recipient = clients[receivingEntity.ownerClientId] else
         {
             throw AlloverseError(
                 domain: PlaceErrorCode.domain,
@@ -80,7 +79,7 @@ extension PlaceServer
                     description: "No such request \(inter.requestId) for your response, maybe it timed out before you replied, or you repliced twice?"
                 )
             }
-            guard ownerAgentId == correctRecipient else
+            guard receivingEntity.ownerClientId == correctRecipient else
             {
                 throw AlloverseError(
                     domain: PlaceErrorCode.domain,

@@ -30,7 +30,7 @@ extension PlaceServer
     
     func createEntity(from description:EntityDescription, for client: ConnectedClient) async -> EntityData
     {
-        let (ent, changes) = description.changes(for: client.cid.uuidString)
+        let (ent, changes) = description.changes(for: client.cid)
         print("For \(client.cid), creating entity \(ent.id) with \(description.components.count) components and \(description.children.count) children")
         await appendChanges(changes)
         
@@ -45,7 +45,7 @@ extension PlaceServer
         guard let ent = ent else {
             throw AlloverseError(domain: PlaceErrorCode.domain, code: PlaceErrorCode.notFound.rawValue, description: "No such entity")
         }
-        guard client == nil || ent.ownerAgentId == client!.cid.uuidString else {
+        guard client == nil || ent.ownerClientId == client!.cid else {
             throw AlloverseError(domain: PlaceErrorCode.domain, code: PlaceErrorCode.unauthorized.rawValue, description: "That's not your entity to remove")
         }
         
@@ -62,7 +62,7 @@ extension PlaceServer
     {
         for (eid, ent) in place.current.entities
         {
-            if ent.ownerAgentId == cid.uuidString
+            if ent.ownerClientId == cid
             {
                 try? await removeEntity(with: eid, mode: .reparent, for: nil)
             }
@@ -108,9 +108,9 @@ extension PlaceServer
 
 internal extension EntityDescription
 {
-    internal func changes(for ownerAgentId: String) -> (EntityData, [PlaceChange])
+    internal func changes(for ownerClientId: ClientId) -> (EntityData, [PlaceChange])
     {
-        let ent = EntityData(id: EntityID.random(), ownerAgentId: ownerAgentId)
+        let ent = EntityData(id: EntityID.random(), ownerClientId: ownerClientId)
         return (
             ent,
             [
@@ -119,7 +119,7 @@ internal extension EntityDescription
             ]
             + components.map { .componentAdded(ent.id, $0.base) }
             + children.flatMap {
-                let (child, changes) = $0.changes(for: ownerAgentId)
+                let (child, changes) = $0.changes(for: ownerClientId)
                 let relationship = PlaceChange.componentAdded(child.id, Relationships(parent: ent.id))
                 return changes + [relationship]
             }
