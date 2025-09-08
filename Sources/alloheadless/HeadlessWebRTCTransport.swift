@@ -163,7 +163,12 @@ public class HeadlessWebRTCTransport: Transport
     public func send(data: Data, on channelLabel: DataChannelLabel)
     {
         let ch = channels[channelLabel.rawValue]!
-        try! ch.send(data: data)
+        do {
+            try ch.send(data: data)
+        } catch {
+            print("ERROR: Failed to send on \(clientId)'s channel \(channelLabel): \(error)")
+            // Can't think of more ways to handle this; disconnection will be noticed and handled asynchronously soon.
+        }
     }
     
     // Media operations - server can forward but not create
