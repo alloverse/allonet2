@@ -47,6 +47,7 @@ public class AlloUserClient : AlloClient
                 let scid = session.clientId!.shortClientId
                 let tid = "voice-mic" // TODO: Fill in with real track ID
                 Task { @MainActor in
+                    guard self.isAnnounced else { return }
                     let liveMedia = LiveMedia(
                         mediaId: PlaceStreamId(shortClientId: scid, incomingMediaId: tid).outgoingMediaId,
                         // TODO: set format from actual track metadata, probably as part of createTrack refactor
