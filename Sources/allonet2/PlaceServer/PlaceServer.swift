@@ -113,7 +113,7 @@ public class PlaceServer : AlloSessionDelegate
     {
         let cid = sess.clientId!
         Task { @MainActor in
-            guard let client = self.clients[cid] else { return }
+            guard let client = self.clients[cid] ?? self.unannouncedClients[cid] else { return }
             sfu.handle(incoming: stream, from: client)
         }
     }
@@ -122,7 +122,7 @@ public class PlaceServer : AlloSessionDelegate
     {
         let cid = sess.clientId!
         Task { @MainActor in
-            guard let client = self.clients[cid] else { return }
+            guard let client = self.clients[cid] ?? self.unannouncedClients[cid] else { return }
             sfu.handle(lost: stream, from: client)
         }
     }
