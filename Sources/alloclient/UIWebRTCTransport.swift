@@ -13,7 +13,7 @@ import allonet2
 /// Uses Google's WebRTC implementation meant for client-side UI apps.
 class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTCDataChannelDelegate
 {
-    public private(set) var clientId: ClientId?
+    public var clientId: ClientId?
     private let peer: LKRTCPeerConnection
     private var channels: [DataChannelLabel: LKRTCDataChannel] = [:]
     
@@ -80,12 +80,6 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     
     public func generateAnswer(for offer: SignallingPayload) async throws -> SignallingPayload
     {
-        // In case of server-side initiated renegotiation, don't override the existing ClientID
-        if clientId == nil
-        {
-            clientId = UUID()
-        }
-        
         try await set(remoteDescription: offer.desc(for: .offer))
         for candidate in offer.rtcCandidates() {
             try await add(remoteCandidate: candidate)

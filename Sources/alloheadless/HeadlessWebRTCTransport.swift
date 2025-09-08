@@ -13,7 +13,7 @@ import OpenCombineShim
 public class HeadlessWebRTCTransport: Transport
 {
     public weak var delegate: TransportDelegate?
-    public private(set) var clientId: ClientId?
+    public var clientId: ClientId?
     
     private var peer: AlloWebRTCPeer
     private var channels: [String: AlloWebRTCPeer.DataChannel] = [:] // track which channels are created
@@ -83,8 +83,6 @@ public class HeadlessWebRTCTransport: Transport
     
     public func generateAnswer(for offer: SignallingPayload) async throws -> SignallingPayload
     {
-        clientId = UUID()
-        
         print("Received Offer: \(offer)")
         
         try peer.set(remote: offer.sdp, type: .offer)

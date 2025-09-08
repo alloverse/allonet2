@@ -98,11 +98,12 @@ extension PlaceServer
         session.delegate = self
         let client = ConnectedClient(session: session)
         
-        print("Received new client")
+        print("Received new client \(client.cid)")
+        session.transport.clientId = client.cid
+        self.unannouncedClients[client.cid] = client
         
         let response = try await session.generateAnswer(offer: offer)
-        self.unannouncedClients[session.clientId!] = client
-        print("Client is \(session.clientId!), shaking hands...")
+        print("Client is \(session.clientId!), sending answer...")
         
         return HTTPResponse(
             statusCode: .ok,
