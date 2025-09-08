@@ -25,10 +25,19 @@ public class AlloUserClient : AlloClient
     }
     
     var createTrackCancellable: AnyCancellable? = nil
+    var cancellables = Set<AnyCancellable>()
     open override func reset()
     {
+        cancellables.removeAll()
         createTrackCancellable?.cancel(); createTrackCancellable = nil
         userTransport = UIWebRTCTransport(with: self.connectionOptions, status: connectionStatus)
+        setupAudio()
+        reset(with: userTransport)
+    }
+    
+    func setupAudio()
+    {
+        // 1. Mic
         do {
             micTrack = try userTransport.createMicrophoneTrack()
             
@@ -36,7 +45,7 @@ public class AlloUserClient : AlloClient
             createTrackCancellable = $isAnnounced.sink { [weak self] in
                 guard let self, let avatar = self.avatar, $0 else { return }
                 let scid = session.clientId!.shortClientId
-                let tid = "voice" // TODO: Fill in with real track ID
+                let tid = "voice-mic" // TODO: Fill in with real track ID
                 Task { @MainActor in
                     let liveMedia = LiveMedia(
                         mediaId: PlaceStreamId(shortClientId: scid, incomingMediaId: tid).outgoingMediaId,
@@ -56,6 +65,23 @@ public class AlloUserClient : AlloClient
             print("Failed to create microphone track: \(error)")
         }
         
-        reset(with: userTransport)
+        // 2. Setup listeners to get incoming tracks. Just ask to get everything (except our mic) forwarded.
+        var streamIds = Set<String>()
+        func updateListener()
+        {
+            Task { @MainActor in
+                print("Updating listener to forward \(streamIds)")
+                try? await avatar?.components.set(LiveMediaListener(mediaIds: streamIds))
+            }
+        }
+        placeState.observers[LiveMedia.self].added.sink { [weak self] eid, liveMedia in
+            guard eid != self?.avatarId else { return }
+            streamIds.insert(liveMedia.mediaId)
+            updateListener()
+        }.store(in: &cancellables)
+        placeState.observers[LiveMedia.self].removed.sink { [weak self] _eid, liveMedia in
+            streamIds.remove(liveMedia.mediaId)
+            updateListener()
+        }.store(in: &cancellables)
     }
 }

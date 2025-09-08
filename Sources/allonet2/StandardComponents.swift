@@ -152,6 +152,10 @@ public struct LiveMedia: Component
 public struct LiveMediaListener: Component
 {
     public var mediaIds: Set<String>
+    public init(mediaIds: Set<String>)
+    {
+        self.mediaIds = mediaIds
+    }
 }
 
 // MARK: - Custom components
