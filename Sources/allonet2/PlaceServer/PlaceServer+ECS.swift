@@ -86,11 +86,11 @@ extension PlaceServer
         {
             if let _ = place.current.components[$0.componentTypeId]?[eid]
             {
-                return PlaceChange.componentAdded(eid, $0.base)
+                return PlaceChange.componentUpdated(eid, $0.base)
             }
             else
             {
-                return PlaceChange.componentUpdated(eid, $0.base)
+                return PlaceChange.componentAdded(eid, $0.base)
             }
         }
         let removals = try remove.map
