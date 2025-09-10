@@ -38,7 +38,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/christophhagen/BinaryCodable", from: "3.0.0"),
         //.package(url: "https://github.com/apple/swift-protobuf.git", .upToNextMajor(from: "1.25.1")),
-        .package(url: "https://github.com/livekit/webrtc-xcframework.git", exact: "125.6422.28"),
+        .package(url: "https://github.com/livekit/webrtc-xcframework.git", exact: "137.7151.07"),
         .package(url: "https://github.com/swhitty/FlyingFox.git", .upToNextMajor(from: "0.14.0")),
         .package(url: "https://github.com/Flight-School/AnyCodable", from: "0.6.0"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),

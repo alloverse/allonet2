@@ -26,7 +26,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     private var connectionStatus: ConnectionStatus
     
     private let offerAnswerConstraints = LKRTCMediaConstraints(mandatoryConstraints: [
-        kRTCMediaConstraintsOfferToReceiveAudio: kRTCMediaConstraintsValueTrue
+        kLKRTCMediaConstraintsOfferToReceiveAudio: kLKRTCMediaConstraintsValueTrue
     ], optionalConstraints: [:])
     
     private let audioSessionActive = false
@@ -228,7 +228,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
 
         // Define media constraints. DtlsSrtpKeyAgreement is required to be true to be able to connect with web browsers.
         let constraints = LKRTCMediaConstraints(mandatoryConstraints: nil,
-                                              optionalConstraints: ["DtlsSrtpKeyAgreement":kRTCMediaConstraintsValueTrue])
+                                              optionalConstraints: ["DtlsSrtpKeyAgreement":kLKRTCMediaConstraintsValueTrue])
         
         guard let peerConnection = Self.factory.peerConnection(with: config, constraints: constraints, delegate: nil) else {
             fatalError("Could not create new RTCPeerConnection")
@@ -238,7 +238,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     }
     
     private static let factory: LKRTCPeerConnectionFactory = {
-        RTCInitializeSSL()
+        LKRTCInitializeSSL()
         let videoEncoderFactory = LKRTCDefaultVideoEncoderFactory()
         let videoDecoderFactory = LKRTCDefaultVideoDecoderFactory()
         return LKRTCPeerConnectionFactory(encoderFactory: videoEncoderFactory, decoderFactory: videoDecoderFactory)
@@ -267,7 +267,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     }
     
     //MARK: - Peer connection delegates
-    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange stateChanged: RTCSignalingState)
+    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange stateChanged: LKRTCSignalingState)
     {
         print("Session \(clientId?.debugDescription ?? "unknown") signaling state \(stateChanged)")
     }
@@ -300,7 +300,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
         delegate?.transport(requestsRenegotiation: self)
     }
     
-    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: RTCIceConnectionState)
+    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: LKRTCIceConnectionState)
     {
         print("Session \(clientId?.debugDescription ?? "unknown") ICE state \(newState)")
         DispatchQueue.main.async {
@@ -329,7 +329,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
         }
     }
     
-    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: RTCIceGatheringState)
+    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: LKRTCIceGatheringState)
     {
         print("Session \(clientId?.debugDescription ?? "unknown") ICE gathering state \(newState)")
         DispatchQueue.main.async {
@@ -555,7 +555,7 @@ extension LKRTCAudioTrack {
 
 extension SignallingPayload
 {
-    public func desc(for type: RTCSdpType) -> LKRTCSessionDescription
+    public func desc(for type: LKRTCSdpType) -> LKRTCSessionDescription
     {
         return LKRTCSessionDescription(type: type, sdp: self.sdp)
     }

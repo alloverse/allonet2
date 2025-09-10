@@ -8,7 +8,7 @@
 import Foundation
 import LiveKitWebRTC
 
-extension RTCSignalingState: CustomDebugStringConvertible
+extension LKRTCSignalingState: CustomDebugStringConvertible
 {
     public var debugDescription: String
     {
@@ -17,7 +17,7 @@ extension RTCSignalingState: CustomDebugStringConvertible
     }
 }
 
-extension RTCIceConnectionState: CustomDebugStringConvertible
+extension LKRTCIceConnectionState: CustomDebugStringConvertible
 {
     public var debugDescription: String
     {
@@ -26,7 +26,7 @@ extension RTCIceConnectionState: CustomDebugStringConvertible
     }
 }
 
-extension RTCIceGatheringState: CustomDebugStringConvertible
+extension LKRTCIceGatheringState: CustomDebugStringConvertible
 {
     public var debugDescription: String
     {
@@ -35,7 +35,7 @@ extension RTCIceGatheringState: CustomDebugStringConvertible
     }
 }
 
-extension RTCDataChannelState: CustomDebugStringConvertible
+extension LKRTCDataChannelState: CustomDebugStringConvertible
 {
     public var debugDescription: String
     {
