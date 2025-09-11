@@ -237,11 +237,23 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
         return peerConnection
     }
     
+    private static let audioDeviceObserver = PlaybackDisablingAudioDeviceModuleDelegate()
     private static let factory: LKRTCPeerConnectionFactory = {
         LKRTCInitializeSSL()
         let videoEncoderFactory = LKRTCDefaultVideoEncoderFactory()
         let videoDecoderFactory = LKRTCDefaultVideoDecoderFactory()
-        return LKRTCPeerConnectionFactory(encoderFactory: videoEncoderFactory, decoderFactory: videoDecoderFactory)
+        // LKRTCAudioDeviceModuleDelegate is not called unless audioDeviceModuleType is switched from default to to .audioEngine.
+        // This took two days of debugging and reading through WebRTC source code. Goddammit.
+        let factory = LKRTCPeerConnectionFactory(
+            audioDeviceModuleType: .audioEngine,
+            bypassVoiceProcessing: false,
+            encoderFactory: videoEncoderFactory,
+            decoderFactory: videoDecoderFactory,
+            audioProcessingModule: nil
+        )
+        // Disable automatic playback of incoming audio streams so allonet's user can play it back spatially
+        factory.audioDeviceModule.observer = audioDeviceObserver
+        return factory
     }()
     
     private var didFullyConnect = false
@@ -581,4 +593,60 @@ extension SignallingIceCandidate
     {
         return LKRTCIceCandidate(sdp: sdp, sdpMLineIndex: sdpMLineIndex, sdpMid: sdpMid)
     }
+}
+
+/// LKRTCAudioDeviceModule delegate whose only purpose is to stop playout/playback of every incoming audio track. This is because we want allonet to only deliver PCM packets up to the app layer to be played back spatially, and not have GoogleWebRTC play it back in stereo. I couldn't find any API to change this behavior without overriding this delegate.
+class PlaybackDisablingAudioDeviceModuleDelegate: NSObject, LKRTCAudioDeviceModuleDelegate
+{
+    @objc func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, didReceiveSpeechActivityEvent speechActivityEvent: LKRTCSpeechActivityEvent)
+    {
+    }
+    
+    @objc func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, didCreateEngine engine: AVAudioEngine) -> Int
+    {
+        return 0
+    }
+    
+    @objc func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, willEnableEngine engine: AVAudioEngine, isPlayoutEnabled: Bool, isRecordingEnabled: Bool) -> Int
+    {
+        return 0
+    }
+    
+    @objc func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, willStartEngine engine: AVAudioEngine, isPlayoutEnabled: Bool, isRecordingEnabled: Bool) -> Int
+    {
+        return 0
+    }
+    
+    @objc func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, didStopEngine engine: AVAudioEngine, isPlayoutEnabled: Bool, isRecordingEnabled: Bool) -> Int
+    {
+        return 0
+    }
+    
+    @objc func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, didDisableEngine engine: AVAudioEngine, isPlayoutEnabled: Bool, isRecordingEnabled: Bool) -> Int
+    {
+        return 0
+    }
+    
+    @objc func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, willReleaseEngine engine: AVAudioEngine) -> Int
+    {
+        return 0
+    }
+    
+    @objc func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, engine: AVAudioEngine, configureInputFromSource source: AVAudioNode?, toDestination destination: AVAudioNode, format: AVAudioFormat, context: [AnyHashable : Any]) -> Int
+    {
+        return 0
+    }
+    
+    @objc func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, engine: AVAudioEngine, configureOutputFromSource source: AVAudioNode, toDestination destination: AVAudioNode?, format: AVAudioFormat, context: [AnyHashable : Any]) -> Int
+    {
+        print("!!\nDISABLING OUTPUT engine: \(engine) source: \(source) toDestination: \(destination) format: \(format) context: \(context)\n!!")
+        destination!.auAudioUnit.isOutputEnabled = false
+        return 0
+    }
+    
+    @objc func audioDeviceModuleDidUpdateDevices(_ audioDeviceModule: LKRTCAudioDeviceModule)
+    {
+    }
+    
+
 }
