@@ -52,12 +52,8 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     private var connectTask: Task<Void, Never>? = nil
     private var reconnectionAttempts = 0
     
-    public var id: String? {
-        get
-        {
-            session.clientId?.uuidString
-        }
-    }
+    public var cid: UUID? { session.clientId }
+    public var id: String? { cid?.uuidString }
     
     public init(url: URL, identity: Identity, avatarDescription: EntityDescription, connectionOptions: TransportConnectionOptions = TransportConnectionOptions(routing: .direct))
     {
