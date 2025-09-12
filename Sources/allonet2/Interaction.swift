@@ -8,7 +8,7 @@
 import Foundation
 import AnyCodable
 
-
+@MainActor
 public struct Interaction : Codable
 {
     public typealias RequestID = String
@@ -37,6 +37,7 @@ public struct Interaction : Codable
     public static let PlaceEntity: EntityID = "place"
 }
 
+@MainActor
 public enum InteractionType: Codable
 {
     case oneway
@@ -45,6 +46,7 @@ public enum InteractionType: Codable
     case publication
 }
 
+@MainActor
 public enum InteractionBody : Codable
 {
     // - Agent to Place
@@ -84,10 +86,12 @@ public enum InteractionBody : Codable
     }
 }
 
+@MainActor
 public struct Identity: Equatable, Hashable, Codable, Sendable
 {
     public static let none = Identity(expectation: .none, displayName: "", emailAddress: "", authenticationToken: "")
-
+    
+    @MainActor
     public enum Expectation: Equatable, Hashable, Codable, Sendable
     {
         case none // The originating party has no expectations about the status of the identity.
@@ -109,12 +113,14 @@ public struct Identity: Equatable, Hashable, Codable, Sendable
     public let authenticationToken: String // Could be a password, a passkey token, etc.
 }
 
+@MainActor
 public enum EntityRemovalMode: String, Codable
 {
     case reparent // Child entities are reparented to root
     case cascade  // Child entities are also removed
 }
 
+@MainActor
 public struct EntityDescription: Codable
 {
     public let components: [AnyComponent]

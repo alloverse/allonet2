@@ -32,6 +32,7 @@ extension PlaceContents: Equatable
     }
 }
 
+@MainActor
 public final class ComponentRegistry
 {
     public static let shared = ComponentRegistry()
@@ -56,6 +57,7 @@ public final class ComponentRegistry
     }
 }
 
+@MainActor
 public struct AnyComponent: Component {
     public static func == (lhs: AnyComponent, rhs: AnyComponent) -> Bool {
         return lhs.base.isEqualTo(rhs.base)

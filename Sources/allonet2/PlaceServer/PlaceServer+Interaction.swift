@@ -10,7 +10,7 @@ import Version
 
 extension PlaceServer
 {
-    nonisolated public func session(_ sess: AlloSession, didReceiveInteraction inter: Interaction)
+    public func session(_ sess: AlloSession, didReceiveInteraction inter: Interaction)
     {
         let cid = sess.clientId!
         //print("Received interaction from \(cid): \(inter)")

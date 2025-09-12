@@ -56,12 +56,12 @@ public class PlaceServer : AlloSessionDelegate
         self.sfu = PlaceServerSFU(server: self)
     }
     
-    nonisolated public func session(didConnect sess: AlloSession)
+    public func session(didConnect sess: AlloSession)
     {
         print("Client \(sess.clientId!) connected its session")
     }
     
-    nonisolated public func session(didDisconnect sess: AlloSession)
+    public func session(didDisconnect sess: AlloSession)
     {
         guard let cid = sess.clientId else
         {
@@ -84,12 +84,12 @@ public class PlaceServer : AlloSessionDelegate
         }
     }
     
-    nonisolated public func session(_: AlloSession, didReceivePlaceChangeSet changeset: PlaceChangeSet)
+    public func session(_: AlloSession, didReceivePlaceChangeSet changeset: PlaceChangeSet)
     {
         fatalError() // should never happen on server
     }
     
-    nonisolated public func session(_ sess: AlloSession, didReceiveIntent intent: Intent)
+    public func session(_ sess: AlloSession, didReceiveIntent intent: Intent)
     {
         let cid = sess.clientId!
         Task { @MainActor in
@@ -108,7 +108,7 @@ public class PlaceServer : AlloSessionDelegate
         }
     }
     
-    nonisolated public func session(_ sess: AlloSession, didReceiveMediaStream stream: any MediaStream)
+    public func session(_ sess: AlloSession, didReceiveMediaStream stream: any MediaStream)
     {
         let cid = sess.clientId!
         Task { @MainActor in
@@ -117,7 +117,7 @@ public class PlaceServer : AlloSessionDelegate
         }
     }
     
-    nonisolated public func session(_ sess: AlloSession, didRemoveMediaStream stream: any MediaStream)
+    public func session(_ sess: AlloSession, didRemoveMediaStream stream: any MediaStream)
     {
         let cid = sess.clientId!
         Task { @MainActor in

@@ -8,6 +8,7 @@ public typealias ComponentTypeID = String
 public typealias StateRevision = Int64
 
 /// The current and historical state of the place. This is the stateful underlying representation of a Place; use `Place` instead for a simpler API.
+@MainActor
 public class PlaceState
 {
     /// Immutable representation of the world, as known by this server or client right now.
@@ -55,6 +56,7 @@ public class PlaceState
 }
 
 /// A full representation of the world in the connected Place. Everything in a Place is represented as an Entity, but an Entity itself is only an ID; all its attributes are described by its child Components of various types.
+@MainActor
 public struct PlaceContents
 {
     /// What revision of the place is this? Every tick in the server bumps this by 1. Due to network conditions, a client might miss a few revisions here and there and it might not see every sequential revision.
@@ -79,6 +81,7 @@ public struct PlaceContents
 }
 
 /// An entity is the thing in Place that components are part of. This is the underlying data structure that just informs that it exists and has an owner. Use `Entity` for a more convenient API.
+@MainActor
 public struct EntityData: Codable, Equatable, Identifiable
 {
     /// Unique ID within this Place
@@ -89,6 +92,7 @@ public struct EntityData: Codable, Equatable, Identifiable
 }
 
 /// Base for all component types.
+@MainActor
 public protocol Component: Codable, Equatable
 {
     /// Internals: how to disambiguate this component on the wire protocol
@@ -105,6 +109,7 @@ public extension Component
 }
 
 /// A list of all the lists of components in a Place, grouped by type.
+@MainActor
 public struct ComponentLists
 {
     public subscript<T>(componentType: T.Type) -> [EntityID: T] where T : Component
@@ -142,6 +147,7 @@ public struct ComponentLists
 }
 
 /// List of changes in a Place since the last time it got an update. Useful as a list of what to react to. For example, if a TransformComponent has changed, this means an Entity has changed its spatial location.
+@MainActor
 public struct PlaceChangeSet: Codable, Equatable
 {
     /// This is the list of changes. All entityAdded changes will come first; and then all entityRemoved; and then component-related changes.
@@ -153,6 +159,7 @@ public struct PlaceChangeSet: Codable, Equatable
 }
 
 /// The different kinds of changes that can happen to a Place state
+@MainActor
 public enum PlaceChange
 {
     case entityAdded(EntityData)
@@ -163,6 +170,7 @@ public enum PlaceChange
 }
 
 /// Convenience callbacks, including per-component-typed callbacks for when entities and components change in the place.
+@MainActor
 public struct PlaceObservers
 {
     /// There's a new entity.
@@ -189,6 +197,7 @@ public struct PlaceObservers
     private var lists: Dictionary<ComponentTypeID, AnyComponentCallbacksProtocol> = [:]
 }
 
+@MainActor
 public struct ComponentCallbacks<T: Component>  : AnyComponentCallbacksProtocol
 {
     /// An entity has received a new component of this type
@@ -208,7 +217,7 @@ public struct ComponentCallbacks<T: Component>  : AnyComponentCallbacksProtocol
 
 
 // MARK: Internals
-
+@MainActor
 protocol AnyComponentCallbacksProtocol {
     func sendAdded(entityID: EntityID, component: any Component)
     func sendUpdated(entityID: EntityID, component: any Component)

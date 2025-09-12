@@ -521,15 +521,13 @@ private class ClientMediaStream: MediaStream
     
     private let rtcStream: LKRTCMediaStream
 
-    // Source of truth for emissions
-    private let subject = PassthroughSubject<AVAudioPCMBuffer, Never>()
-
     // Keep renderer only while someone is listening
     private var renderer: Renderer?
     private var subscriberCount = 0
     private let sync = DispatchQueue(label: "ClientMediaStream.audio")
 
     // Public publisher with ref-counted attach/detach
+    private let subject = PassthroughSubject<AVAudioPCMBuffer, Never>()
     lazy var audioBuffers: AnyPublisher<AVAudioPCMBuffer, Never> = {
         subject
             .handleEvents(
@@ -658,55 +656,53 @@ extension SignallingIceCandidate
 /// LKRTCAudioDeviceModule delegate whose only purpose is to stop playout/playback of every incoming audio track. This is because we want allonet to only deliver PCM packets up to the app layer to be played back spatially, and not have GoogleWebRTC play it back in stereo. I couldn't find any API to change this behavior without overriding this delegate.
 class PlaybackDisablingAudioDeviceModuleDelegate: NSObject, LKRTCAudioDeviceModuleDelegate
 {
-    @objc func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, didReceiveSpeechActivityEvent speechActivityEvent: LKRTCSpeechActivityEvent)
+    func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, didReceiveSpeechActivityEvent speechActivityEvent: LKRTCSpeechActivityEvent)
     {
     }
     
-    @objc func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, didCreateEngine engine: AVAudioEngine) -> Int
-    {
-        return 0
-    }
-    
-    @objc func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, willEnableEngine engine: AVAudioEngine, isPlayoutEnabled: Bool, isRecordingEnabled: Bool) -> Int
+    func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, didCreateEngine engine: AVAudioEngine) -> Int
     {
         return 0
     }
     
-    @objc func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, willStartEngine engine: AVAudioEngine, isPlayoutEnabled: Bool, isRecordingEnabled: Bool) -> Int
+    func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, willEnableEngine engine: AVAudioEngine, isPlayoutEnabled: Bool, isRecordingEnabled: Bool) -> Int
     {
         return 0
     }
     
-    @objc func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, didStopEngine engine: AVAudioEngine, isPlayoutEnabled: Bool, isRecordingEnabled: Bool) -> Int
+    func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, willStartEngine engine: AVAudioEngine, isPlayoutEnabled: Bool, isRecordingEnabled: Bool) -> Int
     {
         return 0
     }
     
-    @objc func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, didDisableEngine engine: AVAudioEngine, isPlayoutEnabled: Bool, isRecordingEnabled: Bool) -> Int
+    func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, didStopEngine engine: AVAudioEngine, isPlayoutEnabled: Bool, isRecordingEnabled: Bool) -> Int
     {
         return 0
     }
     
-    @objc func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, willReleaseEngine engine: AVAudioEngine) -> Int
+    func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, didDisableEngine engine: AVAudioEngine, isPlayoutEnabled: Bool, isRecordingEnabled: Bool) -> Int
     {
         return 0
     }
     
-    @objc func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, engine: AVAudioEngine, configureInputFromSource source: AVAudioNode?, toDestination destination: AVAudioNode, format: AVAudioFormat, context: [AnyHashable : Any]) -> Int
+    func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, willReleaseEngine engine: AVAudioEngine) -> Int
     {
         return 0
     }
     
-    @objc func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, engine: AVAudioEngine, configureOutputFromSource source: AVAudioNode, toDestination destination: AVAudioNode?, format: AVAudioFormat, context: [AnyHashable : Any]) -> Int
+    func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, engine: AVAudioEngine, configureInputFromSource source: AVAudioNode?, toDestination destination: AVAudioNode, format: AVAudioFormat, context: [AnyHashable : Any]) -> Int
+    {
+        return 0
+    }
+    
+    func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, engine: AVAudioEngine, configureOutputFromSource source: AVAudioNode, toDestination destination: AVAudioNode?, format: AVAudioFormat, context: [AnyHashable : Any]) -> Int
     {
         print("!!\nDISABLING OUTPUT engine: \(engine) source: \(source) toDestination: \(destination) format: \(format) context: \(context)\n!!")
         destination!.auAudioUnit.isOutputEnabled = false
         return 0
     }
     
-    @objc func audioDeviceModuleDidUpdateDevices(_ audioDeviceModule: LKRTCAudioDeviceModule)
+    func audioDeviceModuleDidUpdateDevices(_ audioDeviceModule: LKRTCAudioDeviceModule)
     {
     }
-    
-
 }

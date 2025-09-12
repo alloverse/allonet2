@@ -44,6 +44,7 @@ public struct Relationships: Component
 
 public struct Model: Component
 {
+    @MainActor
     public enum Mesh: Equatable, Codable
     {
         case builtin(name: String) // A mesh loaded from a client-provided file. This is a hack and will be replaced by Asset-based meshes
@@ -54,6 +55,7 @@ public struct Model: Component
         case cylinder(height: Float, radius: Float)
         case sphere(radius: Float)
     }
+    @MainActor
     public enum Material: Equatable, Codable
     {
         case standard // No material for basic geometry; or for builtin/asset: use the material from the loaded file.
@@ -72,6 +74,7 @@ public struct Model: Component
 
 public struct Collision: Component
 {
+    @MainActor
     public enum Shape: Equatable, Codable
     {
         case box(size: SIMD3<Float>)
@@ -91,6 +94,7 @@ public struct InputTarget: Component
 
 public struct HoverEffect: Component
 {
+    @MainActor
     public enum Style: Equatable, Codable
     {
         case spotlight(color: Color, strength: Float)
@@ -124,15 +128,18 @@ public struct Billboard: Component
 public struct LiveMedia: Component
 {
     public var mediaId: String // PlaceStreamId
+    @MainActor
     public enum AudioCodec: Codable, Equatable
     {
         case opus
     }
+    @MainActor
     public enum VideoCodec: Codable, Equatable
     {
         case mjpeg
         case h264
     }
+    @MainActor
     public enum Format: Codable, Equatable
     {
         case audio(codec: AudioCodec, sampleRate: Int, channelCount: Int)
@@ -192,6 +199,7 @@ public enum Color: Equatable, Codable
 
 // MARK: - Internals
 
+@MainActor
 func RegisterStandardComponents()
 {
     Transform.register()

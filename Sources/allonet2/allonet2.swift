@@ -1,8 +1,10 @@
 import Version
 
+@MainActor
 public struct Allonet
 {
     private static var alreadyInitialized = false
+    @MainActor
     public static func Initialize()
     {
         guard !alreadyInitialized else { return }

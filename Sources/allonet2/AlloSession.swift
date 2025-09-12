@@ -8,6 +8,7 @@
 import Foundation
 import BinaryCodable
 
+@MainActor
 public protocol AlloSessionDelegate: AnyObject
 {
     func session(didConnect sess: AlloSession)
@@ -26,6 +27,7 @@ public protocol AlloSessionDelegate: AnyObject
 }
 
 /// Wrapper of Transport, adding Alloverse-specific channels and data types
+@MainActor
 public class AlloSession : NSObject, TransportDelegate
 {
     public weak var delegate: AlloSessionDelegate?
