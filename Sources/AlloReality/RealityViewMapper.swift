@@ -39,34 +39,34 @@ public class RealityViewMapper
         }.store(in: &cancellables)
         
         startSyncingOf(networkComponentType: allonet2.Transform.self, to: RealityKit.Transform.self)
-        { (entity, transform) in
+        { (entity, _, transform) in
             entity.setTransformMatrix(transform.matrix, relativeTo: entity.parent)
         }
         
-        startSyncingOf(networkComponentType: Relationships.self) { (entity, relationship) in
+        startSyncingOf(networkComponentType: Relationships.self) { (entity, _, relationship) in
             guard entity.parent?.name != relationship.parent else { return }
             entity.removeFromParent()
             let newParent = self.guiroot.findEntity(named: relationship.parent)!
             newParent.addChild(entity)
-        } remover: { (entity, relationship) in
+        } remover: { (entity, _, relationship) in
             guard entity.parent != self.guiroot else { return }
             entity.removeFromParent()
             self.guiroot.addChild(entity)
         }
         
-        startSyncingModel()
+        startSyncingOfModel()
         
         startSyncingOf(networkComponentType: Collision.self, to: CollisionComponent.self)
-        { entity, collision in
+        { entity, _, collision in
             entity.components.set(CollisionComponent(shapes: collision.realityShapes))
         }
         
         startSyncingOf(networkComponentType: Opacity.self, to: OpacityComponent.self)
-        { entity, opacity in
+        { entity, _, opacity in
             entity.components.set(OpacityComponent(opacity: opacity.opacity))
         }
         startSyncingOf(networkComponentType: Billboard.self, to: BillboardComponent.self)
-        { entity, billboard in
+        { entity, _, billboard in
             var reality = BillboardComponent()
             reality.blendFactor = billboard.blendFactor
             entity.components.set(reality)
@@ -75,12 +75,12 @@ public class RealityViewMapper
         if #available(macOS 15.0, *) {
             startSyncingOf(networkComponentType: InputTarget.self, to: InputTargetComponent.self)
             {
-                (entity, inputTarget) in
+                (entity, _, inputTarget) in
                 entity.components.set(InputTargetComponent())
             }
             startSyncingOf(networkComponentType: HoverEffect.self, to: HoverEffectComponent.self)
             {
-                (entity, hoverEffect) in
+                (entity, _, hoverEffect) in
                 entity.components.set(HoverEffectComponent(hoverEffect.realityEffect))
             }
         }
@@ -89,24 +89,25 @@ public class RealityViewMapper
     /// In addition to syncing the Standard Components from `startSyncing()`, also sync other/custom components with this method, called directly after `startSyncing` but before the AlloClient connects.
     public func startSyncingOf<T>(
         networkComponentType: T.Type,
-        updater: @escaping (RealityKit.Entity, T) -> Void,
-        remover: @escaping (RealityKit.Entity, T) -> Void
+        updater: @escaping @MainActor (RealityKit.Entity, allonet2.EntityData, T) -> Void,
+        remover: @escaping @MainActor (RealityKit.Entity, allonet2.EntityData, T) -> Void
     ) where T : allonet2.Component
     {
         netstate.observers[networkComponentType.self].updated.sink { (eid, netcomp) in
             guard let guient = self.guiroot.findEntity(named: eid) else { return }
-            updater(guient, netcomp)
+            guard let netent = self.netstate.current.entities[eid] else { return }
+            updater(guient, netent, netcomp)
         }.store(in: &cancellables)
         netstate.observers[networkComponentType.self].removed.sink { (edata, netcomp) in
             guard let guient = self.guiroot.findEntity(named: edata.id) else { return }
-            remover(guient, netcomp)
+            remover(guient, edata, netcomp)
         }.store(in: &cancellables)
     }
     
     /// Convenience alternative to `startSyncingOf:updater:remover` when there's a one-to-one map between an Alloverse entity type and a RealityKit entity type.
-    public func startSyncingOf<T, U>(networkComponentType: T.Type, to realityComponentType: U.Type, using updater: @escaping (RealityKit.Entity, T) -> Void) where T : allonet2.Component, U : RealityKit.Component
+    public func startSyncingOf<T, U>(networkComponentType: T.Type, to realityComponentType: U.Type, using updater: @escaping (RealityKit.Entity, allonet2.EntityData, T) -> Void) where T : allonet2.Component, U : RealityKit.Component
     {
-        startSyncingOf(networkComponentType: networkComponentType, updater: updater, remover: {  (guient, netcomp) in
+        startSyncingOf(networkComponentType: networkComponentType, updater: updater, remover: {  (guient, _, netcomp) in
             guient.components[realityComponentType.self] = nil
         })
     }
@@ -118,10 +119,10 @@ public class RealityViewMapper
         var loadingTask: Task<Void, Error>?
     }
     
-    private func startSyncingModel()
+    private func startSyncingOfModel()
     {
         startSyncingOf(networkComponentType: Model.self)
-        { (entity, model) in
+        { (entity, _, model) in
             var state = entity.components[AlloModelStateComponent.self] ?? AlloModelStateComponent()
             guard state.current != model else { return }
             
@@ -154,7 +155,7 @@ public class RealityViewMapper
             }
             entity.components.set(state)
         }
-        remover: { (entity, model) in
+        remover: { (entity, _, model) in
             var state = entity.components[AlloModelStateComponent.self] ?? AlloModelStateComponent()
             state.loadingTask?.cancel()
             state.entity?.removeFromParent()
@@ -165,8 +166,7 @@ public class RealityViewMapper
     /// Stop syncing Alloverse<>RealityKit. Call this to break reference cycles, e g when your RealityView disappears (i e in `onDisappear()`).
     public func stopSyncing()
     {
-        cancellables.forEach { $0.cancel() }
-        cancellables.removeAll()
+        cancellables.forEach { $0.cancel() }; cancellables.removeAll()
     }
 }
 
