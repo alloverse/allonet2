@@ -509,14 +509,8 @@ extension LKRTCDataChannel {
 
 private class ClientMediaStream: MediaStream
 {
-    let stream: LKRTCMediaStream
-    
-    init(stream: LKRTCMediaStream) {
-        self.stream = stream
-    }
-    
     // !! This should be "streamId-trackId", but we're mixing up streams and track :S 
-    var mediaId: String { stream.streamId }
+    var mediaId: String { rtcStream.streamId }
     
     var streamDirection: allonet2.MediaStreamDirection
     {
@@ -524,7 +518,73 @@ private class ClientMediaStream: MediaStream
         // If I need it, look at RTCRtpTransceiverDirection
         .unknown
     }
+    
+    private let rtcStream: LKRTCMediaStream
+
+    // Source of truth for emissions
+    private let subject = PassthroughSubject<AVAudioPCMBuffer, Never>()
+
+    // Keep renderer only while someone is listening
+    private var renderer: Renderer?
+    private var subscriberCount = 0
+    private let sync = DispatchQueue(label: "ClientMediaStream.audio")
+
+    // Public publisher with ref-counted attach/detach
+    lazy var audioBuffers: AnyPublisher<AVAudioPCMBuffer, Never> = {
+        subject
+            .handleEvents(
+                receiveSubscription: { [weak self] _ in self?.refCount(+1) },
+                receiveCancel:       { [weak self]    in self?.refCount(-1) }
+            )
+            // Do NOT force a scheduler here; let callers choose.
+            .eraseToAnyPublisher()
+    }()
+
+    init(stream: LKRTCMediaStream)
+    {
+        self.rtcStream = stream
+    }
+
+    deinit {
+        // Be explicit on teardown
+        detachRenderer()
+        subject.send(completion: .finished)
+    }
+
+    private func refCount(_ delta: Int) {
+        sync.async {
+            let was = self.subscriberCount
+            self.subscriberCount += delta
+            let now = self.subscriberCount
+            if was == 0, now == 1 { self.attachRenderer() }
+            if was == 1, now == 0 { self.detachRenderer() }
+            precondition(self.subscriberCount >= 0, "Negative subscriber count")
+        }
+    }
+
+    private func attachRenderer() {
+        guard renderer == nil else { return }
+        let r = Renderer(owner: self)
+        renderer = r
+        rtcStream.audioTracks.first?.add(r)
+    }
+
+    private func detachRenderer() {
+        guard let r = renderer else { return }
+        rtcStream.audioTracks.first?.remove(r)
+        renderer = nil
+    }
+
+    // Bridge from WebRTC into Combine
+    private final class Renderer: NSObject, LKRTCAudioRenderer {
+        weak var owner: ClientMediaStream?
+        init(owner: ClientMediaStream) { self.owner = owner }
+        func render(pcmBuffer buffer: AVAudioPCMBuffer) {
+            owner?.subject.send(buffer)
+        }
+    }
 }
+
 extension LKRTCMediaStream {
     static var wrapperKey: Void = ()
     fileprivate var wrapper: ClientMediaStream {
