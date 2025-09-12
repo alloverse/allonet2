@@ -9,6 +9,7 @@ import allonet2
 import Foundation
 import AlloDataChannel
 import OpenCombineShim
+import AVFAudio
 
 public class HeadlessWebRTCTransport: Transport
 {
@@ -214,6 +215,12 @@ extension AlloWebRTCPeer.Track : MediaStream
     {
         MediaStreamDirection(rawValue: direction.rawValue)!
     }
+    
+    /*private let subject = PassthroughSubject<AVAudioPCMBuffer, Never>()
+    lazy public var audioBuffers: AnyPublisher<AVAudioPCMBuffer, Never> =
+    {
+        subject.eraseToAnyPublisher()
+    }*/
 }
 
 extension MediaForwardingUnit : MediaStreamForwarder
