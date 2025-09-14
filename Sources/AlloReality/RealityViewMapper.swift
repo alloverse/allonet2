@@ -19,6 +19,11 @@ public class RealityViewMapper
     private var guiroot: RealityKit.Entity
     private var cancellables = Set<AnyCancellable>()
     
+    public func guiForEid(_ eid: EntityID) -> RealityKit.Entity?
+    {
+        return guiroot.findEntity(named: eid)
+    }
+    
     /// Create a mapper that maps changes in the given `networkState` (taken from an AlloClient), and maintains corresponding RealityKit entities as children of `guiroot`. By default, it is inert; you need to `startSyncing()` to make it react to changes, and you should do so before connecting the associated AlloClient (so you don't miss any changes).
     public init(networkState netstate: PlaceState, addingEntitiesTo guiroot: RealityKit.Entity) {
         self.netstate = netstate
@@ -34,7 +39,7 @@ public class RealityViewMapper
             self.guiroot.addChild(guient)
         }.store(in: &cancellables)
         netstate.observers.entityRemoved.sink { netent in
-            guard let guient = self.guiroot.findEntity(named: netent.id) else { return }
+            guard let guient = self.guiForEid(netent.id) else { return }
             guient.removeFromParent()
         }.store(in: &cancellables)
         
@@ -46,7 +51,7 @@ public class RealityViewMapper
         startSyncingOf(networkComponentType: Relationships.self) { (entity, _, relationship) in
             guard entity.parent?.name != relationship.parent else { return }
             entity.removeFromParent()
-            let newParent = self.guiroot.findEntity(named: relationship.parent)!
+            let newParent = self.guiForEid(relationship.parent)!
             newParent.addChild(entity)
         } remover: { (entity, _, relationship) in
             guard entity.parent != self.guiroot else { return }
@@ -94,12 +99,12 @@ public class RealityViewMapper
     ) where T : allonet2.Component
     {
         netstate.observers[networkComponentType.self].updated.sink { (eid, netcomp) in
-            guard let guient = self.guiroot.findEntity(named: eid) else { return }
+            guard let guient = self.guiForEid(eid) else { return }
             guard let netent = self.netstate.current.entities[eid] else { return }
             updater(guient, netent, netcomp)
         }.store(in: &cancellables)
         netstate.observers[networkComponentType.self].removed.sink { (edata, netcomp) in
-            guard let guient = self.guiroot.findEntity(named: edata.id) else { return }
+            guard let guient = self.guiForEid(edata.id) else { return }
             remover(guient, edata, netcomp)
         }.store(in: &cancellables)
     }

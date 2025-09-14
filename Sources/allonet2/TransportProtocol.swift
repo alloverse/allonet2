@@ -112,19 +112,28 @@ public enum MediaStreamDirection: UInt32
     case recvonly = 2
     case sendrecv = 3
     
-    var isRecv: Bool { self == .recvonly || self == .sendrecv }
+    public var isRecv: Bool { self == .recvonly || self == .sendrecv }
 }
 
+public typealias MediaStreamId = String
 // TODO: XXX, there is confusion whether this represents a 'stream' or a 'track'. In GoogleWebRTC, a Stream is a bundle of tracks. libdatachannel doesn't use this abstraction. This API uses MediaStream interchangeably as both, and mediaID can be either the streamId or streamId+trackId. This is confusing. Fix it!
-public protocol MediaStream
+public protocol MediaStream: Equatable
 {
     // PlaceServer side for incoming streams: This will be a single-component stream ID in the client's own namespace
     // In all other cases (clients, place outgoing streams): This will be a two-component PlaceStreamId
-    var mediaId: String { get }
+    var mediaId: MediaStreamId { get }
     var streamDirection: MediaStreamDirection { get }
     
     // XXX: Move to AudioTrack and add an array of audiotracks here
     var audioBuffers: AnyPublisher<AVAudioPCMBuffer, Never> { get }
+}
+
+extension MediaStream
+{
+    public static func == (lhs: Self, rhs: some MediaStream) -> Bool
+    {
+        return lhs.mediaId == rhs.mediaId
+    }
 }
 
 public protocol AudioTrack
@@ -143,14 +152,14 @@ public struct PlaceStreamId: Equatable, Hashable, Codable, CustomStringConvertib
     // Shortened version of the sending client's ID (to fit in sdp)
     public let shortClientId: String
     // A single MediaStream ID in the namespace of the sending client. "streamId-trackId". Should not contain a period.
-    public let incomingMediaId: String
+    public let incomingMediaId: MediaStreamId
     // String version of the place stream ID, that is used in WebRTC as the MID sent to receiving clients. Contains a period separating the shortened client ID and the mediaId.
-    public var outgoingMediaId: String {
+    public var outgoingMediaId: MediaStreamId {
         return "\(shortClientId).\(incomingMediaId)"
     }
     public var description: String { return outgoingMediaId }
     
-    public init(shortClientId: String, incomingMediaId: String) {
+    public init(shortClientId: String, incomingMediaId: MediaStreamId) {
         self.shortClientId = shortClientId
         self.incomingMediaId = incomingMediaId
     }

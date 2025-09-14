@@ -289,8 +289,18 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didAdd stream: LKRTCMediaStream)
     {
-        print("Received stream for client \(clientId!): \(stream)")
-        delegate?.transport(self, didReceiveMediaStream: stream.wrapper)
+        let sender = peerConnection.transceivers.first(where: {
+            $0.sender.streamIds.first == stream.streamId
+        })
+        let receiver = peerConnection.transceivers.first(where: {
+            $0.receiver.track == stream.audioTracks.first ||
+            $0.receiver.track == stream.videoTracks.first
+        })
+        stream.wrapper.streamDirection = sender != nil ? .sendonly : .recvonly
+        print("Received stream for client \(clientId!): \(stream.wrapper.streamDirection) \(stream)")
+        Task { @MainActor in
+            delegate?.transport(self, didReceiveMediaStream: stream.wrapper)
+        }
     }
     
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didRemove stream: LKRTCMediaStream)
@@ -521,12 +531,9 @@ private class ClientMediaStream: MediaStream
     // !! This should be "streamId-trackId", but we're mixing up streams and track :S 
     var mediaId: String { rtcStream.streamId }
     
-    var streamDirection: allonet2.MediaStreamDirection
-    {
-        // TODO: This isn't exposed in Google WebRTC, but also, maybe we don't need it on the client?
-        // If I need it, look at RTCRtpTransceiverDirection
-        .unknown
-    }
+    // TODO: This isn't exposed in Google WebRTC, but also, maybe we don't need it on the client?
+    // If I need it, look at RTCRtpTransceiverDirection
+    var streamDirection: allonet2.MediaStreamDirection = .unknown
     
     private let rtcStream: LKRTCMediaStream
 

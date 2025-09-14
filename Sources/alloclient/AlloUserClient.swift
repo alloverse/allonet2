@@ -37,7 +37,6 @@ public class AlloUserClient : AlloClient
     
     func setupAudio()
     {
-        // 1. Mic
         do {
             micTrack = try userTransport.createMicrophoneTrack()
             
@@ -65,24 +64,5 @@ public class AlloUserClient : AlloClient
         } catch {
             print("Failed to create microphone track: \(error)")
         }
-        
-        // 2. Setup listeners to get incoming tracks. Just ask to get everything (except our mic) forwarded.
-        var streamIds = Set<String>()
-        func updateListener()
-        {
-            Task { @MainActor in
-                print("Updating listener to forward \(streamIds)")
-                try? await avatar?.components.set(LiveMediaListener(mediaIds: streamIds))
-            }
-        }
-        placeState.observers[LiveMedia.self].added.sink { [weak self] eid, liveMedia in
-            guard eid != self?.avatarId else { return }
-            streamIds.insert(liveMedia.mediaId)
-            updateListener()
-        }.store(in: &cancellables)
-        placeState.observers[LiveMedia.self].removed.sink { [weak self] _eid, liveMedia in
-            streamIds.remove(liveMedia.mediaId)
-            updateListener()
-        }.store(in: &cancellables)
     }
 }

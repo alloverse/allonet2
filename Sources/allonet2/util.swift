@@ -221,6 +221,28 @@ where Output: BidirectionalCollection & RangeReplaceableCollection,
     }
 }
 
+extension Publisher {
+    public func sinkChanges<Key: Hashable, Value>(
+        added: @escaping (Key, Value) -> Void,
+        removed: @escaping (Key, Value) -> Void
+    ) -> AnyCancellable
+    where Output == [Key: Value], Failure == Never
+    {
+        self
+            .scan((Dictionary<Key, Value>(), Dictionary<Key, Value>())) { ($0.1, $1) }
+            .sink { old, new in
+                // Added
+                for (k, vNew) in new where old[k] == nil {
+                    added(k, vNew)
+                }
+                // Removed
+                for (k, vOld) in old where new[k] == nil {
+                    removed(k, vOld)
+                }
+            }
+    }
+}
+
 // Utility for command line AlloApps. Run as last line to keep process running while app is processing requests.
 // Will return when a `SIGINT` is received by the process.
 public func parkToRunloop() async {
