@@ -7,6 +7,7 @@
 
 import Foundation
 import BinaryCodable
+import OpenCombineShim
 
 @MainActor
 public protocol AlloSessionDelegate: AnyObject
@@ -37,7 +38,8 @@ public class AlloSession : NSObject, TransportDelegate
     private var interactionChannel: DataChannel!
     private var worldstateChannel: DataChannel!
     
-    public private(set) var incomingStreams: [String/*StreamID*/: MediaStream] = [:]
+    @Published
+    public private(set) var incomingStreams: [MediaStreamId: MediaStream] = [:]
     
     private var outstandingInteractions: [Interaction.RequestID: CheckedContinuation<Interaction, Never>] = [:]
     
@@ -124,52 +126,43 @@ public class AlloSession : NSObject, TransportDelegate
     }
     
     let decoder = BinaryDecoder()
-    public func transport(_ transport: Transport, didReceiveData data: Data, on channel: DataChannel)
+    nonisolated public func transport(_ transport: Transport, didReceiveData data: Data, on channel: DataChannel)
     {
-        switch channel.alloLabel
-        {
-        case  .interactions:
-            do {
-                let inter = try decoder.decode(Interaction.self, from: data)
-                if case .internal_renegotiate(.offer, let payload) = inter.body
-                {
-                    respondToRenegotiation(offer: payload, request: inter)
-                    return
-                }
-                
-                if let continuation = outstandingInteractions[inter.requestId]
-                {
-                    assert(inter.type == .response)
+        switch channel.alloLabel {
+        case .interactions:
+            let inter: Interaction
+            do { inter = try decoder.decode(Interaction.self, from: data) }
+            catch {
+                print("Warning, dropped unparseable interaction: \(error)")
+                return
+            }
+            Task { @MainActor in
+                if case .internal_renegotiate(.offer, let payload) = inter.body {
+                    await respondToRenegotiation(offer: payload, request: inter)
+                } else if let continuation = outstandingInteractions[inter.requestId] {
                     continuation.resume(with: .success(inter))
-                }
-                else
-                {
+                } else {
                     self.delegate?.session(self, didReceiveInteraction: inter)
                 }
             }
-            catch(let e)
-            {
-                print("Warning, dropped unparseable interaction: \(e)")
+        case .intentWorldState where side == .client:
+            let worldstate: PlaceChangeSet
+            do {
+                worldstate = try decoder.decode(PlaceChangeSet.self, from: data)
+            } catch {
+                print("Warning, dropped unparseable worldstate: \(error)")
+                return
             }
-        case .intentWorldState:
-            switch side {
-            case .client:
-                do {
-                    let worldstate = try decoder.decode(PlaceChangeSet.self, from: data)
-                    self.delegate?.session(self, didReceivePlaceChangeSet: worldstate)
-                }
-                catch (let e)
-                {
-                    print("Warning, dropped unparseable worldstate: \(e)")
-                }
-            case .server:
-                guard let intent = try? decoder.decode(Intent.self, from: data) else
-                {
-                    print("Warning, \(transport.clientId!.uuidString) dropped unparseable intent")
-                    return
-                }
-                self.delegate?.session(self, didReceiveIntent: intent)
+            Task { @MainActor in self.delegate?.session(self, didReceivePlaceChangeSet: worldstate) }
+        case .intentWorldState where side == .server:
+            let intent: Intent
+            do {
+                intent = try decoder.decode(Intent.self, from: data)
+            } catch {
+                print("Warning, \(transport.clientId!.uuidString) dropped unparseable intent: \(error)")
+                return
             }
+            Task { @MainActor in self.delegate?.session(self, didReceiveIntent: intent) }
         default:
             fatalError("Unexpected message")
         }
@@ -211,22 +204,19 @@ public class AlloSession : NSObject, TransportDelegate
         print("RTC renegotiation complete on the offering side")
     }
     
-    private func respondToRenegotiation(offer: SignallingPayload, request: Interaction)
+    private func respondToRenegotiation(offer: SignallingPayload, request: Interaction) async
     {
         print("Received renegotiation offer over RPC")
-        Task
+        do
         {
-            do
-            {
-                try await respondToRenegotiationInner(offer: offer, request: request)
-            }
-            catch(let e)
-            {
-                // TODO: store the error, mark as temporary, and force upper lever to reconnect
-                print("Failed to renegotiate answer for \(transport.clientId!): \(e)")
-                transport.disconnect()
+            try await respondToRenegotiationInner(offer: offer, request: request)
+        }
+        catch(let e)
+        {
+            // TODO: store the error, mark as temporary, and force upper lever to reconnect
+            print("Failed to renegotiate answer for \(transport.clientId!): \(e)")
+            transport.disconnect()
 
-            }
         }
     }
     

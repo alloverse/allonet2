@@ -11,6 +11,7 @@ import OpenCombineShim
 import allonet2
 
 /// Uses Google's WebRTC implementation meant for client-side UI apps.
+// TODO: @MainActor this class, and declare all the delegate methods nonisolated, and fix all the threading issues in here
 class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTCDataChannelDelegate
 {
     public var clientId: ClientId?
@@ -267,7 +268,9 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
         {
             print("Transport is fully connected")
             didFullyConnect = true
-            self.delegate?.transport(didConnect: self)
+            Task { @MainActor in
+                self.delegate?.transport(didConnect: self)
+            }
             
             if(renegotiationNeeded)
             {
@@ -293,7 +296,9 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didRemove stream: LKRTCMediaStream)
     {
         print("Lost stream for client \(clientId!): \(stream)")
-        delegate?.transport(self, didRemoveMediaStream: stream.wrapper)
+        Task { @MainActor in
+            delegate?.transport(self, didRemoveMediaStream: stream.wrapper)
+        }
     }
     
     var renegotiationNeeded = false
@@ -309,7 +314,9 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     
     func renegotiate()
     {
-        delegate?.transport(requestsRenegotiation: self)
+        Task { @MainActor in
+            delegate?.transport(requestsRenegotiation: self)
+        }
     }
     
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: LKRTCIceConnectionState)
@@ -337,7 +344,9 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
         }
         else if newState == .closed
         {
-            self.delegate?.transport(didDisconnect: self)
+            Task { @MainActor in
+                self.delegate?.transport(didDisconnect: self)
+            }
         }
     }
     

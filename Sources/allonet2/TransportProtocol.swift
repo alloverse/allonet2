@@ -18,10 +18,11 @@ extension ClientId
     }
 }
 
+@MainActor
 public protocol TransportDelegate: AnyObject {
     func transport(didConnect transport: Transport)
     func transport(didDisconnect transport: Transport)
-    func transport(_ transport: Transport, didReceiveData data: Data, on channel: DataChannel)
+    nonisolated func transport(_ transport: Transport, didReceiveData data: Data, on channel: DataChannel)
     func transport(_ transport: Transport, didReceiveMediaStream stream: MediaStream)
     func transport(_ transport: Transport, didRemoveMediaStream stream: MediaStream)
     func transport(requestsRenegotiation transport: Transport)
