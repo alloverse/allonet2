@@ -9,7 +9,7 @@ import allonet2
 import alloclient
 import RealityKit
 import OpenCombineShim
-import SwiftUICore
+import SwiftUI
 import CoreAudio
 
 /// Syncs `LiveMedia` components from entities surrounding the local avatar and plays them back spatially.

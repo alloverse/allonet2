@@ -8,7 +8,7 @@
 import RealityKit
 import OpenCombineShim
 import allonet2
-import SwiftUICore
+import SwiftUI
 
 /// The RealityViewMapper creates and maintains RealityKit entities and components to perfectly match corresponding entities and components inside an Alloverse connection's PlaceContents.
 @MainActor
