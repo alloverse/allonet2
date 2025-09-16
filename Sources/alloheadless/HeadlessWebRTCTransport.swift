@@ -11,6 +11,8 @@ import AlloDataChannel
 import OpenCombineShim
 import AVFAudio
 
+// TODO: What actor are peer's combine publishers being signalled on? Where do we need to annotate nonisolated, and/or dispatch to main before calling delegate?
+@MainActor
 public class HeadlessWebRTCTransport: Transport
 {
     public weak var delegate: TransportDelegate?
@@ -216,11 +218,7 @@ extension AlloWebRTCPeer.Track : MediaStream
         MediaStreamDirection(rawValue: direction.rawValue)!
     }
     
-    /*private let subject = PassthroughSubject<AVAudioPCMBuffer, Never>()
-    lazy public var audioBuffers: AnyPublisher<AVAudioPCMBuffer, Never> =
-    {
-        subject.eraseToAnyPublisher()
-    }*/
+    public var streamingAudio : AudioRingBuffer { .init() }
 }
 
 extension MediaForwardingUnit : MediaStreamForwarder
