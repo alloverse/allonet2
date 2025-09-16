@@ -254,15 +254,12 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     
     nonisolated public func session(_: AlloSession, didReceiveMediaStream: MediaStream)
     {
-        print("Client received audio track, but not yet implemented")
-        // TODO: Playback
+        // Playback is handled in SpatialAudioPlayer
+        // TODO: If I expose incomingTracks through Combine, why even have this callback?
     }
     
     nonisolated public func session(_: AlloSession, didRemoveMediaStream: MediaStream)
-    {
-        print("Client lost audio track")
-        // TODO: Stop playback
-    }
+    {}
     
     // MARK: - Interactions, intent and place state
     

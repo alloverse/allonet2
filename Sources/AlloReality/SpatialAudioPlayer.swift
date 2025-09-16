@@ -56,8 +56,10 @@ public class SpatialAudioPlayer
         }.store(in: &cancellables)
         
         client.session.$incomingStreams.sinkChanges(added: { (key, value) in
+            print("PLAY STREAM \(key) \(value)")
             self.play(stream: value)
         }, removed: { (key, value) in
+            print("STOP STREAM \(key) \(value)")
             self.stop(streamId: key)
         }).store(in: &cancellables)
     }
@@ -88,14 +90,8 @@ public class SpatialAudioPlayer
         
         let config = AudioGeneratorConfiguration(layoutTag: kAudioChannelLayoutTag_Mono)
         
-        stream.audioBuffers.sink { [weak self] buffer in
-            print("SpatialAudioPlayer Incoming buffer \(buffer)")
-            // buffer is AVAudioPCMBuffer
-            // TODO: Start storing audio data in a ring buffer or something
-        }.store(in: &playState.cancellables)
-        
         let handler: Audio.GeneratorRenderHandler = { (isSilence, timestamp, frameCount, audioBufferList) -> OSStatus in
-            // TODO: Pluck data from the ring buffer instead of generating tone
+            // TODO: Pluck data from the ring buffer in stream.streamingAudio instead of generating tone
             isSilence.pointee = false
 
             let freq: Double = 440

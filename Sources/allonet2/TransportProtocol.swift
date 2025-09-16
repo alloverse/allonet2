@@ -117,7 +117,7 @@ public enum MediaStreamDirection: UInt32
 
 public typealias MediaStreamId = String
 // TODO: XXX, there is confusion whether this represents a 'stream' or a 'track'. In GoogleWebRTC, a Stream is a bundle of tracks. libdatachannel doesn't use this abstraction. This API uses MediaStream interchangeably as both, and mediaID can be either the streamId or streamId+trackId. This is confusing. Fix it!
-public protocol MediaStream: Equatable
+public protocol MediaStream
 {
     // PlaceServer side for incoming streams: This will be a single-component stream ID in the client's own namespace
     // In all other cases (clients, place outgoing streams): This will be a two-component PlaceStreamId
@@ -125,15 +125,12 @@ public protocol MediaStream: Equatable
     var streamDirection: MediaStreamDirection { get }
     
     // XXX: Move to AudioTrack and add an array of audiotracks here
-    var audioBuffers: AnyPublisher<AVAudioPCMBuffer, Never> { get }
+    var streamingAudio: AudioRingBuffer { get }
 }
 
-extension MediaStream
+public struct AudioRingBuffer // TODO
 {
-    public static func == (lhs: Self, rhs: some MediaStream) -> Bool
-    {
-        return lhs.mediaId == rhs.mediaId
-    }
+    public init() {} 
 }
 
 public protocol AudioTrack

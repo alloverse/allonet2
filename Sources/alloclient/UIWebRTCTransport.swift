@@ -26,6 +26,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     
     private var connectionStatus: ConnectionStatus
     
+    // TODO: This is PlanB semantics. Remove.
     private let offerAnswerConstraints = LKRTCMediaConstraints(mandatoryConstraints: [
         kLKRTCMediaConstraintsOfferToReceiveAudio: kLKRTCMediaConstraintsValueTrue
     ], optionalConstraints: [:])
@@ -528,8 +529,12 @@ extension LKRTCDataChannel {
 
 private class ClientMediaStream: MediaStream
 {
-    // !! This should be "streamId-trackId", but we're mixing up streams and track :S 
-    var mediaId: String { rtcStream.streamId }
+    // TODO: A stream could contain multiple tracks, so our abstraction of stream=track breaks here :( refactor in transport!
+    var mediaId: String {
+        let streamId = rtcStream.streamId
+        let trackId = (rtcStream.audioTracks.first ?? rtcStream.videoTracks.first)?.trackId
+        return "\(streamId)-\(trackId ?? "unknown")"
+    }
     
     // TODO: This isn't exposed in Google WebRTC, but also, maybe we don't need it on the client?
     // If I need it, look at RTCRtpTransceiverDirection
@@ -537,65 +542,11 @@ private class ClientMediaStream: MediaStream
     
     private let rtcStream: LKRTCMediaStream
 
-    // Keep renderer only while someone is listening
-    private var renderer: Renderer?
-    private var subscriberCount = 0
-    private let sync = DispatchQueue(label: "ClientMediaStream.audio")
-
-    // Public publisher with ref-counted attach/detach
-    private let subject = PassthroughSubject<AVAudioPCMBuffer, Never>()
-    lazy var audioBuffers: AnyPublisher<AVAudioPCMBuffer, Never> = {
-        subject
-            .handleEvents(
-                receiveSubscription: { [weak self] _ in self?.refCount(+1) },
-                receiveCancel:       { [weak self]    in self?.refCount(-1) }
-            )
-            // Do NOT force a scheduler here; let callers choose.
-            .eraseToAnyPublisher()
-    }()
+    let streamingAudio = AudioRingBuffer()
 
     init(stream: LKRTCMediaStream)
     {
         self.rtcStream = stream
-    }
-
-    deinit {
-        // Be explicit on teardown
-        detachRenderer()
-        subject.send(completion: .finished)
-    }
-
-    private func refCount(_ delta: Int) {
-        sync.async {
-            let was = self.subscriberCount
-            self.subscriberCount += delta
-            let now = self.subscriberCount
-            if was == 0, now == 1 { self.attachRenderer() }
-            if was == 1, now == 0 { self.detachRenderer() }
-            precondition(self.subscriberCount >= 0, "Negative subscriber count")
-        }
-    }
-
-    private func attachRenderer() {
-        guard renderer == nil else { return }
-        let r = Renderer(owner: self)
-        renderer = r
-        rtcStream.audioTracks.first?.add(r)
-    }
-
-    private func detachRenderer() {
-        guard let r = renderer else { return }
-        rtcStream.audioTracks.first?.remove(r)
-        renderer = nil
-    }
-
-    // Bridge from WebRTC into Combine
-    private final class Renderer: NSObject, LKRTCAudioRenderer {
-        weak var owner: ClientMediaStream?
-        init(owner: ClientMediaStream) { self.owner = owner }
-        func render(pcmBuffer buffer: AVAudioPCMBuffer) {
-            owner?.subject.send(buffer)
-        }
     }
 }
 

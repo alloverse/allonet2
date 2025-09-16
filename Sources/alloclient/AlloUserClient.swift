@@ -41,6 +41,7 @@ public class AlloUserClient : AlloClient
             micTrack = try userTransport.createMicrophoneTrack()
             
             // TODO: Move LiveMedia component registration into AlloSession in some sort of createTrack() API
+            // Or we do it in transport(:didReceiveMediaStream:)
             createTrackCancellable = $isAnnounced.sink { [weak self] in
                 guard let self, let avatar = self.avatar, $0 else { return }
                 let scid = session.clientId!.shortClientId

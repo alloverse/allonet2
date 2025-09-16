@@ -38,6 +38,7 @@ public class AlloSession : NSObject, TransportDelegate
     private var interactionChannel: DataChannel!
     private var worldstateChannel: DataChannel!
     
+    // TODO: This should be called streams, because it includes both incoming and outgoing
     @Published
     public private(set) var incomingStreams: [MediaStreamId: MediaStream] = [:]
     
@@ -233,6 +234,7 @@ public class AlloSession : NSObject, TransportDelegate
     // MARK: - Audio
     public func transport(_ transport: Transport, didReceiveMediaStream stream: MediaStream)
     {
+        print("ADDING INCOMING STREAM \(stream.mediaId)")
         incomingStreams[stream.mediaId] = stream
         delegate?.session(self, didReceiveMediaStream: stream)
     }
