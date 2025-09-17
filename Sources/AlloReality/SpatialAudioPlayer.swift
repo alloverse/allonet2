@@ -91,6 +91,7 @@ public class SpatialAudioPlayer
         let ringBuffer = stream.render()
         ringBuffer.store(in: &playState.cancellables)
         
+        // TODO: Adjust playback speed to keep the buffered amount stable at ~50ms latency?
         let config = AudioGeneratorConfiguration(layoutTag: kAudioChannelLayoutTag_Mono)
         let handler: Audio.GeneratorRenderHandler = { (isSilence, timestamp, frameCount, audioBufferList) -> OSStatus in
             let requested = Int(frameCount)
