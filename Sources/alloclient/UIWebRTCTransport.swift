@@ -541,14 +541,39 @@ private class ClientMediaStream: MediaStream
     var streamDirection: allonet2.MediaStreamDirection = .unknown
     
     private let rtcStream: LKRTCMediaStream
-
-    let streamingAudio = AudioRingBuffer()
+    
+    func render() -> AudioRingBuffer
+    {
+        // lessee... Caller owns ring buffer owns renderer.
+        weak var track = rtcStream.audioTracks.first
+        let renderer = AudioRingRenderer()
+        // TODO: don't hardcode sample rate
+        let ring = AudioRingBuffer(channels: 1, capacityFrames: 48000)
+        {
+            track?.remove(renderer)
+        }
+        renderer.ring = ring
+        track!.add(renderer)
+        return ring
+    }
 
     init(stream: LKRTCMediaStream)
     {
         self.rtcStream = stream
     }
 }
+
+fileprivate class AudioRingRenderer : NSObject, LKRTCAudioRenderer
+{
+    weak var ring: AudioRingBuffer? = nil
+    func render(pcmBuffer pcm: AVAudioPCMBuffer)
+    {
+        print("Writing \(pcm.frameLength) frames to \(ring)")
+        _ = ring?.write(pcm)
+    }
+}
+
+
 
 extension LKRTCMediaStream {
     static var wrapperKey: Void = ()

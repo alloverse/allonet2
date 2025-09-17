@@ -76,7 +76,7 @@ public class SpatialAudioPlayer
         
         assert(playState.controller == nil, "Playing the same stream twice?")
         
-        print("SpatialAudioPlayer setting up LiveMedia \(netent.id) <-- \(stream.mediaId)")
+        print("SpatialAudioPlayer[\(playState.streamId)] setting up LiveMedia \(netent.id)")
         
         // TODO: Pick these up as settings from an Alloverse component
         let spatial = SpatialAudioComponent(
@@ -88,48 +88,34 @@ public class SpatialAudioPlayer
         )
         guient.components.set(spatial)
         
-        let config = AudioGeneratorConfiguration(layoutTag: kAudioChannelLayoutTag_Mono)
+        let ringBuffer = stream.render()
+        ringBuffer.store(in: &playState.cancellables)
         
+        let config = AudioGeneratorConfiguration(layoutTag: kAudioChannelLayoutTag_Mono)
         let handler: Audio.GeneratorRenderHandler = { (isSilence, timestamp, frameCount, audioBufferList) -> OSStatus in
-            // TODO: Pluck data from the ring buffer in stream.streamingAudio instead of generating tone
-            isSilence.pointee = false
-
-            let freq: Double = 440
-            let sampleRate: Double = 48000
-
-            // Phase from absolute sample time (keeps continuity across calls).
-            var phase = freq * timestamp.pointee.mSampleTime * (1.0 / sampleRate)
-            let phaseIncrement = freq / sampleRate
-
-            let abl = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            guard let buf0 = abl.first, let mData = buf0.mData else { return 0 }
-
-            let out = mData.bindMemory(to: Float32.self, capacity: Int(frameCount))
-
-            for i in 0..<Int(frameCount) {
-                out[i] = Float32(sin(phase * 2.0 * .pi) * 0.5)
-                phase += phaseIncrement
-            }
-
-            return 0
+            let requested = Int(frameCount)
+            let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
+            print("SpatialAudioPlayer[\(playState.streamId)] rendering \(requested) rendering from \(ringBuffer)")
+            ringBuffer.readOrSilence(into: ablPointer, frames: requested)
+            return noErr
         }
         do {
             playState.controller = try guient.playAudio(handler)
         } catch {
-            print("SpatialAudioPlayer !!! Failed to start audio generator for entity \(netent.id) stream \(playState.streamId): \(error)")
+            print("SpatialAudioPlayer[\(playState.streamId)] !!! Failed to start audio generator for entity \(netent.id): \(error)")
             stop(streamId: playState.streamId)
             return
         }
-        print("SpatialAudioPlayer Successfully set up audio renderer \(netent.id) <-- \(stream.mediaId)")
+        print("SpatialAudioPlayer[\(playState.streamId)] Successfully set up audio renderer \(netent.id)")
     }
     
     func stop(streamId: MediaStreamId)
     {
-        print("SpatialAudioPlayer Tearing down LiveMedia renderer for stream \(streamId)")
+        print("SpatialAudioPlayer[\(streamId)] Tearing down LiveMedia renderer")
         guard let playState = state[streamId] else { return }
         let guient = mapper.guiForEid(playState.eid)
         
-        print("SpatialAudioPlayer LiveMedia \(streamId) was attached to \(playState.eid), disabling it...")
+        print("SpatialAudioPlayer[\(streamId)] was attached to \(playState.eid), disabling it...")
         playState.stop()
         state[streamId] = nil
         
@@ -163,3 +149,4 @@ fileprivate class SpatialAudioPlaybackState
         self.eid = eid
     }
 }
+

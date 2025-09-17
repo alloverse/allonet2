@@ -125,12 +125,7 @@ public protocol MediaStream
     var streamDirection: MediaStreamDirection { get }
     
     // XXX: Move to AudioTrack and add an array of audiotracks here
-    var streamingAudio: AudioRingBuffer { get }
-}
-
-public struct AudioRingBuffer // TODO
-{
-    public init() {} 
+    func render() -> AudioRingBuffer
 }
 
 public protocol AudioTrack

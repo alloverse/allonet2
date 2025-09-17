@@ -47,6 +47,7 @@ let package = Package(
         .package(path: "Packages/AlloDataChannel"),
         .package(url: "https://github.com/DimaRU/PackageBuildInfo", branch: "master"),
         .package(url: "https://github.com/mxcl/Version.git", from: "2.0.0"),
+        .package(url: "https://github.com/apple/swift-atomics.git", from: "1.2.0"),
     ],
     targets: [
         .target(
@@ -58,6 +59,7 @@ let package = Package(
                 "Version",
                 .product(name: "kvSIMD", package: "kvSIMD.swift"),
                 .product(name: "OpenCombineShim", package: "opencombine"),
+                .product(name: "Atomics", package: "swift-atomics"),
             ],
             plugins: [
                 .plugin(name: "PackageBuildInfoPlugin", package: "PackageBuildInfo")
