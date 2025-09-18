@@ -27,6 +27,19 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         guard let aeid = self.avatarId else { return nil }
         return place.entities[aeid]
     }
+    public func findAvatar() async -> Entity
+    {
+        var avatarId: EntityID? = self.avatarId
+        while avatarId == nil
+        {
+            var iter = self.$avatarId.values.makeAsyncIterator()
+            if let next = await iter.next()
+            {
+                avatarId = next
+            }
+        }
+        return await place.findEntity(id: avatarId!)
+    }
     @Published public private(set) var isAnnounced: Bool = false
     public private(set) var placeName: String?
     open var transport: Transport! = nil
@@ -381,3 +394,4 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         }
     }
 }
+

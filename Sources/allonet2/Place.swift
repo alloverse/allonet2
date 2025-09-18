@@ -22,6 +22,13 @@ public class Place
         }
     }
     
+    /// Wait for a specific entity to come in and return its convenience structure.
+    public func findEntity(id: EntityID) async -> Entity
+    {
+        let edata = await state.findEntity(id)
+        return entities[edata.id]!
+    }
+    
     /// If you prefer a component-major view of the place (e g if you are writing a System which only deals with a single component type), this is a much more efficient accessor.
     public var components: ComponentLists
     {

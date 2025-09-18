@@ -33,6 +33,16 @@ public class PlaceState
         }
     }
     
+    /// Wait for a specific entity to come in.
+    public func findEntity(_ id: EntityID) async -> EntityData
+    {
+        if let ent = current.entities[id] {
+            return ent
+        }
+        var iter = observers.subjectFor(id).values.makeAsyncIterator()
+        return await iter.next()!
+    }
+    
     internal func callChangeObservers()
     {
         for event in changeSet?.changes ?? []
@@ -41,6 +51,11 @@ public class PlaceState
             {
             case .entityAdded(let entity):
                 observers.entityAddedSubject.send(entity)
+                if let waitingForEntitySubject = observers.waitingForEntitySubjects.removeValue(forKey: entity.id)
+                {
+                    waitingForEntitySubject.send(entity)
+                    waitingForEntitySubject.send(completion: .finished)
+                }
             case .entityRemoved(let entity):
                 observers.entityRemovedSubject.send(entity)
             case .componentAdded(let entityID, let comp):
@@ -51,6 +66,13 @@ public class PlaceState
             case .componentRemoved(let entityData, let comp):
                 observers[type(of: comp).componentTypeId].sendRemoved(entityData: entityData, component: comp)
             }
+        }
+    }
+    
+    @MainActor deinit {
+        for subject in observers.waitingForEntitySubjects.values
+        {
+            subject.send(completion: .finished)
         }
     }
 }
@@ -179,6 +201,12 @@ public struct PlaceObservers
     public var entityRemoved: AnyPublisher<EntityData, Never> { entityRemovedSubject.eraseToAnyPublisher() }
     internal let entityAddedSubject = PassthroughSubject<EntityData, Never>()
     internal let entityRemovedSubject = PassthroughSubject<EntityData, Never>()
+    internal var waitingForEntitySubjects: [EntityID: PassthroughSubject<EntityData, Never>] = [:]
+    mutating internal func subjectFor(_ eid: EntityID) -> PassthroughSubject<EntityData, Never>
+    {
+        return waitingForEntitySubjects[eid, setDefault: PassthroughSubject<EntityData, Never>()]
+    }
+    
     
     /// Get a type-safe set of callbacks for a specific Component type
     public subscript<T>(componentType: T.Type) -> ComponentCallbacks<T> where T : Component
