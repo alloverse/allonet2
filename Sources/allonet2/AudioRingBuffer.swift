@@ -220,6 +220,7 @@ public final class AudioRingBuffer: Cancellable, CustomStringConvertible
         let got = read(into: abl, frames: frames)
         if got < frames {
             let deficit = frames - got
+            print("!!! RING BUFFER UNDERFLOW, writing \(deficit) zeros")
             for c in 0..<channels {
                 let dst = abl[c]
                 if let ptr = dst.mData?.assumingMemoryBound(to: Float32.self) {

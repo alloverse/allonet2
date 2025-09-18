@@ -687,10 +687,28 @@ class PlaybackDisablingAudioDeviceModuleDelegate: NSObject, LKRTCAudioDeviceModu
         return 0
     }
     
+    var mixer: AVAudioMixerNode!
     func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, engine: AVAudioEngine, configureOutputFromSource source: AVAudioNode, toDestination destination: AVAudioNode?, format: AVAudioFormat, context: [AnyHashable : Any]) -> Int
     {
         print("!!\nDISABLING OUTPUT engine: \(engine) source: \(source) toDestination: \(destination) format: \(format) context: \(context)\n!!")
-        destination!.auAudioUnit.isOutputEnabled = false
+        //destination!.auAudioUnit.isOutputEnabled = false
+        return 0
+        guard let destination else { fatalError() }
+        guard mixer == nil else { fatalError() }
+        if mixer == nil
+        {
+            mixer = AVAudioMixerNode()
+            engine.attach(mixer)
+            
+            engine.disconnectNodeOutput(source)
+            engine.connect(source, to: mixer, format: format)
+            
+            engine.disconnectNodeInput(destination)
+            engine.connect(mixer, to: destination, format: format)
+            
+            mixer.outputVolume = 1
+            
+        }
         return 0
     }
     
