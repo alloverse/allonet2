@@ -18,28 +18,39 @@ public class SpatialAudioPlayer
 {
     let mapper: RealityViewMapper
     let client: AlloUserClient
+    let content: RealityViewContentProtocol
     fileprivate var state: [MediaStreamId: SpatialAudioPlaybackState] = [:]
     var cancellables: Set<AnyCancellable> = []
     
     // TODO: Maybe take which entity to attach Listeners to instead of assuming avatar?
-    // TODO: And then also tell RealityKit that we're listening through this entity?
     
-    public init(mapper: RealityViewMapper, client: AlloUserClient)
+    public init(mapper: RealityViewMapper, client: AlloUserClient, content: RealityViewContentProtocol)
     {
         self.mapper = mapper
         self.client = client
+        self.content = content
         start()
     }
     
     func start()
     {
+        // TODO: await avatarId before even starting this function, so we can assume we have it.
+        // TODO: Or maybe even in viewModel, await avatar before setting MOST of that stuff up
+        
+        // 0. Setup audio listener
+        client.$avatarId.sink { avatarId in
+            guard let avatarId else { return }
+            let guient = self.mapper.guiForEid(avatarId)!
+            self.useAsListener(guient)
+        }.store(in: &cancellables)
+        
         // 1. Setup listeners to get incoming tracks. Just ask to get everything (except our own audio) forwarded.
         var streamIds = Set<String>()
         func updateListener()
         {
             Task { @MainActor in
                 print("SpatialAudioPlayer Updating listener to forward \(streamIds)")
-                try? await self.client.avatar?.components.set(LiveMediaListener(mediaIds: streamIds))
+                try! await self.client.avatar!.components.set(LiveMediaListener(mediaIds: streamIds))
             }
         }
         client.placeState.observers[LiveMedia.self].added.sink { eid, liveMedia in
@@ -56,12 +67,20 @@ public class SpatialAudioPlayer
         }.store(in: &cancellables)
         
         client.session.$incomingStreams.sinkChanges(added: { (key, value) in
-            print("PLAY STREAM \(key) \(value)")
+            print("SpatialAudioPlayer[\(key)] playing \(value)")
             self.play(stream: value)
         }, removed: { (key, value) in
-            print("STOP STREAM \(key) \(value)")
+            print("SpatialAudioPlayer[\(key)] stopping \(value)")
             self.stop(streamId: key)
         }).store(in: &cancellables)
+    }
+    
+    func useAsListener(_ guient: RealityKit.Entity)
+    {
+        print("SpatialAudioPlayer using \(guient.name) as RealityKit listener")
+        // TODO: When non-immersive, set it to be an "ears" sub-entity which is always pointed "forwards" in the camera perspective
+        var cameraContent = content as! RealityViewCameraContent
+        cameraContent.audioListener = guient
     }
     
     func play(stream: MediaStream)
@@ -80,11 +99,11 @@ public class SpatialAudioPlayer
         
         // TODO: Pick these up as settings from an Alloverse component
         let spatial = SpatialAudioComponent(
-            gain: .zero,
+            gain: 0,
             directLevel: .zero,
             reverbLevel: .zero,
-            directivity: .beam(focus: 0.8),
-            distanceAttenuation: .rolloff(factor: 18.0)
+            directivity: .beam(focus: .zero),//.beam(focus: 0.8),
+            distanceAttenuation: .rolloff(factor: 20.0)
         )
         guient.components.set(spatial)
         
