@@ -568,7 +568,7 @@ fileprivate class AudioRingRenderer : NSObject, LKRTCAudioRenderer
     weak var ring: AudioRingBuffer? = nil
     func render(pcmBuffer pcm: AVAudioPCMBuffer)
     {
-        print("Writing \(pcm.frameLength) frames to \(ring)")
+        //print("Writing \(pcm.frameLength) frames to \(ring)")
         _ = ring?.write(pcm)
     }
 }
