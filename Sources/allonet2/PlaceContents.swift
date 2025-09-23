@@ -34,13 +34,16 @@ public class PlaceState
     }
     
     /// Wait for a specific entity to come in.
-    public func findEntity(_ id: EntityID) async -> EntityData
+    public func findEntity(_ id: EntityID) async throws -> EntityData
     {
         if let ent = current.entities[id] {
             return ent
         }
         var iter = observers.subjectFor(id).values.makeAsyncIterator()
-        return await iter.next()!
+        if let ent = await iter.next() {
+            return ent
+        }
+        throw CancellationError()
     }
     
     internal func callChangeObservers()

@@ -27,18 +27,18 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
         guard let aeid = self.avatarId else { return nil }
         return place.entities[aeid]
     }
-    public func findAvatar() async -> Entity
+    /// Fetch the convenience accessor for our own avatar Entity, so that we can modify it. This will only throw in case of task cancellation.
+    public func findAvatar() async throws -> Entity
     {
         var avatarId: EntityID? = self.avatarId
-        while avatarId == nil
+        var iter = self.$avatarId.values.compactMap({ $0 }).makeAsyncIterator()
+        while let maybeId = await iter.next()
         {
-            var iter = self.$avatarId.values.makeAsyncIterator()
-            if let next = await iter.next()
-            {
-                avatarId = next
-            }
+            try Task.checkCancellation()
+            if maybeId != nil { avatarId = maybeId; break }
         }
-        return await place.findEntity(id: avatarId!)
+        try Task.checkCancellation()
+        return try await place.findEntity(id: avatarId!)
     }
     @Published public private(set) var isAnnounced: Bool = false
     public private(set) var placeName: String?

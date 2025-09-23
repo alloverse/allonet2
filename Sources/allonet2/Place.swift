@@ -23,9 +23,11 @@ public class Place
     }
     
     /// Wait for a specific entity to come in and return its convenience structure.
-    public func findEntity(id: EntityID) async -> Entity
+    public func findEntity(id: EntityID) async throws -> Entity
     {
-        let edata = await state.findEntity(id)
+        let edata = try await state.findEntity(id)
+        try Task.checkCancellation()
+        // Cancellation should be the only reason why we get nil back, which should make the below force-unwrap safe with the above check
         return entities[edata.id]!
     }
     
