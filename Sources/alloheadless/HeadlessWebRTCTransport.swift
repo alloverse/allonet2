@@ -208,6 +208,11 @@ extension AlloWebRTCPeer.DataChannel : DataChannel
 
 extension AlloWebRTCPeer.Track : MediaStream
 {
+    public func render() -> allonet2.AudioRingBuffer {
+        fatalError("Not implemented")
+        //return AudioRingBuffer(channels: 1, capacityFrames: 48000, canceller: {})
+    }
+    
     public var mediaId: String
     {
         "\(self.streamId)-\(self.trackId)"
@@ -217,8 +222,6 @@ extension AlloWebRTCPeer.Track : MediaStream
     {
         MediaStreamDirection(rawValue: direction.rawValue)!
     }
-    
-    public var streamingAudio : AudioRingBuffer { .init() }
 }
 
 extension MediaForwardingUnit : MediaStreamForwarder
