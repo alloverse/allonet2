@@ -232,13 +232,15 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
             guard case .announceResponse(let avatarId, let placeName) = response.body else
             {
                 print("Announce failed: \(response)")
-                // TODO: Fill in lastError and make it a permanent disconnect
+                self.connectionStatus.lastError = AlloverseError(with: response.body)
+                self.connectionStatus.reconnection = .idle
                 self.disconnect()
                 return
             }
             print("Received announce response: \(response.body)")
             self.avatarId = avatarId
             self.placeName = placeName
+            self.connectionStatus.hasReceivedAnnounceResponse = true
             await heartbeat.markChanged()
         }
     }
