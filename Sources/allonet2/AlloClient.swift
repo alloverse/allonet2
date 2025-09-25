@@ -12,8 +12,14 @@ import FoundationNetworking
 import OpenCombineShim
 
 @MainActor
-open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, EntityMutator
+open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, EntityMutator, Equatable
 {
+    public static func == (lhs: AlloClient, rhs: AlloClient) -> Bool
+    {
+        // .id is `nil` until the connection is established, so we can't really use that.
+        return lhs.url == rhs.url && lhs.identity == rhs.identity
+    }
+
     /// Convenient access to the contents of the connected Place.
     public private(set) lazy var place = Place(state: placeState, client: self)
     /// Access to the more complicated underlying data model for the connected Place.
