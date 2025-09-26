@@ -7,12 +7,14 @@
 
 extension PlaceState
 {
-    /// CFind the historical state at the given revision, and apply the given changeset to it, and use it as the freshly updated current state.
+    /// Find the historical state at the given revision, and apply the given changeset to it, and use it as the freshly updated current state.
     internal func applyChangeSet(_ changeSet: PlaceChangeSet) -> Bool
     {
         guard let old = getHistory(at: changeSet.fromRevision) else { return false }
         
-        let new = old.applyChangeSet(changeSet)
+        guard let new = old.applyChangeSet(changeSet) else {
+            return false
+        }
         if current.revision == changeSet.fromRevision {
             // Using the incoming changeset for callbacks since it's on top of the latest revision
             self.changeSet = changeSet
@@ -116,9 +118,12 @@ extension PlaceContents
         return PlaceChangeSet(changes: changes, fromRevision: previous.revision, toRevision: self.revision)
     }
     
-    internal func applyChangeSet(_ changeSet: PlaceChangeSet) -> PlaceContents
+    internal func applyChangeSet(_ changeSet: PlaceChangeSet) -> PlaceContents?
     {
-        assert(revision == changeSet.fromRevision, "Attempt to apply changeset meant for another revision.")
+        guard revision == changeSet.fromRevision else {
+            print("Attempt to apply changeset meant for another revision.")
+            return nil
+        }
         var entities: [EntityID: EntityData] = self.entities
         var lists = self.components.lists
         for change in changeSet.changes
@@ -134,8 +139,10 @@ extension PlaceContents
                 lists[key, default: [:]][eid] = component
             case .componentUpdated(let eid, let component):
                 let key = type(of:component).componentTypeId
+                guard let _ = lists[key]?[eid] else { return nil }
                 lists[key]![eid]! = component
             case .componentRemoved(let edata, let component):
+                guard let _ = lists[type(of:component).componentTypeId] else { return nil }
                 lists[type(of:component).componentTypeId]![edata.id] = nil
             }
         }
