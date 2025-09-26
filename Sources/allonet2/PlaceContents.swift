@@ -145,7 +145,7 @@ public struct ComponentLists
 {
     public subscript<T>(componentType: T.Type) -> [EntityID: T] where T : Component
     {
-        return lists[componentType.componentTypeId] as! [EntityID: T]
+        return (lists[componentType.componentTypeId] ?? [:]) as! [EntityID: T]
     }
     public subscript(componentTypeID: ComponentTypeID) -> [EntityID: any Component]?
     {
