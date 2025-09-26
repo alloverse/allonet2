@@ -11,6 +11,7 @@ public struct Test2Component: Component
     public var thingie: Int
 }
 
+@MainActor
 final class PlaceCodableTests: XCTestCase
 {
     override func setUp()
@@ -22,7 +23,7 @@ final class PlaceCodableTests: XCTestCase
     func testPlaceEncodingDecoding() throws
     {
         // Create a sample entity.
-        let entity = Entity(id: "entity1", ownerAgentId: "agentA")
+        let entity = EntityData(id: "entity1", ownerClientId: UUID())
         
         // Create a sample ColliderComponent.
         let test = TestComponent(radius: 5.0)
@@ -31,7 +32,7 @@ final class PlaceCodableTests: XCTestCase
         let place = PlaceContents(
             revision: 1,
             entities: [ entity.id: entity],
-            components: Components(lists:[
+            components: ComponentLists(lists:[
                 TestComponent.componentTypeId: [entity.id: test]
             ])
         )
@@ -47,6 +48,7 @@ final class PlaceCodableTests: XCTestCase
     }
 }
 
+@MainActor
 final class PlaceChangeCodingTests: XCTestCase
 {
     override func setUp()
@@ -58,13 +60,14 @@ final class PlaceChangeCodingTests: XCTestCase
     
     func testChangeSetEncodingDecoding() throws
     {
+        let cid = UUID()
         let changeSet = PlaceChangeSet(changes: [
-            .entityAdded(Entity(id: "c", ownerAgentId: "")),
-            .entityRemoved(Entity(id: "b", ownerAgentId: "")),
+            .entityAdded(EntityData(id: "c", ownerClientId: cid)),
+            .entityRemoved(EntityData(id: "b", ownerClientId: cid)),
             .componentAdded("c", TestComponent(radius: 6.0)),
             .componentAdded("c", Test2Component(thingie: 3)),
             .componentUpdated("a", TestComponent(radius: 7.0)),
-            .componentRemoved("b", TestComponent(radius: 5.0))
+            .componentRemoved(EntityData(id: "b", ownerClientId: cid), TestComponent(radius: 5.0))
         ], fromRevision: 0, toRevision: 1)
         
         let encoder = JSONEncoder()
@@ -80,9 +83,9 @@ final class PlaceChangeCodingTests: XCTestCase
     }
 }
 
+@MainActor
 final class PlaceChangeSetTests: XCTestCase
 {
-    
     override func setUp()
     {
         super.setUp()
@@ -93,8 +96,10 @@ final class PlaceChangeSetTests: XCTestCase
     {
         var cancellables = Set<AnyCancellable>()
         let state = PlaceState()
+        
+        let cid = UUID()
         state.changeSet = PlaceChangeSet(changes: [
-            .entityAdded(Entity(id: "entity1", ownerAgentId: "")),
+            .entityAdded(EntityData(id: "entity1", ownerClientId: cid)),
             .componentAdded("entity1", TestComponent(radius: 5.0)),
             .componentUpdated("entity1", TestComponent(radius: 6.0))
         ], fromRevision: 0, toRevision: 1)
@@ -128,10 +133,11 @@ final class PlaceChangeSetTests: XCTestCase
     
     func testChangeSetCreation()
     {
+        let cid = UUID()
         let old = PlaceContents(revision: 1, entities: [
-            "a": Entity(id: "a", ownerAgentId: ""),
-            "b": Entity(id: "b", ownerAgentId: "")
-        ], components: Components(lists: [
+            "a": EntityData(id: "a", ownerClientId: cid),
+            "b": EntityData(id: "b", ownerClientId: cid)
+        ], components: ComponentLists(lists: [
             TestComponent.componentTypeId: [
                 "a": TestComponent(radius: 5.0),
                 "b": TestComponent(radius: 5.0)
@@ -142,9 +148,9 @@ final class PlaceChangeSetTests: XCTestCase
         ]))
         
         let new = PlaceContents(revision: 2, entities: [
-            "a": Entity(id: "a", ownerAgentId: ""),
-            "c": Entity(id: "c", ownerAgentId: "")
-        ], components: Components(lists: [
+            "a": EntityData(id: "a", ownerClientId: cid),
+            "c": EntityData(id: "c", ownerClientId: cid)
+        ], components: ComponentLists(lists: [
             TestComponent.componentTypeId: [
                 "a": TestComponent(radius: 6.0),
                 "c": TestComponent(radius: 7.0)
@@ -166,10 +172,10 @@ final class PlaceChangeSetTests: XCTestCase
             {
             case .entityRemoved(let e) where e.id == "b":
                 bRemoved = true
-            case .componentRemoved(let eid, let comp as TestComponent) where eid == "b" :
+            case .componentRemoved(let edata, let comp as TestComponent) where edata.id == "b" :
                 XCTAssertEqual(comp.radius, 5.0)
                 bCompRemoved = true
-            case .componentRemoved(let eid, let comp as Test2Component) where eid == "a" :
+            case .componentRemoved(let edata, let comp as Test2Component) where edata.id == "a" :
                 XCTAssertEqual(comp.thingie, 4)
                 componentCategoryRemoved = true
             case .componentUpdated(let eid, let comp as TestComponent) where eid == "a":
@@ -194,10 +200,11 @@ final class PlaceChangeSetTests: XCTestCase
     
     func testChangeSetApplication()
     {
+        let cid = UUID()
         let old = PlaceContents(revision: 1, entities: [
-            "a": Entity(id: "a", ownerAgentId: ""),
-            "b": Entity(id: "b", ownerAgentId: "")
-        ], components: Components(lists: [
+            "a": EntityData(id: "a", ownerClientId: cid),
+            "b": EntityData(id: "b", ownerClientId: cid)
+        ], components: ComponentLists(lists: [
             TestComponent.componentTypeId: [
                 "a": TestComponent(radius: 5.0),
                 "b": TestComponent(radius: 5.0)
@@ -205,15 +212,16 @@ final class PlaceChangeSetTests: XCTestCase
         ]))
         
         let changeSet = PlaceChangeSet(changes: [
-            .entityAdded(Entity(id: "c", ownerAgentId: "")),
-            .entityRemoved(Entity(id: "b", ownerAgentId: "")),
+            .entityAdded(EntityData(id: "c", ownerClientId: cid)),
+            .entityRemoved(EntityData(id: "b", ownerClientId: cid)),
             .componentAdded("c", TestComponent(radius: 6.0)),
             .componentAdded("c", Test2Component(thingie: 3)),
             .componentUpdated("a", TestComponent(radius: 7.0)),
-            .componentRemoved("b", TestComponent(radius: 5.0))
+            .componentRemoved(EntityData(id: "b", ownerClientId: cid), TestComponent(radius: 5.0))
         ], fromRevision: 1, toRevision: 2)
         
-        let new = old.applyChangeSet(changeSet)
+        let new: PlaceContents! = old.applyChangeSet(changeSet)
+        XCTAssertNotNil(new)
         
         dump(old)
         dump(changeSet)
@@ -230,12 +238,13 @@ final class PlaceChangeSetTests: XCTestCase
     {
         var cancellables = Set<AnyCancellable>()
         let state = PlaceState()
+        let cid = UUID()
         let change1 = PlaceChangeSet(changes: [
-            .entityAdded(Entity(id: "entity1", ownerAgentId: "")),
+            .entityAdded(EntityData(id: "entity1", ownerClientId: cid)),
         ], fromRevision: 0, toRevision: 1)
         let change2 = PlaceChangeSet(changes: [
-            .entityAdded(Entity(id: "entity1", ownerAgentId: "")),
-            .entityAdded(Entity(id: "entity2", ownerAgentId: "")),
+            .entityAdded(EntityData(id: "entity1", ownerClientId: cid)),
+            .entityAdded(EntityData(id: "entity2", ownerClientId: cid)),
         ], fromRevision: 0, toRevision: 2)
         
         var entity1CallbackCount = 0
