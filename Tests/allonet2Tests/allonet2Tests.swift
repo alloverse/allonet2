@@ -131,6 +131,45 @@ final class PlaceChangeSetTests: XCTestCase
         XCTAssertTrue(componentUpdatedReceived, "Expected updated component event to fire")
     }
     
+    func testInitialCallbacks() throws
+    {
+        var cancellables = Set<AnyCancellable>()
+        let state = PlaceState()
+        let cid = UUID()
+        let success = state.applyChangeSet(PlaceChangeSet(changes: [
+            .entityAdded(EntityData(id: "entity1", ownerClientId: cid)),
+            .componentAdded("entity1", TestComponent(radius: 5.0)),
+        ], fromRevision: 0, toRevision: 1))
+        XCTAssertTrue(success)
+        
+        var entityAddedReceived = false
+        var componentAddedReceived = false
+        var componentUpdatedReceived = false
+        
+        state.observers.entityAddedWithInitial.sink { e in
+            entityAddedReceived = true
+        }.store(in: &cancellables)
+        state.observers[TestComponent.self].addedWithInitial.sink { (eid, comp) in
+            XCTAssertEqual(comp.radius, 5.0, "Expected value to be initial")
+            componentAddedReceived = true
+        }.store(in: &cancellables)
+        state.observers[TestComponent.self].updated.sink { (eid, comp) in
+            XCTAssertEqual(comp.radius, 6.0, "Expected value to be updated and not initial")
+            componentUpdatedReceived = true
+        }.store(in: &cancellables)
+        
+        XCTAssertFalse(componentUpdatedReceived, "Expected updated to not fire, should only be called when new changes come in")
+        
+        let success2 = state.applyChangeSet(PlaceChangeSet(changes: [
+            .componentUpdated("entity1", TestComponent(radius: 6.0))
+        ], fromRevision: 1, toRevision: 2))
+        XCTAssertTrue(success2)
+        
+        XCTAssertTrue(entityAddedReceived, "Expected entity added to fire")
+        XCTAssertTrue(componentAddedReceived, "Expected new component event to fire")
+        XCTAssertTrue(componentUpdatedReceived, "Expected updated component event to fire")
+    }
+    
     func testChangeSetCreation()
     {
         let cid = UUID()

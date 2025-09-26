@@ -33,7 +33,7 @@ public class RealityViewMapper
     /// Start syncing changes from the AlloClient into the associated RealityView Entity. This default implementation creates Entities and most of the Standard Alloverse Components. If you want to also sync any of your own custom components, you must also call `startSyncingOf(networkComponentType:to:using:)`.
     public func startSyncing()
     {
-        netstate.observers.entityAdded.sink { netent in
+        netstate.observers.entityAddedWithInitial.sink { netent in
             let guient = RealityKit.Entity()
             guient.name = netent.id
             self.guiroot.addChild(guient)
@@ -98,7 +98,7 @@ public class RealityViewMapper
         remover: @escaping @MainActor (RealityKit.Entity, allonet2.EntityData, T) -> Void
     ) where T : allonet2.Component
     {
-        netstate.observers[networkComponentType.self].updated.sink { (eid, netcomp) in
+        netstate.observers[networkComponentType.self].updatedWithInitial.sink { (eid, netcomp) in
             guard let guient = self.guiForEid(eid) else { return }
             guard let netent = self.netstate.current.entities[eid] else { return }
             updater(guient, netent, netcomp)

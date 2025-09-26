@@ -38,12 +38,12 @@ public final class ComponentRegistry
     public static let shared = ComponentRegistry()
     
     private var registry: [ComponentTypeID: any Component.Type] = [:]
-    private var factories: [ComponentTypeID: () -> AnyComponentCallbacksProtocol] = [:]
+    private var factories: [ComponentTypeID: (PlaceState) -> AnyComponentCallbacksProtocol] = [:]
     
     public func register<T: Component>(_ type: T.Type)
     {
         registry[type.componentTypeId] = type
-        factories[type.componentTypeId] = { ComponentCallbacks<T>() }
+        factories[type.componentTypeId] = { ComponentCallbacks<T>($0) }
     }
     
     public func component(for typeName: String) -> (any Component.Type)?
@@ -51,9 +51,9 @@ public final class ComponentRegistry
         registry[typeName]
     }
     
-    internal func createCallbacks(for typeID: ComponentTypeID) -> AnyComponentCallbacksProtocol?
+    internal func createCallbacks(for typeID: ComponentTypeID, state: PlaceState) -> AnyComponentCallbacksProtocol?
     {
-        return factories[typeID]?()
+        return factories[typeID]?(state)
     }
 }
 

@@ -51,7 +51,7 @@ public class SpatialAudioPlayer
                 try! await avatar.components.set(LiveMediaListener(mediaIds: streamIds))
             }
         }
-        client.placeState.observers[LiveMedia.self].added.sink { eid, liveMedia in
+        client.placeState.observers[LiveMedia.self].addedWithInitial.sink { eid, liveMedia in
             guard let edata = self.client.placeState.current.entities[eid] else { return }
             guard edata.ownerClientId != self.client.cid else { return }
             streamIds.insert(liveMedia.mediaId)

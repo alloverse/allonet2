@@ -72,12 +72,18 @@ public class PlaceState
         }
     }
     
-    @MainActor deinit {
+    public init()
+    {
+        observers.state = self
+    }
+    
+    // TODO: I did this to detect any awaits that should fail because of object tree teardown; but it's zombie ressurrection doing it in deinit, so it would have to be implemented in a layer above this.
+    /*@MainActor deinit {
         for subject in observers.waitingForEntitySubjects.values
         {
             subject.send(completion: .finished)
         }
-    }
+    }*/
 }
 
 /// A full representation of the world in the connected Place. Everything in a Place is represented as an Entity, but an Entity itself is only an ID; all its attributes are described by its child Components of various types.
@@ -200,6 +206,9 @@ public struct PlaceObservers
 {
     /// There's a new entity.
     public var entityAdded: AnyPublisher<EntityData, Never> { entityAddedSubject.eraseToAnyPublisher() }
+    public var entityAddedWithInitial: AnyPublisher<EntityData, Never> {
+        entityAdded.prepend(state.current.entities.values).eraseToAnyPublisher()
+    }
     /// An entity has been removed.
     public var entityRemoved: AnyPublisher<EntityData, Never> { entityRemovedSubject.eraseToAnyPublisher() }
     internal let entityAddedSubject = PassthroughSubject<EntityData, Never>()
@@ -215,17 +224,18 @@ public struct PlaceObservers
     public subscript<T>(componentType: T.Type) -> ComponentCallbacks<T> where T : Component
     {
         mutating get {
-            return lists[componentType.componentTypeId, setDefault: ComponentCallbacks<T>()] as! ComponentCallbacks<T>
+            return lists[componentType.componentTypeId, setDefault: ComponentCallbacks<T>(state)] as! ComponentCallbacks<T>
         }
     }
     internal subscript(componentTypeID: ComponentTypeID) -> AnyComponentCallbacksProtocol
     {
         mutating get {
-            return lists[componentTypeID, setDefault: ComponentRegistry.shared.createCallbacks(for: componentTypeID)!]
+            return lists[componentTypeID, setDefault: ComponentRegistry.shared.createCallbacks(for: componentTypeID, state: state)!]
         }
     }
     
     private var lists: Dictionary<ComponentTypeID, AnyComponentCallbacksProtocol> = [:]
+    internal weak var state: PlaceState! = nil
 }
 
 @MainActor
@@ -233,8 +243,16 @@ public struct ComponentCallbacks<T: Component>  : AnyComponentCallbacksProtocol
 {
     /// An entity has received a new component of this type
     public var added: AnyPublisher<(EntityID, T), Never> { addedSubject.eraseToAnyPublisher() }
+    public var addedWithInitial: AnyPublisher<(EntityID, T), Never> {
+        let initial = state.current.components[T.self].map { ($0.key, $0.value) }
+        return added.prepend(initial).eraseToAnyPublisher()
+    }
     /// An entity has received an update to a component with the following contents. NOTE: This is also called immediately after `added`, so you can put all your "react to property changes regardless of add or update" in one place.
     public var updated: AnyPublisher<(EntityID, T), Never> { updatedSubject.eraseToAnyPublisher() }
+    public var updatedWithInitial: AnyPublisher<(EntityID, T), Never> {
+        let initial = state.current.components[T.self].map { ($0.key, $0.value) }
+        return updated.prepend(initial).eraseToAnyPublisher()
+    }
     /// A component has been removed from an entity.
     public var removed: AnyPublisher<(EntityData, T), Never> { removedSubject.eraseToAnyPublisher() }
 
@@ -244,6 +262,12 @@ public struct ComponentCallbacks<T: Component>  : AnyComponentCallbacksProtocol
     private let addedSubject = PassthroughSubject<(EntityID, T), Never>()
     private let updatedSubject = PassthroughSubject<(EntityID, T), Never>()
     private let removedSubject = PassthroughSubject<(EntityData, T), Never>()
+    
+    internal init(_ state: PlaceState)
+    {
+        self.state = state
+    }
+    internal weak var state: PlaceState! = nil
 }
 
 
@@ -288,3 +312,4 @@ extension PlaceChange: Equatable {
         }
     }
 }
+
