@@ -79,6 +79,9 @@ public class SpatialAudioPlayer
         // TODO: When non-immersive, set it to be an "ears" sub-entity which is always pointed "forwards" in the camera perspective
         var cameraContent = content as! RealityViewCameraContent
         cameraContent.audioListener = guient
+        
+        // Make sure our custom attenuation system knows who the listener is
+        guient.components.set(AudioListenerComponent())
     }
     
     func play(stream: MediaStream)
