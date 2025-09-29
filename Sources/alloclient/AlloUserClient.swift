@@ -43,8 +43,8 @@ public class AlloUserClient : AlloClient
             // TODO: Move LiveMedia component registration into AlloSession in some sort of createTrack() API
             // Or we do it in transport(:didReceiveMediaStream:)
             createTrackCancellable = $isAnnounced.sink { [weak self] in
-                guard let self, let avatar = self.avatar, $0 else { return }
-                let scid = session.clientId!.shortClientId
+                guard let self, let avatar = self.avatar, let cid = session.clientId, $0 else { return }
+                let scid = cid.shortClientId
                 let tid = "voice-mic" // TODO: Fill in with real track ID
                 Task { @MainActor in
                     guard self.isAnnounced else { return }
