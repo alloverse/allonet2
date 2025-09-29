@@ -42,14 +42,23 @@ public struct SpatialAudioAttenuationSystem: RealityKit.System
             let distance = Double(simd_distance(listenerPosition, sourcePosition))
             let rolloff = Self.rolloff
             
+            let audioCollisions = context.scene.raycast(
+                from: listenerPosition,
+                to: sourcePosition,
+                query: .nearest,
+                mask: AudioCollision.occluder,
+                relativeTo: fieldEntity
+            )
+            
             let ref = Self.referenceDistance
             let maxDist = Self.maxDistance
+            let isOccluded = audioCollisions.count > 0
             
             let newGain: Double
-            if distance < ref {
-                newGain = 0.0
-            } else if distance >= maxDist {
+            if distance >= maxDist || isOccluded {
                 newGain = -.infinity
+            } else if distance < ref {
+                newGain = 0.0
             } else {
                 newGain = 20.0 * log10(ref / distance) * rolloff
             }
@@ -59,7 +68,7 @@ public struct SpatialAudioAttenuationSystem: RealityKit.System
             let epsilonDB = 20.0 * log10(1.0 + linearTolerance)  // ≈ 0.173 dB
             if abs(spatialAudio.gain - newGain) > epsilonDB
             {
-                print("\tSource: \(entity.name) \(distance)m away at \(sourcePosition). Gain: \(spatialAudio.gain) -> \(newGain)")
+                //print("\tSource: \(entity.name) \(distance)m away at \(sourcePosition)\(isOccluded ? " (occluded)":""). Gain: \(spatialAudio.gain) -> \(newGain)")
                 spatialAudio.gain = newGain
                 entity.components[SpatialAudioComponent.self] = spatialAudio
             }
@@ -84,4 +93,9 @@ public struct AudioListenerComponent: RealityKit.Component
 public struct SpatialAudioFieldComponent: RealityKit.Component
 {
     public init() {}
+}
+
+public struct AudioCollision
+{
+    public static let occluder: CollisionGroup = .init(rawValue: 1 << 2)
 }
