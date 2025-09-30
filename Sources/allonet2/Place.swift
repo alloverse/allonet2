@@ -6,7 +6,9 @@
 //
 
 /// This file contains the convenience API for accessing and modifying the contents of a connected Place.
+
 import simd
+import Foundation
 
 /// The current contents of the Place which you are connected, with all its entities and their components. This is the convenience API; for access to the underlying data, look at `PlaceContents`.
 @MainActor
