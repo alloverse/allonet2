@@ -124,7 +124,7 @@ public struct EntityData: Codable, Equatable, Identifiable
 
 /// Base for all component types.
 @MainActor
-public protocol Component: Codable, Equatable
+public protocol Component: Codable, Equatable, CustomStringConvertible
 {
     /// Internals: how to disambiguate this component on the wire protocol
     static var componentTypeId: ComponentTypeID { get }
@@ -291,6 +291,25 @@ extension Component
         // They must be of the same type to be equal.
         guard let other = other as? Self else { return false }
         return self == other
+    }
+}
+
+extension Component
+{
+    public var description: String { self.indentedDescription("") }
+    public func indentedDescription(_ prefix: String) -> String
+    {
+        var desc = "\(prefix)\(Self.componentTypeId):"
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .prettyPrinted
+        guard
+            let data = try? encoder.encode(self),
+            let string = String(data: data, encoding: .utf8)
+         else { return desc }
+        let lines = string.split(separator: "\n").dropFirst().dropLast()
+        desc += "\n\(prefix)\t" + lines.joined(separator: "\n\(prefix)\t")
+        return desc
+        
     }
 }
 

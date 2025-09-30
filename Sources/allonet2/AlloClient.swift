@@ -12,7 +12,7 @@ import FoundationNetworking
 import OpenCombineShim
 
 @MainActor
-open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
+open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, EntityMutator
 {
     /// Convenient access to the contents of the connected Place.
     public private(set) lazy var place = Place(state: placeState, client: self)
@@ -395,3 +395,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable
     }
 }
 
+protocol EntityMutator: AnyObject
+{
+    func changeEntity(entityId: EntityID, addOrChange: [any Component], remove: [ComponentTypeID]) async throws(AlloverseError)
+}

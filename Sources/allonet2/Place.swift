@@ -10,15 +10,15 @@ import simd
 
 /// The current contents of the Place which you are connected, with all its entities and their components. This is the convenience API; for access to the underlying data, look at `PlaceContents`.
 @MainActor
-public class Place
+public class Place: @MainActor CustomStringConvertible
 {
     /// All the entities currently in the place.
     public var entities : LazyMap<EntityID, EntityData, Entity>
     {
         return LazyMap<EntityID, EntityData, Entity>(storage:state.current.entities)
         { [weak self] (k, v) in
-            guard let self, let client = self.client else { fatalError("Accessing world after deconstructing client"); }
-            return Entity(state: self.state, client: client, id: k)
+            guard let self else { fatalError("Accessing world after deconstructing client"); }
+            return Entity(state: self.state, client: self.client, id: k)
         }
     }
     
@@ -39,24 +39,32 @@ public class Place
     
     // This is where it gets its actual data
     private var state: PlaceState
-    private weak var client: AlloClient?
-    internal init(state: PlaceState, client: AlloClient)
+    private weak var client: EntityMutator?
+    internal init(state: PlaceState, client: EntityMutator?)
     {
         self.state = state
         self.client = client
+    }
+    
+    public var description: String
+    {
+        """
+        Place at revision \(state.current.revision):
+        \(entities.map { "\($0.value.indentedDescription("\t"))" }.joined(separator: "\n"))
+        """
     }
 }
 
 /// An entity is the thing in Place that components are part of. This is the convenience API for accessing all the related data for an entity in a single place.
 @MainActor
-public struct Entity
+public struct Entity: @MainActor CustomStringConvertible
 {
     public let id: EntityID
     public let components: ComponentSet
  
     let state: PlaceState
-    private weak var client: AlloClient?
-    internal init(state: PlaceState, client: AlloClient, id: EntityID)
+    private weak var client: EntityMutator?
+    internal init(state: PlaceState, client: EntityMutator?, id: EntityID)
     {
         self.state = state
         self.client = client
@@ -71,7 +79,19 @@ public struct Entity
             return nil
         }
         
-        return Entity(state: state, client: client!, id: parentId)
+        return Entity(state: state, client: client, id: parentId)
+    }
+    
+    public var children: [Entity]
+    {
+        var children = [Entity]()
+        for (eid, rels) in state.current.components[Relationships.self]
+        {
+            if rels.parent == self.id {
+                children.append(Entity(state: state, client: client, id: eid))
+            }
+        }
+        return children
     }
     
     public var transformToParent: simd_float4x4 {
@@ -87,11 +107,27 @@ public struct Entity
         
         return transform
     }
+    
+    public var description: String { self.indentedDescription("") }
+    public func indentedDescription(_ prefix: String) -> String
+    {
+        let desc = """
+        \(prefix)<Entity \(id)>
+        \(prefix)Components:
+        \(components.indentedDescription("\(prefix)\t"))
+        """
+        let ch = children
+        if ch.count == 0 { return desc }
+        return desc + """
+        \n\(prefix)Children:
+        \( ch.map { $0.indentedDescription("\(prefix)\t") }.joined(separator: "\n") )
+        """
+    }
 }
 
 /// All the components that a single Entity contains in one place.
 @MainActor
-public struct ComponentSet
+public struct ComponentSet: @MainActor CustomStringConvertible
 {
     public subscript<T>(componentType: T.Type) -> T? where T : Component
     {
@@ -100,7 +136,7 @@ public struct ComponentSet
     public func set<T>(_ newValue: T) async throws(AlloverseError) where T: Component
     {
         guard let client else { fatalError("Modifying world after deconstructing client"); }
-        try await client.changeEntity(entityId: id, addOrChange: [newValue])
+        try await client.changeEntity(entityId: id, addOrChange: [newValue], remove: [])
     }
     public subscript(componentTypeID: ComponentTypeID) -> (any Component)?
     {
@@ -108,12 +144,20 @@ public struct ComponentSet
     }
     
     private let state: PlaceState
-    private weak var client: AlloClient?
+    private weak var client: EntityMutator?
     private let id: EntityID
-    internal init(state: PlaceState, client: AlloClient, id: EntityID)
+    internal init(state: PlaceState, client: EntityMutator?, id: EntityID)
     {
         self.state = state
         self.client = client
         self.id = id
     }
+    
+    public var description: String { self.indentedDescription("") }
+    public func indentedDescription(_ prefix: String) -> String
+    {
+        let comps = state.current.components.componentsForEntity(id).values
+        return comps.map { $0.indentedDescription(prefix) }.joined(separator: "\n")
+    }
 }
+

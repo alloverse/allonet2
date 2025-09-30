@@ -10,6 +10,11 @@ public struct Test2Component: Component
 {
     public var thingie: Int
 }
+public struct Test3Component: Component
+{
+    public var radius: Double
+    public var whatever: String
+}
 
 @MainActor
 final class PlaceCodableTests: XCTestCase
@@ -18,6 +23,7 @@ final class PlaceCodableTests: XCTestCase
     {
         super.setUp()
         TestComponent.register()
+        Test3Component.register()
     }
     
     func testPlaceEncodingDecoding() throws
@@ -45,6 +51,27 @@ final class PlaceCodableTests: XCTestCase
         let decodedPlace = try decoder.decode(PlaceContents.self, from: data)
         
         XCTAssertEqual(place, decodedPlace, "The decoded Place should equal the original Place.")
+    }
+    
+    func testEntityDescription() throws
+    {
+        let e1 = EntityData(id: "entity1", ownerClientId: UUID())
+        let e1test = Test3Component(radius: 5.0, whatever: "asdf")
+        let e2 = EntityData(id: "entity2", ownerClientId: UUID())
+        let e2test = Test3Component(radius: 6.0, whatever: "qwer")
+        let e2rel = Relationships(parent: e1.id)
+        
+        let state = PlaceState()
+        state.current = PlaceContents(
+            revision: 1,
+            entities: [ e1.id: e1, e2.id: e2],
+            components: ComponentLists(lists:[
+                Test3Component.componentTypeId: [e1.id: e1test, e2.id: e2test],
+                Relationships.componentTypeId: [e2.id: e2rel]
+            ])
+        )
+        let place = Place(state: state, client: nil)
+        print("Place: \(place)")
     }
 }
 
@@ -79,7 +106,6 @@ final class PlaceChangeCodingTests: XCTestCase
         
         XCTAssertEqual(changeSet, decodedChangeSet, "The decoded ChangeSet should equal the original ChangeSet.")
         XCTAssertEqual(decodedChangeSet.toRevision, 1, "Unexpected revision number in decoded ChangeSet.")
-        
     }
 }
 
