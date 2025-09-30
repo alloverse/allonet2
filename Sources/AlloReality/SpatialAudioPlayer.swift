@@ -99,11 +99,11 @@ public class SpatialAudioPlayer
         
         // TODO: Pick these up as settings from an Alloverse component
         let spatial = SpatialAudioComponent(
-            gain: 0,
+            gain: 0, // Overridden by `SpatialAudioAttenuationSystem`
             directLevel: .zero,
             reverbLevel: .zero,
-            directivity: .beam(focus: .zero),//.beam(focus: 0.8),
-            distanceAttenuation: .rolloff(factor: 20.0)
+            directivity: .beam(focus: 0.8),
+            distanceAttenuation: .rolloff(factor: 0.0) // Don't do attenuation here, but in `SpatialAudioAttenuationSystem` instead.
         )
         guient.components.set(spatial)
         
