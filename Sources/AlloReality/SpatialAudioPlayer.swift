@@ -19,18 +19,17 @@ public class SpatialAudioPlayer
     let mapper: RealityViewMapper
     let client: AlloUserClient
     let content: RealityViewContentProtocol
-    let avatarId: EntityID
+    let listenerEid: EntityID
     fileprivate var state: [MediaStreamId: SpatialAudioPlaybackState] = [:]
     var cancellables: Set<AnyCancellable> = []
     
-    // TODO: Maybe take which entity to attach Listeners to instead of assuming avatar?
-    /// Construct a SpatialAudioPlayer which uses `mapper` to create audio related components and `client` to react to network events. Note: announce must have completed and avatar exist before instantiating this class.
-    public init(mapper: RealityViewMapper, client: AlloUserClient, content: RealityViewContentProtocol, avatarId: EntityID)
+    /// Construct a SpatialAudioPlayer which uses `mapper` to create audio related components and `client` to react to network events. Note: announce must have completed and avatar exist before instantiating this class. listenerEid should be the avatar or one of its decendants.
+    public init(mapper: RealityViewMapper, client: AlloUserClient, content: RealityViewContentProtocol, listenerEid: EntityID)
     {
         self.mapper = mapper
         self.client = client
         self.content = content
-        self.avatarId = avatarId
+        self.listenerEid = listenerEid
         start()
     }
     
@@ -38,9 +37,9 @@ public class SpatialAudioPlayer
     func start()
     {
         // 0. Setup audio listener
-        let avatar = client.avatar!
-        let guient = self.mapper.guiForEid(avatarId)!
-        self.useAsListener(guient)
+        let listener = client.place.entities[listenerEid]!
+        let guiListener = self.mapper.guiForEid(listenerEid)!
+        self.useAsListener(guiListener)
         
         // 1. Setup listeners to get incoming tracks. Just ask to get everything (except our own audio) forwarded.
         var streamIds = Set<String>()
@@ -48,7 +47,7 @@ public class SpatialAudioPlayer
         {
             Task { @MainActor in
                 print("SpatialAudioPlayer Updating listener to forward \(streamIds)")
-                try! await avatar.components.set(LiveMediaListener(mediaIds: streamIds))
+                try? await listener.components.set(LiveMediaListener(mediaIds: streamIds))
             }
         }
         client.placeState.observers[LiveMedia.self].addedWithInitial.sink { eid, liveMedia in
