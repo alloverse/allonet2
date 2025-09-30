@@ -12,7 +12,7 @@ import Foundation
 
 /// The current contents of the Place which you are connected, with all its entities and their components. This is the convenience API; for access to the underlying data, look at `PlaceContents`.
 @MainActor
-public class Place: @MainActor CustomStringConvertible
+public class Place: CustomStringConvertible
 {
     /// All the entities currently in the place.
     public var entities : LazyMap<EntityID, EntityData, Entity>
@@ -59,7 +59,7 @@ public class Place: @MainActor CustomStringConvertible
 
 /// An entity is the thing in Place that components are part of. This is the convenience API for accessing all the related data for an entity in a single place.
 @MainActor
-public struct Entity: @MainActor CustomStringConvertible
+public struct Entity: CustomStringConvertible
 {
     public let id: EntityID
     public let components: ComponentSet
@@ -129,7 +129,7 @@ public struct Entity: @MainActor CustomStringConvertible
 
 /// All the components that a single Entity contains in one place.
 @MainActor
-public struct ComponentSet: @MainActor CustomStringConvertible
+public struct ComponentSet: CustomStringConvertible
 {
     public subscript<T>(componentType: T.Type) -> T? where T : Component
     {
