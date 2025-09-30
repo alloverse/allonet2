@@ -42,11 +42,14 @@ public class ConnectionStatus: ObservableObject
     @Published public var iceGathering: ConnectionState = .idle
     @Published public var iceConnection: ConnectionState = .idle
     @Published public var data: ConnectionState = .idle
-    
+
+    // Set to true once the connection/session has received a successful announce response.
+    @Published public var hasReceivedAnnounceResponse: Bool = false
+
     var debugDescription: String {
         "state: \(reconnection), error: \(String(describing: self.lastError)), willReconnectAt: \(String(describing: self.willReconnectAt))"
     }
-    public init(reconnection: ReconnectionState = .idle, lastError: Error? = nil, willReconnectAt: Date? = nil, signalling: ConnectionState = .idle, iceGathering: ConnectionState = .idle, iceConnection: ConnectionState = .idle, data: ConnectionState = .idle)
+    public init(reconnection: ReconnectionState = .idle, lastError: Error? = nil, willReconnectAt: Date? = nil, signalling: ConnectionState = .idle, iceGathering: ConnectionState = .idle, iceConnection: ConnectionState = .idle, data: ConnectionState = .idle, hasReceivedAnnounceResponse: Bool = false)
     {
         self.reconnection = reconnection
         self.lastError = lastError
@@ -55,5 +58,6 @@ public class ConnectionStatus: ObservableObject
         self.iceGathering = iceGathering
         self.iceConnection = iceConnection
         self.data = data
+        self.hasReceivedAnnounceResponse = hasReceivedAnnounceResponse
     }
 }

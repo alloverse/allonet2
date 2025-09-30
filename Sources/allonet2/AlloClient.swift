@@ -12,8 +12,14 @@ import FoundationNetworking
 import OpenCombineShim
 
 @MainActor
-open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, EntityMutator
+open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, EntityMutator, Equatable
 {
+    public static func == (lhs: AlloClient, rhs: AlloClient) -> Bool
+    {
+        // .id is `nil` until the connection is established, so we can't really use that.
+        return lhs.url == rhs.url && lhs.identity == rhs.identity
+    }
+
     /// Convenient access to the contents of the connected Place.
     public private(set) lazy var place = Place(state: placeState, client: self)
     /// Access to the more complicated underlying data model for the connected Place.
@@ -232,13 +238,15 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
             guard case .announceResponse(let avatarId, let placeName) = response.body else
             {
                 print("Announce failed: \(response)")
-                // TODO: Fill in lastError and make it a permanent disconnect
+                self.connectionStatus.lastError = AlloverseError(with: response.body)
+                self.connectionStatus.reconnection = .idle
                 self.disconnect()
                 return
             }
             print("Received announce response: \(response.body)")
             self.avatarId = avatarId
             self.placeName = placeName
+            self.connectionStatus.hasReceivedAnnounceResponse = true
             await heartbeat.markChanged()
         }
     }
