@@ -102,7 +102,7 @@ public class SpatialAudioPlayer
             gain: 0, // Overridden by `SpatialAudioAttenuationSystem`
             directLevel: .zero,
             reverbLevel: .zero,
-            directivity: .beam(focus: 0.8),
+            directivity: .beam(focus: 0.3),
             distanceAttenuation: .rolloff(factor: 0.0) // Don't do attenuation here, but in `SpatialAudioAttenuationSystem` instead.
         )
         guient.components.set(spatial)
