@@ -26,10 +26,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     
     private var connectionStatus: ConnectionStatus
     
-    // TODO: This is PlanB semantics. Remove.
-    private let offerAnswerConstraints = LKRTCMediaConstraints(mandatoryConstraints: [
-        kLKRTCMediaConstraintsOfferToReceiveAudio: kLKRTCMediaConstraintsValueTrue
-    ], optionalConstraints: [:])
+    private let offerAnswerConstraints = LKRTCMediaConstraints(mandatoryConstraints: [:], optionalConstraints: [:])
     
     private let audioSessionActive = false
     
