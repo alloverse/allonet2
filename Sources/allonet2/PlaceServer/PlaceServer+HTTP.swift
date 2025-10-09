@@ -95,11 +95,12 @@ extension PlaceServer
     func handleIncomingClient(_ request: HTTPRequest) async throws -> HTTPResponse
     {
         let offer = try await JSONDecoder().decode(SignallingPayload.self, from: request.bodyData)
-            
+        
+        let connectionStatus = ConnectionStatus()
         let transport = transportClass.init(with: options, status: connectionStatus)
         let session = AlloSession(side: .server, transport: transport)
         session.delegate = self
-        let client = ConnectedClient(session: session)
+        let client = ConnectedClient(session: session, status: connectionStatus)
         
         print("Received new client \(client.cid)")
         session.transport.clientId = client.cid

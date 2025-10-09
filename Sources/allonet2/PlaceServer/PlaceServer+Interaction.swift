@@ -137,6 +137,7 @@ extension PlaceServer
             }
 
         case .announce(let version, let identity, let avatarDescription):
+            client.identity = identity
             guard
                 let semantic = Version(version),
                 Allonet.version().serverIsCompatibleWith(clientVersion: semantic)

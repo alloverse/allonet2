@@ -113,6 +113,7 @@ public enum MediaStreamDirection: UInt32
     case sendrecv = 3
     
     public var isRecv: Bool { self == .recvonly || self == .sendrecv }
+    public var isSend: Bool { self == .sendonly || self == .sendrecv }
 }
 
 public typealias MediaStreamId = String
