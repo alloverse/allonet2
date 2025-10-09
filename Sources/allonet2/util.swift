@@ -190,6 +190,14 @@ public struct LazyMap<K: Hashable, V, V2>: Collection
         // Lazily transform only when requested.
         return mapper(key, v)
     }
+    
+    public var keys: [K] {
+        [K](storage.keys)
+    }
+    
+    public var values: [V2] {
+        storage.map { mapper($0.key, $0.value) }
+    }
 }
 
 
