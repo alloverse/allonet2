@@ -23,6 +23,7 @@ public class PlaceServer : AlloSessionDelegate
     let options: TransportConnectionOptions
     
     var sfu: PlaceServerSFU!
+    var status: PlaceServerStatus!
     
     var outstandingClientToClientInteractions: [Interaction.RequestID: ClientId] = [:]
     internal var authenticationProvider: ConnectedClient?
@@ -53,7 +54,11 @@ public class PlaceServer : AlloSessionDelegate
         self.transportClass = transportClass
         self.http = HTTPServer(port: httpPort)
         self.options = options
-        self.sfu = PlaceServerSFU(server: self)
+    }
+    func startSubsystems()
+    {
+        sfu = PlaceServerSFU(server: self)
+        status = PlaceServerStatus(server: self)
     }
     
     public func session(didConnect sess: AlloSession)

@@ -20,12 +20,15 @@ extension PlaceServer
 {
     public func start() async throws
     {
+        startSubsystems()
+        
         let myIp = options.ipOverride?.to ?? "localhost"
         print("Serving '\(name)' at http://\(myIp):\(httpPort)/ and UDP ports \(options.portRange)")
 
         // On incoming connection, create a WebRTC socket.
         await http.appendRoute("POST /", handler: self.handleIncomingClient)
         await http.appendRoute("GET /", handler: self.landingPage)
+        await http.appendRoute("GET /status", handler: self.status.page)
             
         try await http.start()
     }
