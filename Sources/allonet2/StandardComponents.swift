@@ -32,6 +32,10 @@ public struct Transform: Component
         matrix.rotation = rotation
         //matrix.scale = scale
     }
+    
+    var translation: SIMD3<Float> { matrix.translation }
+    var rotation: simd_quatf { matrix.rotation }
+    var scale: SIMD3<Float> { matrix.scale }
 }
 
 public struct Relationships: Component
@@ -214,4 +218,24 @@ func RegisterStandardComponents()
     VisorInfo.register()
     LiveMedia.register()
     LiveMediaListener.register()
+}
+
+extension Transform
+{
+    public func indentedDescription(_ prefix: String) -> String
+    {
+        let t = self.translation
+        let raxis = self.rotation.axis
+        let rangle = self.rotation.angle * (180.0/Float.pi)
+        let s = self.scale
+        
+        var desc = """
+            \(prefix)Transform:
+                translation [\(t.x), \(t.y), \(t.z)]
+                rotation \(rangle)° around [\(raxis.x), \(raxis.y), \(raxis.z)]
+                scale [\(s.x), \(s.y), \(s.z)]
+        """
+        
+        return desc
+    }
 }

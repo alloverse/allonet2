@@ -128,6 +128,9 @@ public protocol Component: Codable, Equatable, CustomStringConvertible
 {
     /// Internals: how to disambiguate this component on the wire protocol
     static var componentTypeId: ComponentTypeID { get }
+    
+    // For debugging
+    func indentedDescription(_ prefix: String) -> String
 }
 
 public extension Component
@@ -309,7 +312,6 @@ extension Component
         let lines = string.split(separator: "\n").dropFirst().dropLast()
         desc += "\n\(prefix)\t" + lines.joined(separator: "\n\(prefix)\t")
         return desc
-        
     }
 }
 
