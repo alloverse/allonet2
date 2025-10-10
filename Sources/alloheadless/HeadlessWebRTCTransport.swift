@@ -146,6 +146,7 @@ public class HeadlessWebRTCTransport: Transport
     public func disconnect()
     {
         peer.close()
+        delegate?.transport(didDisconnect: self) // Apparently libdatachannel doesn't call it when manually closing peer??
         clientId = nil
         cancellables.forEach { $0.cancel() }
     }

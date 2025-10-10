@@ -76,8 +76,10 @@ public class PlaceServer : AlloSessionDelegate
         Task { @MainActor in
             await self.removeEntites(ownedBy: cid)
             await self.heartbeat.awaitNextSync() // trigger callbacks for disappearing entities and their components before removing client
-            self.clients.removeValue(forKey: cid)
-            self.unannouncedClients[cid] = nil
+            if let client = self.clients.removeValue(forKey: cid) ?? self.unannouncedClients.removeValue(forKey: cid)
+            {
+                print("Lost session for client \(cid) (\(client.announced ? "announced" : "unannounced")) was named \(client.identity?.displayName ?? "--")/\(client.identity?.emailAddress ?? "--"), and is now removed.")
+            }
             if authenticationProvider?.cid == cid
             {
                 print("Lost client was our authentication provider, removing it")
