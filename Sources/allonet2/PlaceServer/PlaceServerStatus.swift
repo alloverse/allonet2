@@ -52,7 +52,7 @@ struct PlaceServerStatus
                     
 
                     /* Core table */
-                    table.client-table {
+                    table {
                       border-collapse: separate;
                       border-spacing: 0;
                       width: 100%;
@@ -64,7 +64,7 @@ struct PlaceServerStatus
                     }
 
                     /* Sticky header */
-                    table.client-table thead th {
+                    table thead th {
                       position: sticky;
                       top: 0;
                       z-index: 1;
@@ -80,8 +80,8 @@ struct PlaceServerStatus
                     }
 
                     /* Cells */
-                    table.client-table th,
-                    table.client-table td {
+                    table th,
+                    table td {
                       padding: 10px 12px;
                       vertical-align: top;
                       border-bottom: 1px solid rgba(0,0,0,.06);
@@ -90,25 +90,22 @@ struct PlaceServerStatus
                     }
 
                     /* Zebra rows + hover */
-                    table.client-table tbody tr:nth-child(even) { background: #fcfcfd; }
-                    table.client-table tbody tr:hover { background: #f5f7ff; }
+                    table tbody tr:nth-child(even) { background: #fcfcfd; }
+                    table tbody tr:hover { background: #f5f7ff; }
 
                     /* Column-specific tweaks (1-based) */
-                    table.client-table td:nth-child(1) {        /* Client ID */
+                    table td:nth-child(1) {        /* Client ID */
                       font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
                       white-space: nowrap;
                     }
 
-                    table.client-table td:nth-child(4),
-                    table.client-table td:nth-child(6),
-                    table.client-table td:nth-child(7) {        /* Revision + counts */
-                      text-align: right;
+                    table td:nth-child(4) {        /* Revision */
                       font-variant-numeric: tabular-nums;
                       white-space: nowrap;
                     }
 
                     /* Status cell: make the <br/>-separated lines read like a list */
-                    table.client-table td:nth-child(5) {        /* Connection status column */
+                    table td:nth-child(5) {        /* Connection status column */
                       font-size: 12px;
                       line-height: 1.35;
                       color: #222;
@@ -151,7 +148,7 @@ struct PlaceServerStatus
                 
                 <h2>Media streams and forwarding state</h2>
                 
-                // todo
+                    \(sfuTable)
                 
             </body>
             </html>
@@ -194,15 +191,14 @@ struct PlaceServerStatus
     var clientTable: String
     {
         return """
-            <table class="client-table">
+            <table>
                 <thead><tr>
                     <th>Client ID</th>
                     <th>Identity</th>
                     <th>Avatar</th>
                     <th width="70">Revision</th>
                     <th>Connection status</th>
-                    <th>Ingress streams</th>
-                    <th>Egress streams</th>
+                    <th>Streams</th>
                 </tr></thead>
             """ +
             server.clients.values.map { client in
@@ -220,8 +216,9 @@ struct PlaceServerStatus
                 \t\t\t\t    <td>\(client.avatar?.short ?? "--")</td>
                 \t\t\t\t    <td>\(client.ackdRevision ?? -1)</td>
                 \t\t\t\t    <td>\(status)</td>
-                \t\t\t\t    <td>\(client.session.incomingStreams.filter { $0.value.streamDirection.isSend }.keys.joined(separator: ", "))</td>
-                \t\t\t\t    <td>\(client.session.incomingStreams.filter { $0.value.streamDirection.isRecv }.keys.joined(separator: ", "))</td>
+                \t\t\t\t    <td>\(client.session.incomingStreams.values.map {
+                    "<span class=\"badge\">\($0.mediaId) <i>\($0.streamDirection)</i></span>"
+                }.joined(separator: "\n"))</td>
                 \t\t\t\t</tr>
                 """
             }.joined(separator: "\n\t\t\t\t") +
@@ -245,6 +242,76 @@ struct PlaceServerStatus
             spanFor(named: "iceConnection", status.iceConnection) +
             spanFor(named: "data", status.data)
     }
+    
+    var sfuTable: String
+    {
+        let available = """
+            <h3>Available streams</h3>
+            <table>
+                <thead><tr>
+                    <th>Source client</th>
+                    <th>PlaceStreamId</th>
+                </tr></thead>
+            """ +
+            server.sfu.available.map { (psid, stream) in
+                
+                return """
+                \t\t\t\t<tr>
+                \t\t\t\t    <td>\(psid.shortClientId)</td>
+                \t\t\t\t    <td>\(psid.outgoingMediaId)</td>
+                \t\t\t\t</tr>
+                """
+            }.joined(separator: "\n\t\t\t\t") +
+            "</table>"
+        let desired = """
+            <h3>Desired stream forwardings</h3>
+                <table>
+                    <thead><tr>
+                        <th>Source stream ID</th>
+                        <th>Target client ID</th>
+                    </tr></thead>
+            """ +
+            server.sfu.desired.map { (fi) in
+                return """
+                \t\t\t\t<tr>
+                \t\t\t\t    <td>\(fi.source)</td>
+                \t\t\t\t    <td>\(fi.target)</td>
+                \t\t\t\t</tr>
+                """
+            }.joined(separator: "\n\t\t\t\t") +
+            "</table>"
+        
+        let active = """
+            <h3>Active stream forwardings</h3>
+                <table>
+                    <thead><tr>
+                        <th>Source stream ID</th>
+                        <th>Target client ID</th>
+                        <th>SSRC</th>
+                        <th>PT</th>
+                        <th>Message count</th>
+                        <th>Last error</th>
+                        <th>Errored at</th>
+                    </tr></thead>
+            """ +
+            server.sfu.active.map { (fi, forwarder) in
+                return """
+                \t\t\t\t<tr>
+                \t\t\t\t    <td>\(fi.source)</td>
+                \t\t\t\t    <td>\(fi.target)</td>
+                \t\t\t\t    <td>\(forwarder.ssrc)</td>
+                \t\t\t\t    <td>\(forwarder.pt)</td>
+                \t\t\t\t    <td>\(forwarder.forwardedMessageCount)</td>
+                \t\t\t\t    <td>\(forwarder.lastError)</td>
+                \t\t\t\t    <td>\(forwarder.lastErrorAt)</td>
+                \t\t\t\t</tr>
+                """
+            }.joined(separator: "\n\t\t\t\t") +
+            "</table>"
+        
+        return "\(available)\n\(desired)\n\(active)"
+    }
+    
 }
 
 extension EntityID {

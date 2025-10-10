@@ -48,14 +48,14 @@ class PlaceServerSFU
 {
     /// This is done by reconciling two async event streams:
     /// 1. Requests for **desired streams** come in as component changes of the type `LiveMediaListener`
-    private var desired = Set<ForwardingId>()
+    internal var desired = Set<ForwardingId>()
 
     /// 2. WebRTC events indicate **available** streams
-    private var available: [PlaceStreamId: PlaceStream] = [:] // All the incoming streams that are available for forwarding.
+    internal var available: [PlaceStreamId: PlaceStream] = [:] // All the incoming streams that are available for forwarding.
     private var availableIds: Set<PlaceStreamId> { Set(available.keys) }
     
     /// Then: **active** streams are active forwarders that forwards an available stream when it is desired.
-    private var active: [ForwardingId: MediaStreamForwarder] = [:] // the currently forwarding streams
+    internal var active: [ForwardingId: MediaStreamForwarder] = [:] // the currently forwarding streams
     private var activeIds: Set<ForwardingId> { Set(active.keys) }
     
     // Internals
