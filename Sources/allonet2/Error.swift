@@ -27,6 +27,8 @@ public enum AlloverseErrorCode: Int
     case unhandledRequest = 1   // The recipient doesn't know how to respond to this interaction
     case unexpectedResponse = 2 // Interaction received some other response than was expected
     
+    case incompatibleProtocolVersion = 10 // Client's allonet is too old or too new
+    
     case failedSignalling = 100 // Failed to establish signalling
     case failedRenegotiation = 101 // Connection environment changed, but underlying connection failed to adapt
 }

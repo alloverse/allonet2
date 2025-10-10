@@ -37,8 +37,15 @@ extension PlaceServer
             guard
                 let semantic = Version(version),
                 Allonet.version().serverIsCompatibleWith(clientVersion: semantic)
-            else {
+            else
+            {
                 print("Client \(client.cid) has incompatible version (server \(Allonet.version()), client \(version)), disconnecting.")
+                client.session.send(interaction: inter.makeResponse(with: .error(
+                    domain: AlloverseErrorCode.domain,
+                    code: AlloverseErrorCode.incompatibleProtocolVersion.rawValue,
+                    description: "Client version \(version) is incompatible with server version \(Allonet.version()). Please update your app."
+                )))
+                // TODO: Send error as disconnection reason
                 client.session.disconnect()
                 return
             }
@@ -53,7 +60,9 @@ extension PlaceServer
 
                 switch answer.body {
                 case .success: break
-                case .error(let domain, let code, let description): fallthrough
+                case .error(let domain, let code, let description):
+                    print("Client \(client.cid) failed authentication (\(domain)#\(code)): \(description). Disconnecting.")
+                    fallthrough
                 default:
                     // Should we forward the error details back to the client?
                     let error: InteractionBody = .error(domain: PlaceErrorCode.domain,
