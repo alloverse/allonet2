@@ -78,7 +78,8 @@ class PlaceServerSFU
         // Changes to the LiveMediaListener component indicates a request from a client to start or stop receiving a media stream. Start or stop a Forwarder based on this. This will also trigger stopping when a client disconnects, since the client dropping will lead to its entities and thus LiveMediaListener components disappearing.
         var olds: [EntityID: Set<String>] = [:]
         server.place.observers[LiveMediaListener.self].updatedWithInitial.sink { (eid, comp) in
-            let cid = self.server.place.current.entities[eid]!.ownerClientId
+            // entity might not exist in case it was removed in the same heartbeat that the listener was updated
+            guard let cid = self.server.place.current.entities[eid]?.ownerClientId else { return }
             let new = comp.mediaIds
             let old = olds.updateValue(new, forKey: eid) ?? []
             for lostMediaId in old.subtracting(new).flatMap(\.psi) {
