@@ -27,7 +27,7 @@ internal struct PlaceStream: CustomStringConvertible
     }
     
     public var description: String {
-        "<PlaceStream for \(psi)>"
+        "<PlaceStream \(psi) around \(stream)>"
     }
 }
 
@@ -106,6 +106,9 @@ class PlaceServerSFU
     /// A new incoming stream arrived. Keep track of it in case someone wants it in the future.
     internal func handle(incoming stream: MediaStream, from sender: ConnectedClient)
     {
+        // Only ingress streams should be marked as available for forwarding
+        if stream.streamDirection == .sendonly { return }
+        
         let incoming = PlaceStream(sender: sender, stream: stream)
         print("PlaceServer SFU got new stream \(incoming)")
         available[incoming.psi] = incoming
