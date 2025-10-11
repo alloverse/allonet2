@@ -19,29 +19,47 @@ public class SpatialAudioPlayer
     let mapper: RealityViewMapper
     let client: AlloUserClient
     let content: RealityViewContentProtocol
-    let listenerEid: EntityID
+    let listenerEid: EntityID? = nil
     fileprivate var state: [MediaStreamId: SpatialAudioPlaybackState] = [:]
-    var cancellables: Set<AnyCancellable> = []
+    var streamCancellables: Set<AnyCancellable> = []
+    var listenerCancellables: Set<AnyCancellable> = []
     
-    /// Construct a SpatialAudioPlayer which uses `mapper` to create audio related components and `client` to react to network events. Note: announce must have completed and avatar exist before instantiating this class. listenerEid should be the avatar or one of its decendants.
-    public init(mapper: RealityViewMapper, client: AlloUserClient, content: RealityViewContentProtocol, listenerEid: EntityID)
+    /// Construct a SpatialAudioPlayer which uses `mapper` to create audio related components and `client` to react to network events. Note: announce must have completed and avatar exist before instantiating this class.
+    public init(mapper: RealityViewMapper, client: AlloUserClient, content: RealityViewContentProtocol)
     {
         self.mapper = mapper
         self.client = client
         self.content = content
-        self.listenerEid = listenerEid
         start()
     }
     
     // Guaranteed to be called _after_ avatar and initial state is loaded
     func start()
     {
-        // 0. Setup audio listener
-        let listener = client.place.entities[listenerEid]!
-        let guiListener = self.mapper.guiForEid(listenerEid)!
-        self.useAsListener(guiListener)
+        client.session.$incomingStreams.sinkChanges(added: { (key, value) in
+            self.play(stream: value)
+        }, removed: { (key, value) in
+            self.stop(streamId: key)
+        }).store(in: &streamCancellables)
+    }
+    
+    public func useAsListener(_ listenerEid: EntityID)
+    {
+        listenerCancellables.forEach { $0.cancel() }; listenerCancellables.removeAll()
+        // TODO: In case we change listener for some other reason than a new avatar from reconnection, we should remove listening requests from the old listener.
         
-        // 1. Setup listeners to get incoming tracks. Just ask to get everything (except our own audio) forwarded.
+        let listener = client.place.entities[listenerEid]!
+        let guient = self.mapper.guiForEid(listenerEid)!
+        print("SpatialAudioPlayer using \(listenerEid) as RealityKit listener")
+
+        // TODO: When non-immersive, set it to be an "ears" sub-entity which is always pointed "forwards" in the camera perspective
+        var cameraContent = content as! RealityViewCameraContent
+        cameraContent.audioListener = guient
+        
+        // Make sure our custom attenuation system knows who the listener is
+        guient.components.set(AudioListenerComponent())
+        
+        // Setup listeners to get incoming tracks. Just ask to get everything (except our own audio) forwarded.
         var streamIds = Set<String>()
         func updateListener()
         {
@@ -56,36 +74,18 @@ public class SpatialAudioPlayer
             streamIds.insert(liveMedia.mediaId)
             self.state[liveMedia.mediaId] = SpatialAudioPlaybackState(streamId: liveMedia.mediaId, eid: eid)
             updateListener()
-        }.store(in: &cancellables)
+        }.store(in: &listenerCancellables)
         client.placeState.observers[LiveMedia.self].removed.sink { _eid, liveMedia in
             streamIds.remove(liveMedia.mediaId)
             updateListener()
             self.stop(streamId: liveMedia.mediaId)
-        }.store(in: &cancellables)
-        
-        client.session.$incomingStreams.sinkChanges(added: { (key, value) in
-            print("SpatialAudioPlayer[\(key)] playing \(value)")
-            self.play(stream: value)
-        }, removed: { (key, value) in
-            print("SpatialAudioPlayer[\(key)] stopping \(value)")
-            self.stop(streamId: key)
-        }).store(in: &cancellables)
-    }
-    
-    func useAsListener(_ guient: RealityKit.Entity)
-    {
-        print("SpatialAudioPlayer using \(guient.name) as RealityKit listener")
-        // TODO: When non-immersive, set it to be an "ears" sub-entity which is always pointed "forwards" in the camera perspective
-        var cameraContent = content as! RealityViewCameraContent
-        cameraContent.audioListener = guient
-        
-        // Make sure our custom attenuation system knows who the listener is
-        guient.components.set(AudioListenerComponent())
+        }.store(in: &listenerCancellables)
     }
     
     func play(stream: MediaStream)
     {
         guard stream.streamDirection.isRecv else { return }
+        print("SpatialAudioPlayer[\(stream.mediaId)] playing \(stream)")
     
         guard
             let playState = state[stream.mediaId],
@@ -131,8 +131,9 @@ public class SpatialAudioPlayer
     
     func stop(streamId: MediaStreamId)
     {
-        print("SpatialAudioPlayer[\(streamId)] Tearing down LiveMedia renderer")
         guard let playState = state[streamId] else { return }
+        print("SpatialAudioPlayer[\(streamId)] Stopping \(playState.streamId); tearing down LiveMedia renderer")
+        
         let guient = mapper.guiForEid(playState.eid)
         
         print("SpatialAudioPlayer[\(streamId)] was attached to \(playState.eid), disabling it...")
@@ -144,7 +145,8 @@ public class SpatialAudioPlayer
     
     public func stop()
     {
-        cancellables.forEach { $0.cancel() }; cancellables.removeAll()
+        streamCancellables.forEach { $0.cancel() }; streamCancellables.removeAll()
+        listenerCancellables.forEach { $0.cancel() }; listenerCancellables.removeAll()
     }
 }
 

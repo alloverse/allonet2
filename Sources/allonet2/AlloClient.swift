@@ -11,6 +11,7 @@ import FoundationNetworking
 #endif
 import OpenCombineShim
 
+/// A persistent connection as a client to an AlloPlace. If disconnected by temporary network issues, it will try to reconnect automatically.
 @MainActor
 open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, EntityMutator, Equatable
 {
@@ -25,9 +26,13 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     /// Access to the more complicated underlying data model for the connected Place.
     public let placeState = PlaceState()
     
+    /// URL of the place we're trying to always stay connected to
     let url: URL
+    /// The identity we'll authenticate as when connecting
     let identity: Identity
+    /// The avatar we will ask to spawn as when connecting
     let avatarDesc: EntityDescription
+    /// The EntityID of the avatar we have _when connected_. Note that this might change if our avatar was respawned when reconnecting! So this can change multiple times during the lifetime of the AlloClient.
     @Published public private(set) var avatarId: EntityID? { didSet { isAnnounced = avatarId != nil } }
     public var avatar: Entity? {
         guard let aeid = self.avatarId else { return nil }
@@ -46,10 +51,12 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         try Task.checkCancellation()
         return try await place.findEntity(id: avatarId!)
     }
+    /// Being announced means to have successfully connected and authenticated.
     @Published public private(set) var isAnnounced: Bool = false
     public private(set) var placeName: String?
     open var transport: Transport! = nil
     public let connectionOptions: TransportConnectionOptions
+    /// The underlying network connection to the AlloPlace. This will change for each connection try.
     public var session: AlloSession! = nil
     
     var currentIntent = Intent(ackStateRev: 0) {
@@ -168,6 +175,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         connectionLoopCancellable = nil
         connectionStatus.willReconnectAt = nil
         reconnectionAttempts = 0
+        avatarId = nil
         session.disconnect()
         reset()
     }
