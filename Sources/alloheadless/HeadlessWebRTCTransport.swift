@@ -10,6 +10,7 @@ import Foundation
 import AlloDataChannel
 import OpenCombineShim
 import AVFAudio
+import Logging
 
 // TODO: What actor are peer's combine publishers being signalled on? Where do we need to annotate nonisolated, and/or dispatch to main before calling delegate?
 @MainActor
@@ -17,6 +18,7 @@ public class HeadlessWebRTCTransport: Transport
 {
     public weak var delegate: TransportDelegate?
     public var clientId: ClientId?
+    var logger = Logger(label: "transport.libdatachannel")
     
     private var peer: AlloWebRTCPeer
     private var channels: [String: AlloWebRTCPeer.DataChannel] = [:] // track which channels are created
@@ -32,7 +34,7 @@ public class HeadlessWebRTCTransport: Transport
         peer.$state.sink { [weak self] state in
             // TODO: replicate UIWebRTCTransport's behavior and only signal connected when data channels are connected?
             guard let self = self else { return }
-            print("\(self) state changed to \(state)")
+            logger.info("state changed to \(state)")
             if state == .connected {
                 self.delegate?.transport(didConnect: self)
             } else if state == .closed || state == .failed {
@@ -41,7 +43,7 @@ public class HeadlessWebRTCTransport: Transport
         }.store(in: &cancellables)
         peer.$signalingState.sink { [weak self] state in
             guard let self = self else { return }
-            print("\(self) signalling state changed to \(state)")
+            logger.info("signalling state changed to \(state)")
             if state == .stable && self.renegotiationNeeded
             {
                 renegotiate()
@@ -71,11 +73,11 @@ public class HeadlessWebRTCTransport: Transport
         
         try peer.lockLocalDescription(type: .offer)
         let offerSdp = try peer.createOffer()
-        print("Generated Offer: \(offerSdp)")
+        logger.info("Generated my offer: \(offerSdp)")
         
         // TODO: await gathering status = complete
         let offerCandidates = peer.candidates.compactMap(\.alloCandidate)
-        print("Offer candidates: \(offerCandidates)")
+        logger.info("My offer candidates: \(offerCandidates)")
         
         return SignallingPayload(
             sdp: offerSdp,
@@ -86,17 +88,17 @@ public class HeadlessWebRTCTransport: Transport
     
     public func generateAnswer(for offer: SignallingPayload) async throws -> SignallingPayload
     {
-        print("Received Offer: \(offer)")
+        logger.info("Received offer from remote: \(offer)")
         
         try peer.set(remote: offer.sdp, type: .offer)
         try peer.lockLocalDescription(type: .answer)
         // TODO: set remote ice candidates in peer from the offer
         let answerSdp = try peer.createAnswer()
-        print("Generated Answer: \(answerSdp)")
+        logger.info("Generated my answer: \(answerSdp)")
         
         // TODO: await gathering status = complete
         let answerCandidates = peer.candidates.compactMap(\.alloCandidate)
-        print("Answer candidates: \(answerCandidates)")
+        logger.info("My answer candidates: \(answerCandidates)")
         
         return SignallingPayload(
             sdp: answerSdp,
@@ -111,8 +113,9 @@ public class HeadlessWebRTCTransport: Transport
         if clientId == nil
         {
             clientId = answer.clientId!
+            logger.forClient(clientId!)
         }
-        print("Received Answer: \(answer)")
+        logger.info("Received their answer: \(answer)")
         try peer.set(remote: answer.sdp, type: .answer)
         for candidate in answer.candidates
         {
@@ -126,19 +129,19 @@ public class HeadlessWebRTCTransport: Transport
         renegotiationNeeded = true
         if self.peer.signalingState == .stable
         {
-            print("\(self) Renegotiation requested while stable, performing immediately.")
+            logger.info("Renegotiation requested while stable, performing immediately.")
             self.renegotiate()
         }
         else
         {
-            print("\(self) Renegotiation requested while unstable, scheduling...")
+            logger.info("Renegotiation requested while unstable, scheduling...")
         }
     }
     
     private func renegotiate()
     {
         renegotiationNeeded = false
-        print("\(self) setting local description and renegotiating...")
+        logger.info("Setting local description and renegotiating...")
         // Note: AlloSession will attempt to generateOffer, which will then lockLocalDescription, so we don't need to do that here.
         self.delegate!.transport(requestsRenegotiation: self)
     }
@@ -148,6 +151,7 @@ public class HeadlessWebRTCTransport: Transport
         peer.close()
         delegate?.transport(didDisconnect: self) // Apparently libdatachannel doesn't call it when manually closing peer??
         clientId = nil
+        logger[metadataKey: "clientId"] = nil
         cancellables.forEach { $0.cancel() }
     }
     
@@ -170,7 +174,7 @@ public class HeadlessWebRTCTransport: Transport
         do {
             try ch.send(data: data)
         } catch {
-            print("ERROR: Failed to send on \(clientId)'s channel \(channelLabel): \(error)")
+            logger.error("Failed to send on channel \(channelLabel): \(error)")
             // Can't think of more ways to handle this; disconnection will be noticed and handled asynchronously soon.
         }
     }
@@ -188,7 +192,9 @@ public class HeadlessWebRTCTransport: Transport
     
     public static func forward(mediaStream: MediaStream, from sender: any Transport, to receiver: any Transport) throws -> MediaStreamForwarder
     {
-        print("Forwarding media stream \(mediaStream.mediaId) to \(receiver.clientId)")
+        var logger = Logger(label: "transport.libdatachannel")
+        logger.forClient(receiver.clientId!)
+        logger.info("Forwarding media stream \(mediaStream.mediaId) from \(sender.clientId) to \(receiver.clientId)")
         let track = mediaStream as! AlloWebRTCPeer.Track
         let receiverHeadless = (receiver as! HeadlessWebRTCTransport)
         let peer = receiverHeadless.peer

@@ -11,6 +11,7 @@ import RealityKit
 import OpenCombineShim
 import SwiftUI
 import CoreAudio
+import Logging
 
 /// Syncs `LiveMedia` components from entities surrounding the local avatar and plays them back spatially.
 @MainActor
@@ -23,6 +24,7 @@ public class SpatialAudioPlayer
     fileprivate var state: [MediaStreamId: SpatialAudioPlaybackState] = [:]
     var streamCancellables: Set<AnyCancellable> = []
     var listenerCancellables: Set<AnyCancellable> = []
+    var logger: Logger! = Logger(label: "spatialaudioplayer")
     
     /// Construct a SpatialAudioPlayer which uses `mapper` to create audio related components and `client` to react to network events. Note: announce must have completed and avatar exist before instantiating this class.
     public init(mapper: RealityViewMapper, client: AlloUserClient, content: RealityViewContentProtocol)
@@ -30,6 +32,10 @@ public class SpatialAudioPlayer
         self.mapper = mapper
         self.client = client
         self.content = content
+        self.logger = Logger(label: "spatialaudioplayer", metadataProvider: Logger.MetadataProvider { [weak self] in
+            guard let self, let cid = self.client.cid else { return [:] }
+            return ["clientId": .stringConvertible(cid)]
+        })
         start()
     }
     
@@ -50,7 +56,7 @@ public class SpatialAudioPlayer
         
         let listener = client.place.entities[listenerEid]!
         let guient = self.mapper.guiForEid(listenerEid)!
-        print("SpatialAudioPlayer using \(listenerEid) as RealityKit listener")
+        logger.info("Using \(listenerEid) as RealityKit listener")
 
         // TODO: When non-immersive, set it to be an "ears" sub-entity which is always pointed "forwards" in the camera perspective
         var cameraContent = content as! RealityViewCameraContent
@@ -64,7 +70,7 @@ public class SpatialAudioPlayer
         func updateListener()
         {
             Task { @MainActor in
-                print("SpatialAudioPlayer Updating listener to forward \(streamIds)")
+                logger.info("Updating listener to forward \(streamIds)")
                 try? await listener.components.set(LiveMediaListener(mediaIds: streamIds))
             }
         }
@@ -85,7 +91,9 @@ public class SpatialAudioPlayer
     func play(stream: MediaStream)
     {
         guard stream.streamDirection.isRecv else { return }
-        print("SpatialAudioPlayer[\(stream.mediaId)] playing \(stream)")
+        var streamLogger = logger!
+        streamLogger[metadataKey: "mediaId"] = .string(stream.mediaId)
+        streamLogger.info("Playing \(stream)")
     
         guard
             let playState = state[stream.mediaId],
@@ -95,7 +103,7 @@ public class SpatialAudioPlayer
         
         assert(playState.controller == nil, "Playing the same stream twice?")
         
-        print("SpatialAudioPlayer[\(playState.streamId)] setting up LiveMedia \(netent.id)")
+        streamLogger.info("Setting up LiveMedia on \(netent.id)")
         
         // TODO: Pick these up as settings from an Alloverse component
         let spatial = SpatialAudioComponent(
@@ -115,28 +123,30 @@ public class SpatialAudioPlayer
         let handler: Audio.GeneratorRenderHandler = { (isSilence, timestamp, frameCount, audioBufferList) -> OSStatus in
             let requested = Int(frameCount)
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            //print("SpatialAudioPlayer[\(playState.streamId)] rendering \(requested) rendering from \(ringBuffer)")
+            //streamLogger.trace("Rendering \(requested) rendering from \(ringBuffer)")
             ringBuffer.readOrSilence(into: ablPointer, frames: requested)
             return noErr
         }
         do {
             playState.controller = try guient.playAudio(handler)
         } catch {
-            print("SpatialAudioPlayer[\(playState.streamId)] !!! Failed to start audio generator for entity \(netent.id): \(error)")
+            streamLogger.error("Failed to start audio generator on entity \(netent.id): \(error)")
             stop(streamId: playState.streamId)
             return
         }
-        print("SpatialAudioPlayer[\(playState.streamId)] Successfully set up audio renderer \(netent.id)")
+        streamLogger.info("Successfully set up audio renderer \(netent.id)")
     }
     
     func stop(streamId: MediaStreamId)
     {
         guard let playState = state[streamId] else { return }
-        print("SpatialAudioPlayer[\(streamId)] Stopping \(playState.streamId); tearing down LiveMedia renderer")
+        var streamLogger = logger!
+        streamLogger[metadataKey: "mediaId"] = .string(streamId)
+        streamLogger.info("Stopping \(playState.streamId); tearing down LiveMedia renderer")
         
         let guient = mapper.guiForEid(playState.eid)
         
-        print("SpatialAudioPlayer[\(streamId)] was attached to \(playState.eid), disabling it...")
+        streamLogger.info("Was attached to \(playState.eid), disabling it...")
         playState.stop()
         state[streamId] = nil
         

@@ -1,15 +1,17 @@
 import Version
+import Logging
 
 @MainActor
 public struct Allonet
 {
+    static var logger = Logger(label: "allonet")
     private static var alreadyInitialized = false
     @MainActor
     public static func Initialize()
     {
         guard !alreadyInitialized else { return }
         alreadyInitialized = true
-        print("Allonet \(buildInfo().describe) initialization")
+        logger.notice("Allonet \(buildInfo().describe) initialization")
         RegisterStandardComponents()
     }
     

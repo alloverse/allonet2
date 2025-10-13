@@ -53,17 +53,17 @@ public class AlloUserClient : AlloClient
                         // TODO: set format from actual track metadata, probably as part of createTrack refactor
                         format: .audio(codec: .opus, sampleRate: 44100, channelCount: 1)
                     )
-                    print("Registering our microphone track output as a \(liveMedia)...")
+                    self.logger.info("Registering our microphone track output as a \(liveMedia)...")
                     do {
                         try await avatar.components.set(liveMedia)
                     } catch {
-                        print("FAILED!! to register our mic track output as LiveMedia! \(error)")
+                        self.logger.error("FAILED!! to register our mic track output as LiveMedia! \(error)")
                     }
                 }
                 self.createTrackCancellable?.cancel(); self.createTrackCancellable = nil
             }
         } catch {
-            print("Failed to create microphone track: \(error)")
+            logger.error("Failed to create microphone track: \(error)")
         }
     }
 }

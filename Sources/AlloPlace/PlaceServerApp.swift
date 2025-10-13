@@ -4,6 +4,8 @@ import allonet2
 import alloheadless
 import Logging
 
+private var logger = Logger(label: "place.app")
+
 @main @MainActor
 struct PlaceServerApp: AsyncParsableCommand
 {
@@ -45,7 +47,7 @@ struct PlaceServerApp: AsyncParsableCommand
         signal(SIGINT, SIG_IGN)
         let sigint = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
         sigint.setEventHandler {
-            print("Received sigint, terminating '\(name)'...")
+            logger.warning("Received sigint, terminating '\(name)'...")
             Task {
                 await server.stop()
             }

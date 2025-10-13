@@ -74,7 +74,7 @@ extension PlaceServer
     
     func changeEntity(eid: EntityID, addOrChange: [AnyComponent], remove: [ComponentTypeID], for client: ConnectedClient?) async throws(AlloverseError)
     {
-        //print("For \(client?.cid.uuidString ?? "internal"), changing entity \(eid)")
+        (client?.logger ?? logger).trace("Changing entity \(eid)")
         let ent = place.current.entities[eid]
         
         guard let ent = ent else {

@@ -52,7 +52,8 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     open var transport: Transport! = nil
     public let connectionOptions: TransportConnectionOptions
     /// The underlying network connection to the AlloPlace. This will change for each connection try.
-    public var session: AlloSession! = nil
+    // TODO: oof don't make it nonisolated! this will race!
+    public nonisolated(unsafe) var session: AlloSession! = nil
     
     var currentIntent = Intent(ackStateRev: 0) {
         didSet {
@@ -72,7 +73,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         return lhs.url == rhs.url && lhs.identity == rhs.identity
     }
     
-    private var logger = Logger(label: "client")
+    public var logger = Logger(label: "client")
     
     // MARK: - Connection state related
     
@@ -81,7 +82,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     private var connectTask: Task<Void, Never>? = nil
     private var reconnectionAttempts = 0
     
-    public var cid: UUID? { session.clientId }
+    public nonisolated(unsafe) var cid: UUID? { session.clientId }
     public var id: String? { cid?.uuidString }
     
     public init(url: URL, identity: Identity, avatarDescription: EntityDescription, connectionOptions: TransportConnectionOptions = TransportConnectionOptions(routing: .direct))
@@ -110,7 +111,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         connectionLoopCancellable = connectionStatus.$reconnection.receive(on: DispatchQueue.main).sink
         { [weak self] nextState in
             guard let self = self else { return }
-            logger.info("\(connectionStatus)")
+            logger.info("Reconnection state: \(connectionStatus.reconnection)")
             switch nextState {
             case .waitingForReconnect:
                 self.handleWaitingForReconnect()
