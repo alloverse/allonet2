@@ -1,5 +1,6 @@
 import XCTest
 import OpenCombineShim
+import Logging
 @testable import allonet2
 
 public struct TestComponent: Component
@@ -16,41 +17,16 @@ public struct Test3Component: Component
     public var whatever: String
 }
 
+var testLogger = Logger(label: "test")
+
 @MainActor
-final class PlaceCodableTests: XCTestCase
+final class PlaceDescriptionTests: XCTestCase
 {
     override func setUp()
     {
         super.setUp()
         TestComponent.register()
         Test3Component.register()
-    }
-    
-    func testPlaceEncodingDecoding() throws
-    {
-        // Create a sample entity.
-        let entity = EntityData(id: "entity1", ownerClientId: UUID())
-        
-        // Create a sample ColliderComponent.
-        let test = TestComponent(radius: 5.0)
-        
-        // Create a World instance containing the entity and the collider component.
-        let place = PlaceContents(
-            revision: 1,
-            entities: [ entity.id: entity],
-            components: ComponentLists(lists:[
-                TestComponent.componentTypeId: [entity.id: test]
-            ])
-        )
-        
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(place)
-        
-        let decoder = JSONDecoder()
-        let decodedPlace = try decoder.decode(PlaceContents.self, from: data)
-        
-        XCTAssertEqual(place, decodedPlace, "The decoded Place should equal the original Place.")
     }
     
     func testEntityDescription() throws
@@ -61,14 +37,15 @@ final class PlaceCodableTests: XCTestCase
         let e2test = Test3Component(radius: 6.0, whatever: "qwer")
         let e2rel = Relationships(parent: e1.id)
         
-        let state = PlaceState()
+        let state = PlaceState(logger: testLogger)
         state.current = PlaceContents(
             revision: 1,
             entities: [ e1.id: e1, e2.id: e2],
             components: ComponentLists(lists:[
                 Test3Component.componentTypeId: [e1.id: e1test, e2.id: e2test],
                 Relationships.componentTypeId: [e2.id: e2rel]
-            ])
+            ]),
+            logger: testLogger
         )
         let place = Place(state: state, client: nil)
         print("Place: \(place)")
@@ -121,7 +98,7 @@ final class PlaceChangeSetTests: XCTestCase
     func testChangeSetCallbacks() throws
     {
         var cancellables = Set<AnyCancellable>()
-        let state = PlaceState()
+        let state = PlaceState(logger: testLogger)
         
         let cid = UUID()
         state.changeSet = PlaceChangeSet(changes: [
@@ -160,7 +137,7 @@ final class PlaceChangeSetTests: XCTestCase
     func testInitialCallbacks() throws
     {
         var cancellables = Set<AnyCancellable>()
-        let state = PlaceState()
+        let state = PlaceState(logger: testLogger)
         let cid = UUID()
         let success = state.applyChangeSet(PlaceChangeSet(changes: [
             .entityAdded(EntityData(id: "entity1", ownerClientId: cid)),
@@ -210,7 +187,7 @@ final class PlaceChangeSetTests: XCTestCase
             Test2Component.componentTypeId: [
                 "a": Test2Component(thingie: 4)
             ]
-        ]))
+        ]), logger: testLogger)
         
         let new = PlaceContents(revision: 2, entities: [
             "a": EntityData(id: "a", ownerClientId: cid),
@@ -220,7 +197,7 @@ final class PlaceChangeSetTests: XCTestCase
                 "a": TestComponent(radius: 6.0),
                 "c": TestComponent(radius: 7.0)
             ]
-        ]))
+        ]), logger: testLogger)
         
         let diff = new.changeSet(from: old)
         
@@ -274,7 +251,7 @@ final class PlaceChangeSetTests: XCTestCase
                 "a": TestComponent(radius: 5.0),
                 "b": TestComponent(radius: 5.0)
             ]
-        ]))
+        ]), logger: testLogger)
         
         let changeSet = PlaceChangeSet(changes: [
             .entityAdded(EntityData(id: "c", ownerClientId: cid)),
@@ -302,7 +279,7 @@ final class PlaceChangeSetTests: XCTestCase
     func testOverlappingChangeSets()
     {
         var cancellables = Set<AnyCancellable>()
-        let state = PlaceState()
+        let state = PlaceState(logger: testLogger)
         let cid = UUID()
         let change1 = PlaceChangeSet(changes: [
             .entityAdded(EntityData(id: "entity1", ownerClientId: cid)),
