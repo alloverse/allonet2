@@ -2,6 +2,7 @@ import Foundation
 import ArgumentParser
 import allonet2
 import alloheadless
+import Logging
 
 @main @MainActor
 struct PlaceServerApp: AsyncParsableCommand
@@ -30,6 +31,7 @@ struct PlaceServerApp: AsyncParsableCommand
     mutating func run() async throws
     {
         configurePrintBuffering()
+        configureLogging()
         let name = name
         let app = AppDescription(name: appName, downloadURL: appDownloadURL, URLProtocol: appURLProtocol)
         let server = PlaceServer(
@@ -51,6 +53,15 @@ struct PlaceServerApp: AsyncParsableCommand
         sigint.resume()
         
         try await server.start()
+    }
+    
+    func configureLogging()
+    {
+        LoggingSystem.bootstrap
+        { label in
+            // TODO: send off to some OpenTelemetry thing
+            return StreamLogHandler.standardOutput(label: label)
+        }
     }
 }
 

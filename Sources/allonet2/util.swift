@@ -8,6 +8,7 @@
 import Foundation
 import simd
 import OpenCombineShim
+import Logging
 
 func with<T>(_ value: T, using closure: (inout T) -> Void) -> T {
     var copy = value
@@ -272,4 +273,21 @@ public func configurePrintBuffering()
 {
     setvbuf(stdout, nil, _IOLBF, 0)   // line-buffered
     setvbuf(stderr, nil, _IONBF, 0)   // unbuffered
+}
+
+extension Logger
+{
+    func forClient(_ cid: ClientId) -> Logger
+    {
+        var clientLogger = self
+        clientLogger[metadataKey: "clientId"] = .stringConvertible(cid)
+        return clientLogger
+    }
+    func forInteraction(_ inter: Interaction) -> Logger
+    {
+        let requestId = inter.requestId
+        var interactionLogger = self
+        interactionLogger[metadataKey: "requestId"] = .string(requestId)
+        return interactionLogger
+    }
 }

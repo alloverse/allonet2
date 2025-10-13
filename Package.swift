@@ -48,6 +48,7 @@ let package = Package(
         .package(url: "https://github.com/DimaRU/PackageBuildInfo", branch: "master"),
         .package(url: "https://github.com/mxcl/Version.git", from: "2.0.0"),
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.2.0"),
+        .package(url: "https://github.com/apple/swift-log", from: "1.6.0"),
     ],
     targets: [
         .target(
@@ -60,6 +61,7 @@ let package = Package(
                 .product(name: "kvSIMD", package: "kvSIMD.swift"),
                 .product(name: "OpenCombineShim", package: "opencombine"),
                 .product(name: "Atomics", package: "swift-atomics"),
+                .product(name: "Logging", package: "swift-log")
             ],
             plugins: [
                 .plugin(name: "PackageBuildInfoPlugin", package: "PackageBuildInfo")
