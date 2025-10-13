@@ -103,14 +103,14 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         
         // Move out of the idle state since we've been asked to get going.
         if connectionStatus.reconnection == .idle {
-            print("Going from .idle to .waitingForReconnect")
+            logger.info("Going from .idle to .waitingForReconnect")
             connectionStatus.reconnection = .waitingForReconnect
         }
         
         connectionLoopCancellable = connectionStatus.$reconnection.receive(on: DispatchQueue.main).sink
         { [weak self] nextState in
             guard let self = self else { return }
-            print("\(connectionStatus)")
+            logger.info("\(connectionStatus)")
             switch nextState {
             case .waitingForReconnect:
                 self.handleWaitingForReconnect()
@@ -131,14 +131,14 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         let delaySeconds = reconnectionAttempts == 0 ? 0 : min(60, pow(2.0, Double(reconnectionAttempts)))
         connectionStatus.willReconnectAt = delaySeconds > 0 ? Date().addingTimeInterval(delaySeconds) : nil
         reconnectionAttempts += 1
-        print("connection attempt \(reconnectionAttempts) in \(delaySeconds) seconds")
+        logger.info("connection attempt \(reconnectionAttempts) in \(delaySeconds) seconds")
         
         // Schedule connect() to be called at willReconnectAt.
         connectTask = Task { [weak self] in
             guard let self = self else { return }
             
             let delay = connectionStatus.willReconnectAt?.timeIntervalSinceNow ?? 0
-            print(String(format: "waiting for reconnect in %.1f seconds", delay))
+            logger.info("waiting for reconnect in \(String(format: " %.1f seconds", delay))")
             if delay > 0 {
                 try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             }
@@ -148,7 +148,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
                 self.connectTask = nil
                 connectionStatus.willReconnectAt = nil
             }
-            print("connecting...")
+            logger.info("connecting...")
             await self.connect()
         }
     }
@@ -160,7 +160,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     
     open func reset(with transport: Transport)
     {
-        print("Resetting AlloSession within client")
+        logger.info("Resetting AlloSession within client")
         self.transport = transport
         session = AlloSession(side: .client, transport: transport)
         session.delegate = self
@@ -172,7 +172,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     /// Disconnect from peers and remain disconnected until asked to connect again by user
     public func disconnect()
     {
-        print("Disconnecting...")
+        logger.info("Disconnecting...")
         connectTask?.cancel()
         connectTask = nil
         connectionLoopCancellable?.cancel()
@@ -193,7 +193,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         }
         
         do {
-            print("Trying to connect to \(url)...")
+            logger.info("Trying to connect to \(url)...")
             let offer = try await session.generateOffer()
             
             // Original schema is alloplace2://. We call this with HTTP(S) to establish a WebRTC connection, which means we need to rewrite the
@@ -221,9 +221,9 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
             
             // Use session's transport methods
             try await session.acceptAnswer(answer)
-            print("AlloClient RTC initial signalling complete")
+            logger.info("AlloClient RTC initial signalling complete")
         } catch (let e) {
-            print("failed to connect: \(e)")
+            logger.error("failed to connect: \(e)")
             DispatchQueue.main.async {
                 self.connectionStatus.lastError = e
                 self.connectionStatus.reconnection = .idle
@@ -239,7 +239,8 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
             self.reconnectionAttempts = 0
             self.connectionStatus.reconnection = .connected
             
-            print("Connected as \(sess.clientId!)")
+            logger = logger.forClient(sess.clientId!)
+            logger.info("Connected as \(sess.clientId!)")
 
             let response = await sess.request(interaction: Interaction(
                 type: .request,
@@ -249,13 +250,13 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
             ))
             guard case .announceResponse(let avatarId, let placeName) = response.body else
             {
-                print("Announce failed: \(response)")
+                logger.error("Announce failed: \(response)")
                 self.connectionStatus.lastError = AlloverseError(with: response.body)
                 self.connectionStatus.reconnection = .idle
                 self.disconnect()
                 return
             }
-            print("Received announce response: \(response.body)")
+            logger.info("Received announce response: \(response.body)")
             self.avatarId = avatarId
             self.placeName = placeName
             self.connectionStatus.hasReceivedAnnounceResponse = true
@@ -265,8 +266,8 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     
     nonisolated public func session(didDisconnect sess: AlloSession)
     {
-        print("Disconnected")
         Task { @MainActor in
+            logger.info("Disconnected")
             avatarId = nil
             self.connectionStatus.signalling = .failed
             if(false)
@@ -327,7 +328,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
             }
             catch (let e as AlloverseError)
             {
-                print("Error handling interaction: \(e)")
+                logger.error("Error handling interaction: \(e)")
                 session.send(interaction: inter.makeResponse(with: e.asBody))
             }
         }
@@ -348,7 +349,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         {
             guard let handler = handlers[inter.body.caseName] else
             {
-                print("No handler registered for interaction: \(inter)")
+                logger.error("No handler registered for interaction: \(inter)")
                 return
             }
             await handler(inter)
@@ -357,12 +358,12 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     
     nonisolated public func session(_: AlloSession, didReceivePlaceChangeSet changeset: PlaceChangeSet)
     {
-        //print("Received place change for revision \(changeset.fromRevision) -> \(changeset.toRevision)")
+        //logger.trace("Received place change for revision \(changeset.fromRevision) -> \(changeset.toRevision)")
         Task
         { @MainActor in
             guard placeState.applyChangeSet(changeset) else
             {
-                print("Failed to apply change set, asking for a full diff")
+                logger.warning("Failed to apply change set, asking for a full diff")
                 currentIntent = Intent(ackStateRev: 0)
                 return
             }

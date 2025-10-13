@@ -277,13 +277,13 @@ public func configurePrintBuffering()
 
 extension Logger
 {
-    func forClient(_ cid: ClientId) -> Logger
+    public func forClient(_ cid: ClientId) -> Logger
     {
         var clientLogger = self
         clientLogger[metadataKey: "clientId"] = .stringConvertible(cid)
         return clientLogger
     }
-    func forInteraction(_ inter: Interaction) -> Logger
+    public func forInteraction(_ inter: Interaction) -> Logger
     {
         let requestId = inter.requestId
         var interactionLogger = self

@@ -9,13 +9,14 @@ import Foundation
 import LiveKitWebRTC
 import OpenCombineShim
 import allonet2
+import Logging
 
 /// Uses Google's WebRTC implementation meant for client-side UI apps.
 // TODO: @MainActor this class, and declare all the delegate methods nonisolated, and fix all the threading issues in here
 class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTCDataChannelDelegate
 {
     public var clientId: ClientId?
-    private let peer: LKRTCPeerConnection
+    private var peer: LKRTCPeerConnection! = nil
     private var channels: [DataChannelLabel: LKRTCDataChannel] = [:]
     
     public weak var delegate: TransportDelegate?
@@ -29,15 +30,15 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     private let offerAnswerConstraints = LKRTCMediaConstraints(mandatoryConstraints: [:], optionalConstraints: [:])
     
     private let audioSessionActive = false
+    private var logger = Logger(label: "transport.webrtc")
     
     public required init(
         with connectionOptions: TransportConnectionOptions,
         status: ConnectionStatus
     ) {
-        peer = Self.createPeerConnection(with: connectionOptions)
-        connectionStatus = status
+        self.connectionStatus = status
         super.init()
-        peer.delegate = self
+        self.peer = createPeerConnection(with: connectionOptions)
     }
     
     public func disconnect()
@@ -112,6 +113,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     public func acceptAnswer(_ answer: SignallingPayload) async throws
     {
         clientId = answer.clientId!
+        logger = logger.forClient(clientId!)
         try await set(remoteDescription: answer.desc(for: .answer))
         for candidate in answer.candidates
         {
@@ -186,23 +188,33 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     
     //MARK: - Internals
     
-    static var logger : LKRTCCallbackLogger? = nil
-    private static func createPeerConnection(with connectionOptions: TransportConnectionOptions) -> LKRTCPeerConnection
+    var wlogger : LKRTCCallbackLogger? = nil
+    private func createPeerConnection(with connectionOptions: TransportConnectionOptions) -> LKRTCPeerConnection
     {
-        if logger == nil
+        if wlogger == nil
         {
-            print("Starting RTC callback logger")
-            logger = LKRTCCallbackLogger()
-            logger!.severity = .warning
-            logger!.start(messageAndSeverityHandler: { (message, severity) in
-                let sevM = switch severity {
-                case .verbose: "v"
-                case .info: "i"
-                case .warning: "!! W"
-                case .error: "!!! E"
-                case .none: "?"
+            // Warning: LKRTCCallbackLoggers are installed globally. If two WebRTC sessions are running in the same process, both will get both's log messages.
+            wlogger = LKRTCCallbackLogger()
+            wlogger!.severity = .warning
+            var innerLogger = Logger(label: "transport.webrtc.wrapped")
+            wlogger!.start(messageAndSeverityHandler: { [weak self] (message, severity) in
+                guard let self = self else {
+                    innerLogger.warning("WebRTC log AFTER deallocation: \(message)")
+                    return
                 }
-                print("RTC[\(sevM)]: \(message)")
+                if let cid = self.clientId
+                {
+                    innerLogger = innerLogger.forClient(cid)
+                }
+                
+                let level: Logger.Level = switch severity {
+                case .verbose: .notice
+                case .info: .info
+                case .warning: .warning
+                case .error: .error
+                case .none: .info
+                }
+                innerLogger.log(level: level, "\(message)")
             })
         }
         
@@ -229,7 +241,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
         let constraints = LKRTCMediaConstraints(mandatoryConstraints: nil,
                                               optionalConstraints: ["DtlsSrtpKeyAgreement":kLKRTCMediaConstraintsValueTrue])
         
-        guard let peerConnection = Self.factory.peerConnection(with: config, constraints: constraints, delegate: nil) else {
+        guard let peerConnection = Self.factory.peerConnection(with: config, constraints: constraints, delegate: self) else {
             fatalError("Could not create new RTCPeerConnection")
         }
         
@@ -264,7 +276,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
              channels.count > 0 &&
             channels.values.allSatisfy({$0.readyState == .open})
         {
-            print("Transport is fully connected")
+            logger.info("Transport is fully connected")
             didFullyConnect = true
             Task { @MainActor in
                 self.delegate?.transport(didConnect: self)
@@ -272,7 +284,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
             
             if(renegotiationNeeded)
             {
-                print("Renegotiation became necessary while connecting, so now renegotiating")
+                logger.notice("Renegotiation became necessary while connecting, so now renegotiating")
                 self.renegotiate()
             }
 
@@ -282,7 +294,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     //MARK: - Peer connection delegates
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange stateChanged: LKRTCSignalingState)
     {
-        print("Session \(clientId?.debugDescription ?? "unknown") signaling state \(stateChanged)")
+        logger.info("Session \(clientId?.debugDescription ?? "unknown") signaling state \(stateChanged)")
     }
     
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didAdd stream: LKRTCMediaStream)
@@ -295,7 +307,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
             $0.receiver.track == stream.videoTracks.first
         })
         stream.wrapper.streamDirection = sender != nil ? .sendonly : .recvonly
-        print("Received stream for client \(clientId!): \(stream.wrapper.streamDirection) \(stream)")
+        logger.info("Received stream for: \(stream.wrapper.streamDirection) \(stream)")
         Task { @MainActor in
             delegate?.transport(self, didReceiveMediaStream: stream.wrapper)
         }
@@ -303,7 +315,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didRemove stream: LKRTCMediaStream)
     {
-        print("Lost stream for client \(clientId!): \(stream)")
+        logger.info("Lost stream: \(stream)")
         Task { @MainActor in
             delegate?.transport(self, didRemoveMediaStream: stream.wrapper)
         }
@@ -312,7 +324,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     var renegotiationNeeded = false
     public func peerConnectionShouldNegotiate(_ peerConnection: LKRTCPeerConnection)
     {
-        print("Renegotiation hinted")
+        logger.info("Renegotiation hinted")
         renegotiationNeeded = true
         if didFullyConnect
         {
@@ -329,7 +341,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: LKRTCIceConnectionState)
     {
-        print("Session \(clientId?.debugDescription ?? "unknown") ICE state \(newState)")
+        logger.info("Session ICE state \(newState)")
         DispatchQueue.main.async {
             self.connectionStatus.iceConnection = switch newState
             {
@@ -360,7 +372,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: LKRTCIceGatheringState)
     {
-        print("Session \(clientId?.debugDescription ?? "unknown") ICE gathering state \(newState)")
+        logger.info("Session ICE gathering state \(newState)")
         DispatchQueue.main.async {
             self.connectionStatus.iceGathering = switch newState
             {
@@ -383,7 +395,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     {
         if candidatesLocked
         {
-            print("!! discovered local candidate after response already sent")
+            logger.error("!! discovered local candidate after response already sent")
             return
         }
         localCandidates.append(candidate)
@@ -391,12 +403,12 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didRemove candidates: [LKRTCIceCandidate])
     {
-        print("!! Lost candidate, shouldn't happen since we're not gathering continuously")
+        logger.error("!! Lost candidate, shouldn't happen since we're not gathering continuously")
     }
     
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didOpen dataChannel: LKRTCDataChannel)
     {
-        print("Data channel \(dataChannel.label) is now open")
+        logger.info("Data channel \(dataChannel.label) is now open")
         dataChannel.delegate = self
         self.maybeConnected()
     }
@@ -405,7 +417,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     public func dataChannelDidChangeState(_ dataChannel: LKRTCDataChannel)
     {
         let readyState = dataChannel.readyState
-        print("Data channel \(dataChannel.label) state \(readyState)")
+        logger.info("Data channel \(dataChannel.label) state \(readyState)")
         DispatchQueue.main.async {
             // TODO: There are more than one data channel. Track them separately.
             self.connectionStatus.data = switch readyState
@@ -420,7 +432,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     
     public func dataChannel(_ dataChannel: LKRTCDataChannel, didReceiveMessageWith buffer: LKRTCDataBuffer)
     {
-        //print("Message on data channel \(dataChannel.label): \(buffer.data.count) bytes")
+        logger.trace("Message on data channel \(dataChannel.label): \(buffer.data.count) bytes")
         delegate?.transport(self, didReceiveData: buffer.data, on: dataChannel.wrapper)
     }
     
@@ -439,7 +451,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
             try sess.setCategory(.playAndRecord, mode: .voiceChat)
             try sess.setActive(true)
         } catch let error {
-            print("Failed to set audio category and activate audio session: \(error)")
+            logger.error("Failed to set audio category and activate audio session: \(error)")
         }
 #endif
     }
@@ -454,7 +466,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
         do {
             try sess.setActive(false)
         } catch let error {
-            print("Failed to deactivate audio session: \(error)")
+            logger.error("Failed to deactivate audio session: \(error)")
         }
 #endif
     }
@@ -565,7 +577,7 @@ fileprivate class AudioRingRenderer : NSObject, LKRTCAudioRenderer
     weak var ring: AudioRingBuffer? = nil
     func render(pcmBuffer pcm: AVAudioPCMBuffer)
     {
-        //print("Writing \(pcm.frameLength) frames to \(ring)")
+        //logger.trace("Writing \(pcm.frameLength) frames to \(ring)")
         _ = ring?.write(pcm)
     }
 }
@@ -645,6 +657,8 @@ extension SignallingIceCandidate
 /// LKRTCAudioDeviceModule delegate whose only purpose is to stop playout/playback of every incoming audio track. This is because we want allonet to only deliver PCM packets up to the app layer to be played back spatially, and not have GoogleWebRTC play it back in stereo. I couldn't find any API to change this behavior without overriding this delegate.
 class PlaybackDisablingAudioDeviceModuleDelegate: NSObject, LKRTCAudioDeviceModuleDelegate
 {
+    var logger = Logger(label: "transport.webrtc.adc")
+    
     func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, didReceiveSpeechActivityEvent speechActivityEvent: LKRTCSpeechActivityEvent)
     {
     }
@@ -692,7 +706,7 @@ class PlaybackDisablingAudioDeviceModuleDelegate: NSObject, LKRTCAudioDeviceModu
             // already disabled
             return 0
         }
-        print("!!\nDISABLING OUTPUT engine: \(engine) source: \(source) toDestination: \(destination) format: \(format) context: \(context)\n!!")
+        logger.debug("Disabling AudioEngine output: \(engine) source: \(source) toDestination: \(destination) format: \(format) context: \(context)\n")
     
         mixer = AVAudioMixerNode()
         engine.attach(mixer)

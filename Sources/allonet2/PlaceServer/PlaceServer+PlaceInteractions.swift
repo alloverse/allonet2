@@ -81,13 +81,13 @@ extension PlaceServer
             clients[client.cid] = unannouncedClients.removeValue(forKey: client.cid)!
             let ent = await self.createEntity(from: avatarDescription, for: client)
             client.avatar = ent.id
-            ilogger.info("Accepted client \(client.cid) with email \(identity.emailAddress), display name \(identity.displayName), assigned avatar id \(ent.id)")
+            ilogger.info("Accepted client with email \(identity.emailAddress), display name \(identity.displayName), assigned avatar id \(ent.id)")
             await heartbeat.awaitNextSync() // make it exist before we tell client about it
             
             client.session.send(interaction: inter.makeResponse(with: .announceResponse(avatarId: ent.id, placeName: name)))
         case .createEntity(let description):
             let ent = await self.createEntity(from: description, for: client)
-            ilogger.error("Spawned entity for \(client.cid) with id \(ent.id)")
+            ilogger.info("Spawned entity with id \(ent.id)")
             client.session.send(interaction: inter.makeResponse(with: .createEntityResponse(entityId: ent.id)))
         case .removeEntity(let eid, let mode):
             try await self.removeEntity(with: eid, mode: mode, for: client)

@@ -8,6 +8,7 @@
 import Foundation
 import BinaryCodable
 import OpenCombineShim
+import Logging
 
 @MainActor
 public protocol AlloSessionDelegate: AnyObject
@@ -32,6 +33,7 @@ public protocol AlloSessionDelegate: AnyObject
 public class AlloSession : NSObject, TransportDelegate
 {
     public weak var delegate: AlloSessionDelegate?
+    nonisolated(unsafe) private var logger = Logger(label: "session")
 
     internal let transport: Transport
     
@@ -52,12 +54,17 @@ public class AlloSession : NSObject, TransportDelegate
         self.side = side
         self.transport = transport
         super.init()
+        self.logger = Logger(label: "session", metadataProvider: Logger.MetadataProvider {
+            guard let cid = self.clientId else { return [:] }
+            return ["clientId": .stringConvertible(cid)]
+        })
         transport.delegate = self
         
         setupDataChannels()
     }
     
-    public var clientId: ClientId? { transport.clientId }
+    // TODO: this unsafe is going to bite me... store it threadsafely so logging can use it?
+    nonisolated(unsafe) public var clientId: ClientId? { transport.clientId }
     
     let encoder = BinaryEncoder()
     
@@ -134,7 +141,7 @@ public class AlloSession : NSObject, TransportDelegate
             let inter: Interaction
             do { inter = try decoder.decode(Interaction.self, from: data) }
             catch {
-                print("Warning, dropped unparseable interaction: \(error)")
+                logger.warning("Dropped unparseable interaction: \(error)")
                 return
             }
             Task { @MainActor in
@@ -151,7 +158,7 @@ public class AlloSession : NSObject, TransportDelegate
             do {
                 worldstate = try decoder.decode(PlaceChangeSet.self, from: data)
             } catch {
-                print("Warning, dropped unparseable worldstate: \(error)")
+                logger.warning("Dropped unparseable worldstate: \(error)")
                 return
             }
             Task { @MainActor in self.delegate?.session(self, didReceivePlaceChangeSet: worldstate) }
@@ -160,7 +167,7 @@ public class AlloSession : NSObject, TransportDelegate
             do {
                 intent = try decoder.decode(Intent.self, from: data)
             } catch {
-                print("Warning, \(transport.clientId!.uuidString) dropped unparseable intent: \(error)")
+                logger.warning("Dropped unparseable intent: \(error)")
                 return
             }
             Task { @MainActor in self.delegate?.session(self, didReceiveIntent: intent) }
@@ -180,7 +187,7 @@ public class AlloSession : NSObject, TransportDelegate
             catch (let e)
             {
                 // TODO: store the error, mark as temporary, and force upper level to reconnect
-                print("Failed to renegotiate offer for \(transport.clientId!): \(e)")
+                logger.error("Failed to renegotiate offer: \(e)")
                 transport.disconnect()
             }
         }
@@ -189,7 +196,7 @@ public class AlloSession : NSObject, TransportDelegate
     private func renegotiateInner() async throws
     {
         let offer = try await transport.generateOffer()
-        print("Sending renegotiation offer over RPC")
+        logger.info("Sending renegotiation offer over RPC")
         let response = await request(interaction: Interaction(type: .request, senderEntityId: "", receiverEntityId: Interaction.PlaceEntity, body: .internal_renegotiate(.offer, offer)))
         guard case .internal_renegotiate(.answer, let answer) = response.body else
         {
@@ -202,12 +209,12 @@ public class AlloSession : NSObject, TransportDelegate
         
         try await transport.acceptAnswer(answer)
         
-        print("RTC renegotiation complete on the offering side")
+        logger.info("RTC renegotiation complete on the offering side")
     }
     
     private func respondToRenegotiation(offer: SignallingPayload, request: Interaction) async
     {
-        print("Received renegotiation offer over RPC")
+        logger.info("Received renegotiation offer over RPC")
         do
         {
             try await respondToRenegotiationInner(offer: offer, request: request)
@@ -215,7 +222,7 @@ public class AlloSession : NSObject, TransportDelegate
         catch(let e)
         {
             // TODO: store the error, mark as temporary, and force upper lever to reconnect
-            print("Failed to renegotiate answer for \(transport.clientId!): \(e)")
+            logger.info("Failed to renegotiate answer: \(e)")
             transport.disconnect()
 
         }
@@ -228,19 +235,20 @@ public class AlloSession : NSObject, TransportDelegate
         let response = request.makeResponse(with: .internal_renegotiate(.answer, answer))
         self.send(interaction: response)
         
-        print("RTC renegotiation complete on the answering side")
+        logger.info("RTC renegotiation complete on the answering side")
     }
     
     // MARK: - Audio
     public func transport(_ transport: Transport, didReceiveMediaStream stream: MediaStream)
     {
-        print("ADDING INCOMING STREAM \(stream.mediaId)")
+        logger.info("Adding stream \(stream.mediaId)")
         incomingStreams[stream.mediaId] = stream
         delegate?.session(self, didReceiveMediaStream: stream)
     }
     
     public func transport(_ transport: Transport, didRemoveMediaStream stream: MediaStream)
     {
+        logger.info("Removing stream \(stream.mediaId)")
         incomingStreams[stream.mediaId] = nil
         delegate?.session(self, didRemoveMediaStream: stream)
     }
