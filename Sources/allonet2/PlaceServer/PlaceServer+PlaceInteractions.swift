@@ -12,6 +12,7 @@ extension PlaceServer
 {
     func handle(placeInteraction inter: Interaction, from client: ConnectedClient) async throws(AlloverseError)
     {
+        let ilogger = client.logger.forInteraction(inter)
         switch inter.body
         {
         case .registerAsAuthenticationProvider:
@@ -39,7 +40,7 @@ extension PlaceServer
                 Allonet.version().serverIsCompatibleWith(clientVersion: semantic)
             else
             {
-                print("Client \(client.cid) has incompatible version (server \(Allonet.version()), client \(version)), disconnecting.")
+                ilogger.error("Incompatible version (server \(Allonet.version()), client \(version)), disconnecting.")
                 client.session.send(interaction: inter.makeResponse(with: .error(
                     domain: AlloverseErrorCode.domain,
                     code: AlloverseErrorCode.incompatibleProtocolVersion.rawValue,
@@ -61,7 +62,7 @@ extension PlaceServer
                 switch answer.body {
                 case .success: break
                 case .error(let domain, let code, let description):
-                    print("Client \(client.cid) failed authentication (\(domain)#\(code)): \(description). Disconnecting.")
+                    ilogger.error("Failed authentication (\(domain)#\(code)): \(description). Disconnecting.")
                     fallthrough
                 default:
                     // Should we forward the error details back to the client?
@@ -80,13 +81,13 @@ extension PlaceServer
             clients[client.cid] = unannouncedClients.removeValue(forKey: client.cid)!
             let ent = await self.createEntity(from: avatarDescription, for: client)
             client.avatar = ent.id
-            print("Accepted client \(client.cid) with email \(identity.emailAddress), display name \(identity.displayName), assigned avatar id \(ent.id)")
+            ilogger.info("Accepted client \(client.cid) with email \(identity.emailAddress), display name \(identity.displayName), assigned avatar id \(ent.id)")
             await heartbeat.awaitNextSync() // make it exist before we tell client about it
             
             client.session.send(interaction: inter.makeResponse(with: .announceResponse(avatarId: ent.id, placeName: name)))
         case .createEntity(let description):
             let ent = await self.createEntity(from: description, for: client)
-            print("Spawned entity for \(client.cid) with id \(ent.id)")
+            ilogger.error("Spawned entity for \(client.cid) with id \(ent.id)")
             client.session.send(interaction: inter.makeResponse(with: .createEntityResponse(entityId: ent.id)))
         case .removeEntity(let eid, let mode):
             try await self.removeEntity(with: eid, mode: mode, for: client)

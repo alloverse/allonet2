@@ -11,16 +11,20 @@ extension PlaceServer
 {
     public func session(_ sess: AlloSession, didReceiveInteraction inter: Interaction)
     {
+        
         let cid = sess.clientId!
-        //print("Received interaction from \(cid): \(inter)")
+        
         Task { @MainActor in
             let client = (self.clients[cid] ?? self.unannouncedClients[cid])!
+            let ilogger = client.logger.forInteraction(inter)
+            ilogger.debug("Received and now handling interaction from \(cid): \(inter)")
             await self.handle(inter, from: client)
         }
     }
 
     func handle(_ inter: Interaction, from client: ConnectedClient) async
     {
+        let ilogger = client.logger.forInteraction(inter)
         do throws(AlloverseError)
         {
             let senderEnt = place.current.entities[inter.senderEntityId]
@@ -40,7 +44,7 @@ extension PlaceServer
         }
         catch (let e as AlloverseError)
         {
-            print("Interaction error for \(client.cid) when handling \(inter): \(e)")
+            ilogger.error("Interaction error for \(client.cid) when handling \(inter): \(e)")
             if inter.type == .request
             {
                 client.session.send(interaction: inter.makeResponse(with: e.asBody))
@@ -50,6 +54,7 @@ extension PlaceServer
     
     func handle(forwardingOfInteraction inter: Interaction, from client: ConnectedClient) async throws(AlloverseError)
     {
+        let ilogger = client.logger.forInteraction(inter)
         // Go look for the recipient entity, and map it to recipient client.
         guard let receivingEntity = place.current.entities[inter.receiverEntityId],
               let recipient = clients[receivingEntity.ownerClientId] else
@@ -101,7 +106,7 @@ extension PlaceServer
             
             if outstandingClientToClientInteractions[inter.requestId] != nil
             {
-                print("Request \(inter.requestId) timed out")
+                ilogger.error("Request \(inter.requestId) timed out")
                 outstandingClientToClientInteractions[inter.requestId] = nil
                 throw AlloverseError(
                     domain: PlaceErrorCode.domain,

@@ -8,6 +8,7 @@
 import Foundation
 import OpenCombineShim
 import FlyingFox
+import Logging
 
 @MainActor
 public class PlaceServer : AlloSessionDelegate
@@ -21,6 +22,7 @@ public class PlaceServer : AlloSessionDelegate
     let appDescription: AppDescription
     let transportClass: Transport.Type
     let options: TransportConnectionOptions
+    var logger = Logger(label: "place.server")
     
     var sfu: PlaceServerSFU!
     var status: PlaceServerStatus!
@@ -28,7 +30,7 @@ public class PlaceServer : AlloSessionDelegate
     var outstandingClientToClientInteractions: [Interaction.RequestID: ClientId] = [:]
     internal var authenticationProvider: ConnectedClient?
 
-    let place = PlaceState()
+    let place: PlaceState
     lazy var heartbeat: HeartbeatTimer = {
         return HeartbeatTimer {
             self.applyAndBroadcastState()
@@ -47,6 +49,7 @@ public class PlaceServer : AlloSessionDelegate
     )
     {
         Allonet.Initialize()
+        self.place = PlaceState(logger: logger)
         self.name = name
         self.httpPort = httpPort
         self.appDescription = customApp
@@ -62,27 +65,29 @@ public class PlaceServer : AlloSessionDelegate
     
     public func session(didConnect sess: AlloSession)
     {
-        print("Client \(sess.clientId!) connected its session")
+        let clogger = logger.forClient(sess.clientId!)
+        clogger.info("Client \(sess.clientId!) connected its session")
     }
     
     public func session(didDisconnect sess: AlloSession)
     {
         guard let cid = sess.clientId else
         {
-            print("Lost client before a client ID was set - this may be due to an auth failure")
+            logger.error("Lost client before a client ID was set - this may be due to an auth failure")
             return
         }
-        print("Lost session for client \(cid), removing entities...")
+        var clogger = logger.forClient(cid)
+        clogger.info("Lost session for client \(cid), removing entities...")
         Task { @MainActor in
             await self.removeEntites(ownedBy: cid)
             await self.heartbeat.awaitNextSync() // trigger callbacks for disappearing entities and their components before removing client
             if let client = self.clients.removeValue(forKey: cid) ?? self.unannouncedClients.removeValue(forKey: cid)
             {
-                print("Lost session for client \(cid) (\(client.announced ? "announced" : "unannounced")) was named \(client.identity?.displayName ?? "--")/\(client.identity?.emailAddress ?? "--"), and is now removed.")
+                clogger.info("Lost session for client \(cid) (\(client.announced ? "announced" : "unannounced")) was named \(client.identity?.displayName ?? "--")/\(client.identity?.emailAddress ?? "--"), and is now removed.")
             }
             if authenticationProvider?.cid == cid
             {
-                print("Lost client was our authentication provider, removing it")
+                clogger.warning("Lost client was our authentication provider, removing it")
                 authenticationProvider = nil
             }
             
@@ -107,7 +112,7 @@ public class PlaceServer : AlloSessionDelegate
                 // If it's not in clients, it should be in unacknowledged... just double checking
                 if self.unannouncedClients[cid] == nil
                 {
-                    print("Warning: Received intent from unknown client \(cid)")
+                    logger.forClient(cid).warning("Received intent from unknown client \(cid)")
                 }
                 // but we shouldn't even receive an intent before it's acknowledged anyway.
             }

@@ -10,21 +10,16 @@ import Foundation
 import FoundationNetworking
 #endif
 import OpenCombineShim
+import Logging
 
 /// A persistent connection as a client to an AlloPlace. If disconnected by temporary network issues, it will try to reconnect automatically.
 @MainActor
 open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, EntityMutator, Equatable
 {
-    public static func == (lhs: AlloClient, rhs: AlloClient) -> Bool
-    {
-        // .id is `nil` until the connection is established, so we can't really use that.
-        return lhs.url == rhs.url && lhs.identity == rhs.identity
-    }
-
     /// Convenient access to the contents of the connected Place.
     public private(set) lazy var place = Place(state: placeState, client: self)
     /// Access to the more complicated underlying data model for the connected Place.
-    public let placeState = PlaceState()
+    public let placeState: PlaceState
     
     /// URL of the place we're trying to always stay connected to
     let url: URL
@@ -71,6 +66,14 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         }
     }()
     
+    public static func == (lhs: AlloClient, rhs: AlloClient) -> Bool
+    {
+        // .id is `nil` until the connection is established, so we can't really use that.
+        return lhs.url == rhs.url && lhs.identity == rhs.identity
+    }
+    
+    private var logger = Logger(label: "client")
+    
     // MARK: - Connection state related
     
     public private(set) var connectionStatus = ConnectionStatus()
@@ -88,6 +91,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         self.identity = identity
         self.avatarDesc = avatarDescription
         self.connectionOptions = connectionOptions
+        self.placeState = PlaceState(logger: logger)
         self.reset()
     }
     

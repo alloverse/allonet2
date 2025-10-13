@@ -5,6 +5,8 @@
 //  Created by Nevyn Bengtsson on 2025-03-11.
 //
 
+import Logging
+
 extension PlaceContents: Equatable
 {
     public static func == (lhs: PlaceContents, rhs: PlaceContents) -> Bool {
@@ -152,6 +154,7 @@ extension PlaceContents: Codable
             lists[typeId] = decodedComponents
         }
         components = ComponentLists(lists: lists)
+        logger = Logger(label: "placecontents")
     }
     
     public func encode(to encoder: Encoder) throws

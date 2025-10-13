@@ -23,7 +23,7 @@ extension PlaceServer
         startSubsystems()
         
         let myIp = options.ipOverride?.to ?? "localhost"
-        print("Serving '\(name)' at http://\(myIp):\(httpPort)/ and UDP ports \(options.portRange)")
+        logger.notice("Serving '\(name)' at http://\(myIp):\(httpPort)/ and UDP ports \(options.portRange)")
 
         // On incoming connection, create a WebRTC socket.
         await http.appendRoute("POST /", handler: self.handleIncomingClient)
@@ -102,12 +102,12 @@ extension PlaceServer
         session.delegate = self
         let client = ConnectedClient(session: session, status: connectionStatus)
         
-        print("Received new client \(client.cid)")
+        client.logger.info("Received new client \(client.cid)")
         session.transport.clientId = client.cid
         self.unannouncedClients[client.cid] = client
         
         let response = try await session.generateAnswer(offer: offer)
-        print("Client is \(session.clientId!), sending answer...")
+        client.logger.info("Client is \(session.clientId!), sending answer...")
         
         return HTTPResponse(
             statusCode: .ok,

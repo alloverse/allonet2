@@ -21,7 +21,7 @@ extension PlaceServer
         assert(success) // bug if this doesn't succeed
         outstandingPlaceChanges.removeAll()
         for client in clients.values {
-            let lastContents = client.ackdRevision.flatMap { place.getHistory(at: $0) } ?? PlaceContents()
+            let lastContents = client.ackdRevision.flatMap { place.getHistory(at: $0) } ?? PlaceContents(logger: logger)
             let changeSet = place.current.changeSet(from: lastContents)
             
             client.session.send(placeChangeSet: changeSet)
@@ -31,7 +31,7 @@ extension PlaceServer
     func createEntity(from description:EntityDescription, for client: ConnectedClient) async -> EntityData
     {
         let (ent, changes) = description.changes(for: client.cid)
-        print("For \(client.cid), creating entity \(ent.id) with \(description.components.count) components and \(description.children.count) children")
+        client.logger.info("Creating entity \(ent.id) with \(description.components.count) components and \(description.children.count) children")
         await appendChanges(changes)
         
         return ent
@@ -39,7 +39,9 @@ extension PlaceServer
     
     func removeEntity(with id: EntityID, mode: EntityRemovalMode, for client: ConnectedClient?) async throws(AlloverseError)
     {
-        print("For \(client?.cid.uuidString ?? "internal"), removing entity \(id)")
+        var clogger = self.logger
+        if let cid = client?.cid { clogger = clogger.forClient(cid) }
+        clogger.info("Removing entity \(id)")
         let ent = place.current.entities[id]
 
         guard let ent = ent else {

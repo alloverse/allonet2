@@ -121,7 +121,7 @@ extension PlaceContents
     internal func applyChangeSet(_ changeSet: PlaceChangeSet) -> PlaceContents?
     {
         guard revision == changeSet.fromRevision else {
-            print("Attempt to apply changeset meant for another revision.")
+            self.logger.error("Attempt to apply changeset meant for another revision.")
             return nil
         }
         var entities: [EntityID: EntityData] = self.entities
@@ -146,7 +146,7 @@ extension PlaceContents
                 lists[type(of:component).componentTypeId]![edata.id] = nil
             }
         }
-        return PlaceContents(revision: changeSet.toRevision, entities: entities, components: ComponentLists(lists: lists))
+        return PlaceContents(revision: changeSet.toRevision, entities: entities, components: ComponentLists(lists: lists), logger: self.logger)
     }
 }
 

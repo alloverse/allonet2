@@ -1,5 +1,6 @@
 import Foundation
 import OpenCombineShim
+import Logging
 
 /// This file contains the low-level data API for accessing and listening to changes of the contents of a connected Place.
 
@@ -12,7 +13,7 @@ public typealias StateRevision = Int64
 public class PlaceState
 {
     /// Immutable representation of the world, as known by this server or client right now.
-    internal(set) public var current = PlaceContents()
+    internal(set) public var current: PlaceContents
     
     /// Changes in this world between the latest historic entry and current. Use this as a "callback list" of events to apply to react to changes in the world.
     internal(set) public var changeSet: PlaceChangeSet?
@@ -21,12 +22,12 @@ public class PlaceState
     public var observers = PlaceObservers()
     
     /// Previous versions of the world. Mostly useful to calculate deltas internally. Oldest first, newest at the end.
-    public var history: [PlaceContents] = [PlaceContents()]
+    public var history: [PlaceContents]
     
     public func getHistory(at revision: StateRevision) -> PlaceContents?
     {
         // revision 0 is a shorthand for the completely empty place
-        if revision == 0 { return PlaceContents() }
+        if revision == 0 { return PlaceContents(logger: logger) }
         
         return history.reversed().first {
             return $0.revision == revision
@@ -72,9 +73,12 @@ public class PlaceState
         }
     }
     
-    public init()
+    public init(logger: Logger)
     {
-        observers.state = self
+        self.logger = logger
+        self.current = PlaceContents(logger: self.logger)
+        self.history = [PlaceContents(logger: self.logger)]
+        self.observers.state = self
     }
     
     // TODO: I did this to detect any awaits that should fail because of object tree teardown; but it's zombie ressurrection doing it in deinit, so it would have to be implemented in a layer above this.
@@ -84,6 +88,8 @@ public class PlaceState
             subject.send(completion: .finished)
         }
     }*/
+    
+    var logger: Logger
 }
 
 /// A full representation of the world in the connected Place. Everything in a Place is represented as an Entity, but an Entity itself is only an ID; all its attributes are described by its child Components of various types.
@@ -97,18 +103,22 @@ public struct PlaceContents
     /// All the attributes for the entities, as various typed components.
     public let components : ComponentLists
     
-    public init()
+    public init(logger: Logger)
     {
-        revision = 0
-        entities = [:]
-        components = ComponentLists()
+        self.revision = 0
+        self.entities = [:]
+        self.components = ComponentLists()
+        self.logger = logger
     }
-    public init(revision: StateRevision, entities: Dictionary<EntityID, EntityData>, components: ComponentLists)
+    public init(revision: StateRevision, entities: Dictionary<EntityID, EntityData>, components: ComponentLists, logger: Logger)
     {
         self.revision = revision
         self.entities = entities
         self.components = components
+        self.logger = logger
     }
+    
+    var logger: Logger
 }
 
 /// An entity is the thing in Place that components are part of. This is the underlying data structure that just informs that it exists and has an owner. Use `Entity` for a more convenient API.

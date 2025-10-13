@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Logging
 
 internal class ConnectedClient
 {
@@ -16,10 +17,12 @@ internal class ConnectedClient
     var ackdRevision : StateRevision? // Last ack'd place contents revision, or nil if none
     var cid: ClientId = UUID()
     var avatar: EntityID? // Assigned in the place server upon successful client announce
+    var logger: Logger
 
     init(session: AlloSession, status: ConnectionStatus)
     {
         self.session = session
         self.status = status
+        self.logger = Logger(label: "place.server").forClient(self.cid)
     }
 }

@@ -7,6 +7,7 @@
 
 import Foundation
 import OpenCombineShim
+import Logging
 
 extension String
 {
@@ -46,6 +47,8 @@ internal struct ForwardingId: Equatable, Hashable, CustomStringConvertible
 @MainActor
 class PlaceServerSFU
 {
+    private var logger = Logger(label: "place.sfu")
+    
     /// This is done by reconciling two async event streams:
     /// 1. Requests for **desired streams** come in as component changes of the type `LiveMediaListener`
     internal var desired = Set<ForwardingId>()
@@ -80,23 +83,26 @@ class PlaceServerSFU
         server.place.observers[LiveMediaListener.self].updatedWithInitial.sink { (eid, comp) in
             // entity might not exist in case it was removed in the same heartbeat that the listener was updated
             guard let cid = self.server.place.current.entities[eid]?.ownerClientId else { return }
+            var clogger = self.logger.forClient(cid)
+            
             let new = comp.mediaIds
             let old = olds.updateValue(new, forKey: eid) ?? []
             for lostMediaId in old.subtracting(new).flatMap(\.psi) {
-                print("PlaceServer SFU lost request \(lostMediaId) -> \(cid)")
+                clogger.info("Lost request \(lostMediaId) -> \(cid)")
                 self.desired.remove(ForwardingId(source: lostMediaId, target: cid))
             }
             for addedMediaId in new.subtracting(old).flatMap(\.psi) {
-                print("PlaceServer SFU gained request \(addedMediaId) -> \(cid)")
+                clogger.info("Gained request \(addedMediaId) -> \(cid)")
                 self.desired.insert(ForwardingId(source: addedMediaId, target: cid))
             }
             self.reconcile()
         }.store(in: &cancellables)
         server.place.observers[LiveMediaListener.self].removed.sink { (edata, comp) in
             let cid = edata.ownerClientId
+            var clogger = self.logger.forClient(cid)
             let gone = olds.removeValue(forKey: edata.id) ?? comp.mediaIds
             for lostMediaId in comp.mediaIds.flatMap(\.psi) {
-                print("PlaceServer SFU lost request from removal \(lostMediaId) -> \(cid)")
+                clogger.info("Lost request from removal \(lostMediaId) -> \(cid)")
                 self.desired.remove(ForwardingId(source: lostMediaId, target: cid))
             }
             self.reconcile()
@@ -109,9 +115,10 @@ class PlaceServerSFU
     {
         // Only ingress streams should be marked as available for forwarding
         if stream.streamDirection == .sendonly { return }
+        var clogger = self.logger.forClient(sender.cid)
         
         let incoming = PlaceStream(sender: sender, stream: stream)
-        print("PlaceServer SFU got new stream \(incoming)")
+        clogger.info("Got new stream \(incoming)")
         available[incoming.psi] = incoming
         reconcile()
     }
@@ -120,7 +127,8 @@ class PlaceServerSFU
     internal func handle(lost stream: MediaStream, from sender: ConnectedClient)
     {
         let psi = PlaceStreamId(shortClientId: sender.cid.shortClientId, incomingMediaId: stream.mediaId)
-        print("PlaceServer SFU lost stream \(psi)")
+        var clogger = self.logger.forClient(sender.cid)
+        clogger.info("Lost stream \(psi)")
         available[psi] = nil
         reconcile()
     }
@@ -139,10 +147,11 @@ class PlaceServerSFU
     private func start(forwarding fid: ForwardingId)
     {
         let placestream = available[fid.source]! // !: precondition that it's avilable from reconcile()
+        var clogger = self.logger.forClient(fid.target)
         assert(placestream.stream.streamDirection.isRecv, "Can only forward incoming streams")
         let target = self.server.clients[fid.target]! // !: client must exist for the component that generated the `desired` entry to exist
         
-        print("PlaceServer SFU START forwarding \(fid)")
+        clogger.info("START forwarding \(fid)")
         do {
             let sfu = try server.transportClass.forward(mediaStream: placestream.stream, from: placestream.sender.session.transport, to: target.session.transport)
             active[fid] = sfu
@@ -150,14 +159,15 @@ class PlaceServerSFU
         {
             // TODO: Would be nice to let the requesting client know that the request failed (maybe set an attribute on the component? or a generic "error message" interaction?)
             // TODO: have a `failed` set so we don't try to start it again?
-            print("ERROR: Failed to start forwarding \(fid): \(e)")
+            clogger.error("ERROR: Failed to start forwarding \(fid): \(e)")
         }
     }
     
     private func stop(forwarding fid: ForwardingId)
     {
         guard let forwarder = active[fid] else { return }
-        print("PlaceServer SFU STOP forwarding \(fid)")
+        var clogger = self.logger.forClient(fid.target)
+        clogger.info("STOP forwarding \(fid)")
         forwarder.stop()
         active[fid] = nil
     }
