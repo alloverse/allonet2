@@ -39,8 +39,7 @@ class PlaceServerHTTP
     {
         self.http = HTTPServer(port: port, handler: self)
         // Routes are also added with @HTTPRoute/@JSONRoute, see below.
-        await http.appendRoute("GET /dashboard", to: self.status)
-        await http.appendRoute("GET /dashboard/*", to: self.status)
+        try await self.status.start(on: http)
             
         try await http.start()
     }
