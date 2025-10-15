@@ -210,6 +210,7 @@ class PlaceServerStatus: WSMessageHandler
                     <th width="70">Revision</th>
                     <th>Connection status</th>
                     <th>Streams</th>
+                    <th>Logs</th>
                 </tr></thead>
             """ +
             server.clients.values.map { client in
@@ -230,6 +231,7 @@ class PlaceServerStatus: WSMessageHandler
                 \t\t\t\t    <td>\(client.session.incomingStreams.values.map {
                     "<span class=\"badge\">\($0.mediaId) <i>\($0.streamDirection)</i></span>"
                 }.joined(separator: "\n"))</td>
+                \t\t\t\t    <td><a href="/dashboard/logs?filter=\(client.cid.shortClientId)">Logs</a></td>
                 \t\t\t\t</tr>
                 """
             }.joined(separator: "\n\t\t\t\t") +
@@ -327,6 +329,7 @@ class PlaceServerStatus: WSMessageHandler
     @HTTPRoute("dashboard/logs")
     func logs(_ request: HTTPRequest) async -> HTTPResponse
     {
+        // TODO: Detect http vs https
         let host = request.headers[.host] ?? "localhost"
         let body = """
             <!doctype html>

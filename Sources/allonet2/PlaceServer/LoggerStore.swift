@@ -14,6 +14,7 @@ public struct StoredLogMessage: Codable
     let source: String
     let level: Logger.Level
     let metadata: [String: Logger.MetadataValue]?
+    // TODO: TIMESTAMP!!
 }
 
 /// A LogHandler that stores each incoming log message, so that it can be later be displayed in debug UI
