@@ -18,17 +18,36 @@ public class HeadlessWebRTCTransport: Transport
 {
     public weak var delegate: TransportDelegate?
     public var clientId: ClientId?
-    var logger = Logger(label: "transport.libdatachannel")
+    var logger = Logger(label: "transport.headeless")
     
     private var peer: AlloWebRTCPeer
     private var channels: [String: AlloWebRTCPeer.DataChannel] = [:] // track which channels are created
     private var connectionStatus: ConnectionStatus
     private var cancellables = Set<AnyCancellable>()
     
+    private static var datachannelLogger = Logger(label: "transport.headless.libdatachannel")
+    private static var initialized: Bool = false
+    private static func initialize()
+    {
+        AlloWebRTCPeer.enableLogging(at: .debug) { sev, msg in
+            let level : Logger.Level = switch sev {
+            case .verbose: .trace
+            case .debug: .debug
+            case .info: .info
+            case .warning: .warning
+            case .error: .error
+            case .fatal: .critical
+            case .none: .info
+            }
+            datachannelLogger.log(level: level, "\(msg)")
+        }
+    }
+    
     public required init(with connectionOptions: allonet2.TransportConnectionOptions, status: ConnectionStatus)
     {
+        if(!Self.initialized) { Self.initialize() }
+        
         self.connectionStatus = status
-        AlloWebRTCPeer.enableLogging(at: .debug)
         peer = AlloWebRTCPeer(portRange: connectionOptions.portRange, ipOverride: connectionOptions.ipOverride?.adc)
         
         peer.$state.sink { [weak self] state in
