@@ -39,7 +39,9 @@ let package = Package(
         .package(url: "https://github.com/christophhagen/BinaryCodable", from: "3.0.0"),
         //.package(url: "https://github.com/apple/swift-protobuf.git", .upToNextMajor(from: "1.25.1")),
         .package(url: "https://github.com/livekit/webrtc-xcframework.git", exact: "137.7151.07"),
-        .package(url: "https://github.com/swhitty/FlyingFox.git", .upToNextMajor(from: "0.14.0")),
+        .package(url: "https://github.com/swhitty/FlyingFox.git", .upToNextMajor(from: "0.25.0")),
+        .package(url: "https://github.com/swhitty/FlyingFoxMacros.git", .upToNextMajor(from: "0.2.0")),
+
         .package(url: "https://github.com/Flight-School/AnyCodable", from: "0.6.0"),
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
         .package(url: "https://github.com/alloverse/OpenCombine.git", branch: "fix/vision-support"), // So we can use Combine on Linux.
@@ -57,6 +59,7 @@ let package = Package(
                 "BinaryCodable",
                 "AnyCodable",
                 "FlyingFox",
+                "FlyingFoxMacros",
                 "Version",
                 .product(name: "kvSIMD", package: "kvSIMD.swift"),
                 .product(name: "OpenCombineShim", package: "opencombine"),

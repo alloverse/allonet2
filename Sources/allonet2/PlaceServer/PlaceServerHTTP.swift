@@ -4,8 +4,10 @@
 //
 //  Created by Nevyn Bengtsson on 2025-08-21.
 //
-import FlyingFox
+
 import Foundation
+import FlyingFox
+import FlyingFoxMacros
 
 public struct AppDescription
 {
@@ -16,34 +18,39 @@ public struct AppDescription
     public static var alloverse: Self { AppDescription(name: "Alloverse", downloadURL: "https://alloverse.com/download", URLProtocol: "alloplace2") }
 }
 
-extension PlaceServer
+@MainActor
+@HTTPHandler
+class PlaceServerHTTP
 {
-    public func start() async throws
+    private var http: HTTPServer! = nil
+    private let appDescription: AppDescription
+    private var status: PlaceServerStatus!
+    private unowned let server: PlaceServer
+    private let port: UInt16
+    
+    init(server: PlaceServer, port: UInt16, appDescription: AppDescription)
     {
-        startSubsystems()
-        
-        let myIp = options.ipOverride?.to ?? "localhost"
-        logger.notice("Serving '\(name)' at http://\(myIp):\(httpPort)/ and UDP ports \(options.portRange)")
-
-        // On incoming connection, create a WebRTC socket.
-        await http.appendRoute("POST /", handler: self.handleIncomingClient)
-        await http.appendRoute("GET /", handler: self.landingPage)
-        await http.appendRoute("GET /status", handler: self.status.page)
+        self.server = server
+        self.status = PlaceServerStatus(server: server)
+        self.port = port
+        self.appDescription = appDescription
+    }
+    func start() async throws
+    {
+        self.http = HTTPServer(port: port, handler: self)
+        // Routes are also added with @HTTPRoute/@JSONRoute, see below.
+        await http.appendRoute("GET /dashboard", to: self.status)
+        await http.appendRoute("GET /dashboard/*", to: self.status)
             
         try await http.start()
     }
     
-    public func stop() async
+    func stop() async
     {
         await http.stop()
-        for client in Array(clients.values) + Array(unannouncedClients.values)
-        {
-            client.session.disconnect()
-        }
-        sfu.stop()
     }
     
-    @Sendable
+    @HTTPRoute("GET /")
     func landingPage(_ request: HTTPRequest) async -> HTTPResponse
     {
         let host = request.headers[.host] ?? "localhost"
@@ -57,7 +64,7 @@ extension PlaceServer
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>\(name)</title>
+                <title>\(server.name)</title>
                 <style>
                     body {
                         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
@@ -78,9 +85,9 @@ extension PlaceServer
                 </style>
             </head>
             <body>
-                <h1>Welcome to \(name).</h1>
+                <h1>Welcome to \(server.name).</h1>
                 <p>You need to <a href="\(appDescription.downloadURL)">install the \(appDescription.name) app</a> to connect to this virtual place.</p>
-                <p>Already have \(appDescription.name)?<br/> <a class="button" href="\(proto)://\(host)\(path)">Open <i>\(name)</i> in \(appDescription.name)</a></p>
+                <p>Already have \(appDescription.name)?<br/> <a class="button" href="\(proto)://\(host)\(path)">Open <i>\(server.name)</i> in \(appDescription.name)</a></p>
             </body>
             </html>
             """
@@ -91,28 +98,24 @@ extension PlaceServer
         )
     }
     
-    @Sendable
-    func handleIncomingClient(_ request: HTTPRequest) async throws -> HTTPResponse
+    @JSONRoute("POST /")
+    func handleIncomingClient(_ request: HTTPRequest) async throws -> SignallingPayload
     {
         let offer = try await JSONDecoder().decode(SignallingPayload.self, from: request.bodyData)
         
         let connectionStatus = ConnectionStatus()
-        let transport = transportClass.init(with: options, status: connectionStatus)
+        let transport = server.transportClass.init(with: server.options, status: connectionStatus)
         let session = AlloSession(side: .server, transport: transport)
-        session.delegate = self
+        session.delegate = server
         let client = ConnectedClient(session: session, status: connectionStatus)
         
         client.logger.info("Received new client \(client.cid)")
         session.transport.clientId = client.cid
-        self.unannouncedClients[client.cid] = client
+        server.unannouncedClients[client.cid] = client
         
         let response = try await session.generateAnswer(offer: offer)
         client.logger.info("Client is \(session.clientId!), sending answer...")
         
-        return HTTPResponse(
-            statusCode: .ok,
-            headers: [.contentType: "application/json"],
-            body: try! JSONEncoder().encode(response)
-        )
+        return response
     }
 }

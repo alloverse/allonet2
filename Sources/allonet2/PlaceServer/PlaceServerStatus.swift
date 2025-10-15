@@ -7,8 +7,10 @@
 
 import Foundation
 import FlyingFox
+import FlyingFoxMacros
 
 @MainActor
+@HTTPHandler
 struct PlaceServerStatus
 {
     weak var server: PlaceServer!
@@ -20,7 +22,8 @@ struct PlaceServerStatus
         self.place = Place(state: server.place, client: nil)
     }
     
-    func page(_ request: HTTPRequest) async -> HTTPResponse
+    @HTTPRoute("/dashboard")
+    func index(_ request: HTTPRequest) async -> HTTPResponse
     {
         let body = """
             <!DOCTYPE html>

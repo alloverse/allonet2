@@ -7,7 +7,6 @@
 
 import Foundation
 import OpenCombineShim
-import FlyingFox
 import Logging
 
 @MainActor
@@ -17,15 +16,13 @@ public class PlaceServer : AlloSessionDelegate
     var unannouncedClients : [ClientId: ConnectedClient] = [:]
     
     let name: String
-    let http: HTTPServer
     let httpPort:UInt16
-    let appDescription: AppDescription
     let transportClass: Transport.Type
     let options: TransportConnectionOptions
     var logger = Logger(label: "place.server")
     
     var sfu: PlaceServerSFU!
-    var status: PlaceServerStatus!
+    var web: PlaceServerHTTP!
     
     var outstandingClientToClientInteractions: [Interaction.RequestID: ClientId] = [:]
     internal var authenticationProvider: ConnectedClient?
@@ -52,15 +49,27 @@ public class PlaceServer : AlloSessionDelegate
         self.place = PlaceState(logger: logger)
         self.name = name
         self.httpPort = httpPort
-        self.appDescription = customApp
         self.transportClass = transportClass
-        self.http = HTTPServer(port: httpPort)
         self.options = options
+        self.web = PlaceServerHTTP(server: self, port: httpPort, appDescription: customApp)
+        self.sfu = PlaceServerSFU(server: self)
     }
-    func startSubsystems()
+    
+    public func start() async throws
     {
-        sfu = PlaceServerSFU(server: self)
-        status = PlaceServerStatus(server: self)
+        let myIp = options.ipOverride?.to ?? "localhost"
+        logger.notice("Serving '\(name)' at http://\(myIp):\(httpPort)/ and UDP ports \(options.portRange)")
+
+        try await self.web.start()
+    }
+    public func stop() async
+    {
+        await web.stop()
+        for client in Array(clients.values) + Array(unannouncedClients.values)
+        {
+            client.session.disconnect()
+        }
+        sfu.stop()
     }
     
     public func session(didConnect sess: AlloSession)
