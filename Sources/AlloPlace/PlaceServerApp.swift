@@ -61,8 +61,11 @@ struct PlaceServerApp: AsyncParsableCommand
     {
         LoggingSystem.bootstrap
         { label in
+            let console = StreamLogHandler.standardOutput(label: label)
+            let storing = StoringLogHandler(label: label)
             // TODO: send off to some OpenTelemetry thing
-            return StreamLogHandler.standardOutput(label: label)
+            
+            return MultiplexLogHandler([console, storing])
         }
     }
 }

@@ -334,7 +334,7 @@ class PlaceServerStatus: WSMessageHandler
             <head>
             <meta charset="utf-8" />
             <meta name="viewport" content="width=device-width,initial-scale=1" />
-            <title>Live Log Viewer</title>
+            <title>Live logs for \(server.name)</title>
             <style>
               :root{
                 /* Light / pastel palette */
@@ -785,6 +785,7 @@ class PlaceServerStatus: WSMessageHandler
                   const items = Array.isArray(payload) ? payload : [payload];
                   for (const raw of items) {
                     const log = normalizeLog(raw);
+                    console.log("Raw", raw, "Normalized", log);
                     store.all.push(log);
                     appendIfVisible(log);
                   }
@@ -859,25 +860,19 @@ class PlaceServerStatus: WSMessageHandler
     func makeMessages(for client: AsyncStream<FlyingFox.WSMessage>) async throws -> AsyncStream<FlyingFox.WSMessage>
     {
         return AsyncStream { continuation in
-            var done = false
-            Task {
+            let relay = Task {
                 do {
-                    for i in 1...9999999
-                    {
-                        try await Task.sleep(for: .seconds(1))
-                        print("Printing")
-                        continuation.yield(WSMessage.text("""
-                            {
-                                "level": "warning",
-                                "message": "hello test \(i)",
-                                "source": "http",
-                                "metadata": { "ClientID": "cli_\(i%4)", "Route": "/api/items" }
-                            }
-                        """))
+                    for await item in LogStore.shared.stream() {
+                        let json = try! JSONEncoder().encode(item)
+                        let jsonString = String(decoding: json, as: UTF8.self)
+                        let message: WSMessage = .text(jsonString)
+                        continuation.yield(message)
                     }
                 } catch {}
-                print("Logger finished")
                 continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                relay.cancel()
             }
         }
     }

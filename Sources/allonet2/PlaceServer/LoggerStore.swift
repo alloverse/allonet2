@@ -8,24 +8,21 @@
 import Foundation
 import Logging
 
-/// A LogHandler that stores each incoming log message, so that it can be later be displayed in debug UI
-public class LoggerStore: LogHandler
+public struct StoredLogMessage: Codable
 {
-    public static var shared: LoggerStore! = nil
+    let message: Logger.Message
+    let source: String
+    let level: Logger.Level
+    let metadata: [String: Logger.MetadataValue]?
+}
+
+/// A LogHandler that stores each incoming log message, so that it can be later be displayed in debug UI
+public class StoringLogHandler: LogHandler
+{
     public init(label: String)
     {
         self.label = label
-        Self.shared = self
     }
-    
-    public struct StoredLog {
-        let log: Logger.Message
-        let level: Logger.Level
-        let metadata: Logger.Metadata?
-    }
-    
-    public var logs: [StoredLog] = []
-    //public var incomingLogs: AsyncStream<StoredLog>
     
     private let label: String
     public var logLevel: Logger.Level = .info
@@ -56,8 +53,8 @@ public class LoggerStore: LogHandler
             explicit: explicitMetadata
         )
 
-        let stored = StoredLog(log: message, level: level, metadata: effectiveMetadata)
-        logs.append(stored)
+        let storedMessage = StoredLogMessage(message: message, source: label, level: level, metadata: effectiveMetadata)
+        LogStore.shared.store(storedMessage)
     }
 
     internal static func prepareMetadata(
@@ -70,8 +67,7 @@ public class LoggerStore: LogHandler
         let provided = provider?.get() ?? [:]
 
         guard !provided.isEmpty || !((explicit ?? [:]).isEmpty) else {
-            // all per-log-statement values are empty
-            return nil
+            return metadata
         }
 
         if !provided.isEmpty {
@@ -83,5 +79,108 @@ public class LoggerStore: LogHandler
         }
 
         return metadata
+    }
+}
+
+// The global repository of stored logs
+public class LogStore
+{
+    public private(set) static var shared = LogStore()
+    
+    // MARK: Storage + streaming
+    private var logs: [StoredLogMessage] = []
+    private var continuations: [UUID: AsyncStream<StoredLogMessage>.Continuation] = [:]
+
+    /// All logs so far (snapshot copy).
+    public func allLogs() -> [StoredLogMessage] { logs }
+
+    /// A replay-then-live stream. New subscribers get all current logs, then future ones until they cancel.
+    public func stream() -> AsyncStream<StoredLogMessage>
+    {
+        AsyncStream { continuation in
+            for log in logs {
+                continuation.yield(log)
+            }
+
+            let id = UUID()
+            continuations[id] = continuation
+            continuation.onTermination = { [weak self] _ in
+                // Remove the continuation when the consumer cancels or finishes
+                Task { await self?.continuations.removeValue(forKey: id) }
+            }
+        }
+    }
+    
+    public func store(_ log: StoredLogMessage)
+    {
+        if logs.count > 10000 { logs.removeFirst(1000) }
+        
+        logs.append(log)
+        
+        // Fan-out to all active listeners
+        for c in continuations.values
+        {
+            c.yield(log)
+        }
+    }
+
+    /// Clear stored history (does not affect active streams except that future replays will be empty).
+    public func clear() { logs.removeAll(keepingCapacity: false) }
+    
+    deinit {
+        // Finish any dangling continuations to unblock consumers
+        for c in continuations.values { c.finish() }
+        continuations.removeAll()
+    }
+}
+
+
+// Please excuse the slop Codable implementation below
+
+extension Logger.Message: Codable {
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(String(describing: self))
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let string = try container.decode(String.self)
+        self = Logger.Message(stringLiteral: string)
+    }
+}
+
+extension Logger.Level: Codable {
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(self.rawValue)
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let raw = try container.decode(String.self)
+        self = Logger.Level(rawValue: raw) ?? .info
+    }
+}
+
+extension Logger.MetadataValue: Codable {
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let value):
+            try container.encode(value)
+        case .stringConvertible(let sc):
+            try container.encode(String(describing: sc))
+        case .array(let values):
+            try container.encode(values)
+        case .dictionary(let dict):
+            try container.encode(dict)
+        }
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        // TODO
+        self = .string(try container.decode(String.self))
     }
 }
