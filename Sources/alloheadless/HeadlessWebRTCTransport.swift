@@ -18,7 +18,7 @@ public class HeadlessWebRTCTransport: Transport
 {
     public weak var delegate: TransportDelegate?
     public var clientId: ClientId?
-    var logger = Logger(label: "transport.headeless")
+    var logger = Logger(label: "transport.headless")
     
     private var peer: AlloWebRTCPeer
     private var channels: [String: AlloWebRTCPeer.DataChannel] = [:] // track which channels are created
