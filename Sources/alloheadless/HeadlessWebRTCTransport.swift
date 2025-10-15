@@ -132,7 +132,7 @@ public class HeadlessWebRTCTransport: Transport
         if clientId == nil
         {
             clientId = answer.clientId!
-            logger.forClient(clientId!)
+            logger = logger.forClient(clientId!)
         }
         logger.info("Received their answer: \(answer)")
         try peer.set(remote: answer.sdp, type: .answer)
@@ -211,8 +211,7 @@ public class HeadlessWebRTCTransport: Transport
     
     public static func forward(mediaStream: MediaStream, from sender: any Transport, to receiver: any Transport) throws -> MediaStreamForwarder
     {
-        var logger = Logger(label: "transport.libdatachannel")
-        logger.forClient(receiver.clientId!)
+        var logger = Logger(label: "transport.libdatachannel").forClient(receiver.clientId!)
         logger.info("Forwarding media stream \(mediaStream.mediaId) from \(sender.clientId) to \(receiver.clientId)")
         let track = mediaStream as! AlloWebRTCPeer.Track
         let receiverHeadless = (receiver as! HeadlessWebRTCTransport)
