@@ -557,7 +557,7 @@ private class ClientMediaStream: MediaStream
         weak var track = rtcStream.audioTracks.first
         let renderer = AudioRingRenderer()
         // TODO: don't hardcode sample rate
-        let ring = AudioRingBuffer(channels: 1, capacityFrames: 48000)
+        let ring = AVFAudioRingBuffer(channels: 1, capacityFrames: 48000)
         {
             track?.remove(renderer)
         }
@@ -574,7 +574,7 @@ private class ClientMediaStream: MediaStream
 
 fileprivate class AudioRingRenderer : NSObject, LKRTCAudioRenderer
 {
-    weak var ring: AudioRingBuffer? = nil
+    weak var ring: AVFAudioRingBuffer? = nil
     func render(pcmBuffer pcm: AVAudioPCMBuffer)
     {
         //logger.trace("Writing \(pcm.frameLength) frames to \(ring)")

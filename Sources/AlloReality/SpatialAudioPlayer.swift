@@ -115,7 +115,7 @@ public class SpatialAudioPlayer
         )
         guient.components.set(spatial)
         
-        let ringBuffer = stream.render()
+        let ringBuffer = stream.render() as! AVFAudioRingBuffer
         ringBuffer.store(in: &playState.cancellables)
         
         // TODO: Adjust playback speed to keep the buffered amount stable at ~50ms latency?
