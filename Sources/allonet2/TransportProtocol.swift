@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import AVFAudio
 import OpenCombineShim
 
 public typealias ClientId = UUID
