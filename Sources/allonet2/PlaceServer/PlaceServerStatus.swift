@@ -146,7 +146,7 @@ class PlaceServerStatus: WSMessageHandler
                 </script>
             </head>
             <body>
-                <h1>Status for \(server.name)</h1>
+                <h1>Status for \(server.name) | <a href="dashboard/logs">Logs</a></h1>
                 
                 <h2>Scenegraph at revision \(server.place.current.revision)</h2>
                 <pre class="mermaid">
@@ -533,6 +533,9 @@ class PlaceServerStatus: WSMessageHandler
             <body>
               <div class="wrap">
                 <header>
+                  <div class="row">
+                    <h1>Logs for \(server.name) | <a href="/dashboard">Dashboard</a></h1>
+                  </div>
                   <div class="row">
                     <div class="status"><span id="statusDot" class="dot gray"></span><span id="statusText">Disconnected</span></div>
                   </div>
