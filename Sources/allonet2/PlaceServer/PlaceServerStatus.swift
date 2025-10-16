@@ -329,8 +329,6 @@ class PlaceServerStatus: WSMessageHandler
     @HTTPRoute("dashboard/logs")
     func logs(_ request: HTTPRequest) async -> HTTPResponse
     {
-        // TODO: Detect http vs https
-        let host = request.headers[.host] ?? "localhost"
         let body = """
             <!doctype html>
             <html lang="en">
@@ -572,7 +570,9 @@ class PlaceServerStatus: WSMessageHandler
               const store = { all: [], filtered: [], regex: null, text: "" };
               let mockTimer = null;
 
-              const FIXED_WS = 'ws://\(host)/dashboard/logs/follow';
+              const wsUrl = new URL('/dashboard/logs/follow', window.location.href);
+              wsUrl.protocol = (window.location.protocol === 'https:') ? 'wss:' : 'ws:';
+              const FIXED_WS = wsUrl.toString();
               let ws = null;
 
               /** ---------- Dom ---------- **/
