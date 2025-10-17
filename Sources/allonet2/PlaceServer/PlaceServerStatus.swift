@@ -528,13 +528,13 @@ class PlaceServerStatus: WSMessageHandler
               }
               
               /* --- Timestamp bubble overlay --- */
-                .line {
+              .line {
                   position: relative;          /* needed for absolute stamp positioning */
                   overflow: hidden;            /* clip the stamp if it overshoots */
                   padding-right: 140px;        /* reserve space so text doesn't overlap the stamp */
-                }
+              }
 
-                .stamp {
+              .stamp {
                   position: absolute;
                   top: 8px;
                   right: 10px;
@@ -544,10 +544,22 @@ class PlaceServerStatus: WSMessageHandler
                   pointer-events: none;        /* don't steal clicks from the row */
                   user-select: none;
                   white-space: nowrap;
-                }
+              }
 
-                /* Optional: when a row is expanded, make the stamp a hair dimmer */
-                .line.expanded .stamp { opacity: .8; }
+              /* Optional: when a row is expanded, make the stamp a hair dimmer */
+              .line.expanded .stamp { opacity: .8; }
+              
+              select {
+                  appearance: none;
+                  background: #fff;              /* for dark theme, use #0f141a */
+                  border: 1px solid var(--border);
+                  color: var(--text);
+                  border-radius: 10px;
+                  padding: 10px 12px;
+                  font: 600 14px/1 var(--sans);
+                  cursor: pointer;
+              }
+              select:focus { outline: none; box-shadow: var(--shadow); }
             </style>
             </head>
             <body>
@@ -565,6 +577,16 @@ class PlaceServerStatus: WSMessageHandler
                   <div class="toolbar" style="padding-top:0">
                     <input id="filterInput" type="text" placeholder="Filter… (matches message, source, metadata) • Regex supported with /.../i" />
                     <div class="row">
+                      <select id="levelSelect" title="Show only logs at or above this level">
+                        <option value="">All levels</option>
+                        <option value="trace">≥ trace</option>
+                        <option value="debug">≥ debug</option>
+                        <option value="info">≥ info</option>
+                        <option value="notice">≥ notice</option>
+                        <option value="warning">≥ warning</option>
+                        <option value="error">≥ error</option>
+                        <option value="critical">≥ critical</option>
+                      </select>
                       <label title="If enabled, the view auto-scrolls only when already at the bottom.">
                         <input id="pinCheck" type="checkbox" checked /> Autoscroll
                       </label>
@@ -589,7 +611,7 @@ class PlaceServerStatus: WSMessageHandler
               /** ---------- State ---------- **/
               const levels = ["trace","debug","info","notice","warning","error","critical"];
               const levelOrder = Object.fromEntries(levels.map((l,i)=>[l,i]));
-              const store = { all: [], filtered: [], regex: null, text: "" };
+              const store = { all: [], filtered: [], regex: null, text: "", minLevel: null };
               let mockTimer = null;
 
               const wsUrl = new URL('/dashboard/logs/follow', window.location.href);
@@ -602,6 +624,7 @@ class PlaceServerStatus: WSMessageHandler
                 container: document.getElementById('logContainer'),
                 filter: document.getElementById('filterInput'),
                 pinCheck: document.getElementById('pinCheck'),
+                levelSelect: document.getElementById('levelSelect'),
                 counts: document.getElementById('counts'),
                 statusDot: document.getElementById('statusDot'),
                 statusText: document.getElementById('statusText'),
@@ -800,9 +823,14 @@ class PlaceServerStatus: WSMessageHandler
 
               /** ---------- Filtering ---------- **/
               const matchesFilter = (log) => {
-                if (!store.regex) return true;
-                const hay = textFromLog(log);
-                return store.regex.test(hay);
+                // text filter (unchanged)
+                if (store.regex && !store.regex.test(textFromLog(log))) return false;
+
+                // level threshold (>= selected min level)
+                if (store.minLevel) {
+                  if ((levelOrder[log.level] ?? 999) < (levelOrder[store.minLevel] ?? 0)) return false;
+                }
+                return true;
               };
 
               const applyFilter = () => {
@@ -857,6 +885,11 @@ class PlaceServerStatus: WSMessageHandler
 
               /** ---------- Events ---------- **/
               el.filter.addEventListener('input', onFilterInput);
+              el.levelSelect.addEventListener('change', () => {
+                const v = el.levelSelect.value;
+                store.minLevel = v || null;   // empty means “All levels”
+                applyFilter();
+              });
 
               // Keyboard shortcuts
               window.addEventListener('keydown', (e) => {
@@ -885,6 +918,11 @@ class PlaceServerStatus: WSMessageHandler
               if (initial && typeof initial === 'string') {
                 el.filter.value = initial;
                 store.text = initial;
+              }
+              const lvl = (params.get('level') || 'info').toLowerCase();
+              if (lvl && levelOrder[lvl] !== undefined) {
+                el.levelSelect.value = lvl;
+                store.minLevel = lvl;
               }
               // Initial empty render
               applyFilter();
