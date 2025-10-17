@@ -61,14 +61,16 @@ struct PlaceServerApp: AsyncParsableCommand
     {
         LoggingSystem.bootstrap
         { label in
-            let console = StreamLogHandler.standardOutput(label: label)
-            let storing = StoringLogHandler(label: label)
-            // TODO: Use OSLog on macOS
-            // TODO: send off to some OpenTelemetry thing
+            // TODO: Use OSLog instead of StreamLogHandler on macOS
+            var console = StreamLogHandler.standardOutput(label: label)
+            console.logLevel = .debug
+            
+            var storing = StoringLogHandler(label: label)
+            storing.logLevel = .trace
+            
+            // TODO: Add an OpenTelemetry sender too, with associated backend (configured through env)
             
             var combined = MultiplexLogHandler([console, storing])
-            combined.logLevel = .trace
-            
             return combined
         }
     }
