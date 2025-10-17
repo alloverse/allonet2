@@ -1002,7 +1002,7 @@ class PlaceServerStatus: WSMessageHandler
         return AsyncStream { continuation in
             let relay = Task {
                 do {
-                    for await item in LogStore.shared.stream() {
+                    for await item in await LogStore.shared.stream() {
                         let json = try! JSONEncoder().encode(item)
                         let jsonString = String(decoding: json, as: UTF8.self)
                         let message: WSMessage = .text(jsonString)

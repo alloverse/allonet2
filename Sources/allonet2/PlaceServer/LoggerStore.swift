@@ -61,7 +61,7 @@ public class StoringLogHandler: LogHandler
             level: level,
             metadata: effectiveMetadata
         )
-        LogStore.shared.store(storedMessage)
+        Task { await LogStore.shared.store(storedMessage) }
     }
 
     internal static func prepareMetadata(
@@ -90,13 +90,14 @@ public class StoringLogHandler: LogHandler
 }
 
 // The global repository of stored logs
-public class LogStore
+public actor LogStore
 {
     public private(set) static var shared = LogStore()
     
     // MARK: Storage + streaming
     private var logs: [StoredLogMessage] = []
     private var continuations: [UUID: AsyncStream<StoredLogMessage>.Continuation] = [:]
+    private func removeContinuation(for key: UUID) { self.continuations.removeValue(forKey: key) }
 
     /// All logs so far (snapshot copy).
     public func allLogs() -> [StoredLogMessage] { logs }
@@ -113,7 +114,7 @@ public class LogStore
             continuations[id] = continuation
             continuation.onTermination = { [weak self] _ in
                 // Remove the continuation when the consumer cancels or finishes
-                Task { await self?.continuations.removeValue(forKey: id) }
+                Task { await self?.removeContinuation(for:id) }
             }
         }
     }
