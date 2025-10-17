@@ -560,22 +560,79 @@ class PlaceServerStatus: WSMessageHandler
                   cursor: pointer;
               }
               select:focus { outline: none; box-shadow: var(--shadow); }
+              
+              /* Pretty header */
+                .headerbar {
+                  padding: 18px 20px;
+                  display: grid;
+                  grid-template-columns: 1fr auto;
+                  align-items: center;
+                  background: linear-gradient(180deg, #f7f8fc, #f2f5fb);
+                }
+                .headerbar .titlewrap {
+                  display: flex;
+                  align-items: baseline;
+                  gap: 14px;
+                }
+                .headerbar h1 {
+                  margin: 0;
+                  font-weight: 700;
+                  font-size: clamp(20px, 2.2vw + 8px, 32px);
+                }
+                .headerbar .link {
+                  font-weight: 700;
+                  text-decoration: underline;
+                  text-underline-offset: 3px;
+                  color: #6a37ff; /* matches your accent */
+                }
+
+                /* Fix the lone toolbar’s spacing now that the connect row is gone */
+                .card > .toolbar {
+                  padding: 14px 14px;              /* restore top padding */
+                }
+                .card > .toolbar:first-child {
+                  border-top-left-radius: var(--radius);
+                  border-top-right-radius: var(--radius);
+                }
+                .card > .toolbar:last-child {
+                  border-bottom-left-radius: var(--radius);
+                  border-bottom-right-radius: var(--radius);
+                }
+
+                /* Optional: make the filter row feel like a connected control group */
+                .toolbar {
+                  grid-template-columns: 1fr auto; /* input grows, controls hug right */
+                }
+                .toolbar input[type="text"] {
+                  height: 44px;
+                }
+                .toolbar .row select,
+                .toolbar .row label {
+                  height: 44px;
+                  display: inline-flex;
+                  align-items: center;
+                }
+
+                /* Tighter spacing for the status on the right */
+                .status { padding: 0; }
             </style>
             </head>
             <body>
               <div class="wrap">
-                <header>
-                  <div class="row">
-                    <h1>Logs for \(server.name) | <a href="/dashboard">Dashboard</a></h1>
+                <header class="card headerbar">
+                  <div class="titlewrap">
+                    <h1>Logs for \(server.name)</h1>
+                    <a class="link" href="/dashboard">Dashboard</a>
                   </div>
-                  <div class="row">
-                    <div class="status"><span id="statusDot" class="dot gray"></span><span id="statusText">Disconnected</span></div>
+                  <div class="status">
+                    <span id="statusDot" class="dot gray"></span><span id="statusText">Disconnected</span>
                   </div>
                 </header>
 
                 <div class="card">
-                  <div class="toolbar" style="padding-top:0">
-                    <input id="filterInput" type="text" placeholder="Filter… (matches message, source, metadata) • Regex supported with /.../i" />
+                  <div class="toolbar">
+                    <input id="filterInput" type="text"
+                      placeholder="Filter… (matches message, source, metadata) • Regex supported with /.../i" />
                     <div class="row">
                       <select id="levelSelect" title="Show only logs at or above this level">
                         <option value="">All levels</option>
