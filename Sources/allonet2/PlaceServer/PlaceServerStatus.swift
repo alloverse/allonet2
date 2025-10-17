@@ -526,6 +526,28 @@ class PlaceServerStatus: WSMessageHandler
                 border-radius: 6px; padding: 2px 6px; font: 600 12px/1 var(--mono); color:#334155;
                 box-shadow: 0 1px 0 rgba(255,255,255,.7) inset;
               }
+              
+              /* --- Timestamp bubble overlay --- */
+                .line {
+                  position: relative;          /* needed for absolute stamp positioning */
+                  overflow: hidden;            /* clip the stamp if it overshoots */
+                  padding-right: 140px;        /* reserve space so text doesn't overlap the stamp */
+                }
+
+                .stamp {
+                  position: absolute;
+                  top: 8px;
+                  right: 10px;
+                  font: 700 11px/1 var(--mono);
+                  color: rgba(0,0,0,.18);      /* light theme default; for dark theme use rgba(255,255,255,.18) */
+                  letter-spacing: .02em;
+                  pointer-events: none;        /* don't steal clicks from the row */
+                  user-select: none;
+                  white-space: nowrap;
+                }
+
+                /* Optional: when a row is expanded, make the stamp a hair dimmer */
+                .line.expanded .stamp { opacity: .8; }
             </style>
             </head>
             <body>
@@ -638,6 +660,15 @@ class PlaceServerStatus: WSMessageHandler
                 const esc = q.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&');
                 return new RegExp(esc, 'i');
               };
+              
+              function formatTS(d) {
+                const pad2 = n => String(n).padStart(2,'0');
+                const pad3 = n => String(n).padStart(3,'0');
+                const yyyy = String(d.getFullYear());
+                return `${yyyy}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())} `
+                     + `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.`
+                     + `${pad3(d.getMilliseconds())}`;
+              }
 
               /** ---------- Rendering ---------- **/
               const renderLine = (log) => {
@@ -663,6 +694,12 @@ class PlaceServerStatus: WSMessageHandler
 
                 head.append(levelChip, sourceChip, msg);
                 line.appendChild(head);
+                
+                // --- NEW: timestamp overlay ---
+                const stamp = document.createElement('div');
+                stamp.className = 'stamp';
+                stamp.textContent = formatTS(log.ts instanceof Date ? log.ts : new Date(log.ts));
+                line.appendChild(stamp);
 
                 // Build metadata section (hidden by default; CSS shows it when .expanded is on the row)
                 if (log.metadata && Object.keys(log.metadata).length) {
@@ -810,10 +847,12 @@ class PlaceServerStatus: WSMessageHandler
 
               const normalizeLog = (raw) => {
                 const level = normLevel(raw.level || raw.LogLevel || raw.logLevel);
-                const message = raw.message ?? raw.Message ?? '';
-                const source = raw.source ?? raw.Source ?? '';
-                const metadata = raw.metadata ?? raw.Metadata ?? {};
-                return { level, message, source, metadata };
+                const message = raw.message ?? '';
+                const source = raw.label ?? raw.source ?? '';
+                const metadata = raw.metadata ?? {};
+                const tsRaw = raw.timestamp * 1000
+                const ts = new Date(tsRaw)
+                return { level, message, source, metadata, ts };
               };
 
               /** ---------- Events ---------- **/

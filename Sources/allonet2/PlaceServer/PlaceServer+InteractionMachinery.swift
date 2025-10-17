@@ -17,7 +17,7 @@ extension PlaceServer
         Task { @MainActor in
             let client = (self.clients[cid] ?? self.unannouncedClients[cid])!
             let ilogger = client.logger.forInteraction(inter)
-            ilogger.debug("Received and now handling interaction from \(cid): \(inter)")
+            ilogger.trace("Received and now handling interaction from \(cid): \(inter)")
             await self.handle(inter, from: client)
         }
     }

@@ -10,11 +10,11 @@ import Logging
 
 public struct StoredLogMessage: Codable
 {
+    let timestamp: TimeInterval
     let message: Logger.Message
-    let source: String
+    let label: String
     let level: Logger.Level
     let metadata: [String: Logger.MetadataValue]?
-    // TODO: TIMESTAMP!!
 }
 
 /// A LogHandler that stores each incoming log message, so that it can be later be displayed in debug UI
@@ -54,7 +54,13 @@ public class StoringLogHandler: LogHandler
             explicit: explicitMetadata
         )
 
-        let storedMessage = StoredLogMessage(message: message, source: label, level: level, metadata: effectiveMetadata)
+        let storedMessage = StoredLogMessage(
+            timestamp: Date.now.timeIntervalSince1970,
+            message: message,
+            label: label,
+            level: level,
+            metadata: effectiveMetadata
+        )
         LogStore.shared.store(storedMessage)
     }
 
