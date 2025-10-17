@@ -207,7 +207,7 @@ where Output: BidirectionalCollection & RangeReplaceableCollection,
       Output.Element: Equatable,
       Failure == Never
 {
-    /// Observe a published collection and get element-level add/remove callbacks.
+    /// Observe a published ordered collection and get element-level add/remove callbacks.
     public func sinkChanges(
         added: @escaping (Output.Element) -> Void,
         removed: @escaping (Output.Element) -> Void
@@ -230,7 +230,36 @@ where Output: BidirectionalCollection & RangeReplaceableCollection,
     }
 }
 
+extension Publisher
+where Output: SetAlgebra & Sequence,
+      Output.Element: Hashable,
+      Failure == Never
+{
+    /// Observe a published set-like collection and get element-level add/remove callbacks.
+    public func sinkChanges(
+        added: @escaping (Output.Element) -> Void,
+        removed: @escaping (Output.Element) -> Void
+    ) -> AnyCancellable {
+        self
+            // Keep (old, new) pair as we stream values.
+            .scan((Output(), Output())) { ($0.1, $1) }
+            // Compute added/removed as set differences.
+            .map { old, new in
+                (added: new.subtracting(old), removed: old.subtracting(new))
+            }
+            .sink { diff in
+                for element in diff.added {
+                    added(element)
+                }
+                for element in diff.removed {
+                    removed(element)
+                }
+            }
+    }
+}
+
 extension Publisher {
+    /// Observe a published ordered key-value collection and get element-level add/remove callbacks.
     public func sinkChanges<Key: Hashable, Value>(
         added: @escaping (Key, Value) -> Void,
         removed: @escaping (Key, Value) -> Void
