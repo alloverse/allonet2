@@ -16,7 +16,15 @@ import Logging
 public class HeadlessWebRTCTransport: Transport
 {
     public weak var delegate: TransportDelegate?
-    public var clientId: ClientId?
+    public var clientId: ClientId? {
+        didSet {
+            if let clientId {
+                logger = logger.forClient(clientId)
+            } else {
+                logger[metadataKey: "clientId"] = nil
+            }
+        }
+    }
     var logger = Logger(label: "transport.headless")
     
     private var peer: AlloWebRTCPeer
@@ -131,7 +139,6 @@ public class HeadlessWebRTCTransport: Transport
         if clientId == nil
         {
             clientId = answer.clientId!
-            logger = logger.forClient(clientId!)
         }
         logger.info("Received their answer: \(answer)")
         try peer.set(remote: answer.sdp, type: .answer)
