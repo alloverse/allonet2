@@ -187,7 +187,7 @@ public class AlloSession : NSObject, TransportDelegate
             catch (let e)
             {
                 // TODO: store the error, mark as temporary, and force upper level to reconnect
-                logger.error("Failed to renegotiate offer: \(e)")
+                logger.error("Failed to renegotiate offer, disconnecting: \(e)")
                 transport.disconnect()
             }
         }
