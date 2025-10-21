@@ -42,6 +42,7 @@ public class AlloUserClient : AlloClient
             
             // TODO: Move LiveMedia component registration into AlloSession in some sort of createTrack() API
             // Or we do it in transport(:didReceiveMediaStream:)
+            // In any case, this code absolutely does not belong here, and especially not the hard-coding of finding the avatar's head.
             createTrackCancellable = $isAnnounced.sink { [weak self] in
                 guard let self, let avatar = self.avatar, let cid = session.clientId, $0 else { return }
                 let scid = cid.shortClientId
@@ -53,9 +54,18 @@ public class AlloUserClient : AlloClient
                         // TODO: set format from actual track metadata, probably as part of createTrack refactor
                         format: .audio(codec: .opus, sampleRate: 44100, channelCount: 1)
                     )
-                    self.logger.info("Registering our microphone track output as a \(liveMedia)...")
+                    self.logger.info("Registering our microphone track output as a \(liveMedia). Finding head and setting component on it...")
                     do {
-                        try await avatar.components.set(liveMedia)
+                        // This absolutely certainly doesn't belong here
+                        guard let head = avatar.children.first(where: {
+                            if case .sphere(radius: _) = $0.components[Model.self]?.mesh {
+                                return true
+                            }
+                            return false
+                        }) else {
+                            fatalError("Can't find appropriate entity to attach mic audio to: missing head!")
+                        }
+                        try await head.components.set(liveMedia)
                     } catch {
                         self.logger.error("FAILED!! to register our mic track output as LiveMedia! \(error)")
                     }
