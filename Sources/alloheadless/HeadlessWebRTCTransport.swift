@@ -76,6 +76,27 @@ public class HeadlessWebRTCTransport: Transport
             }
         }.store(in: &cancellables)
         
+        peer.$gatheringState.sink { [weak self] gathering in
+            guard let self else { return }
+            self.connectionStatus.iceGathering = switch gathering
+            {
+                case .new: .idle
+                case .inProgress: .connecting
+                case .complete: .connected
+            }
+        }.store(in: &cancellables)
+        peer.$iceState.sink { [weak self] ice in
+            guard let self else { return }
+            self.connectionStatus.iceConnection = switch ice
+            {
+                case .closed, .new, .disconnected: .idle
+                case .checking, .connected: .connecting
+                case .completed: .connected
+                case .failed: .failed
+            }
+        }.store(in: &cancellables)
+        
+        
         peer.$tracks.sinkChanges(added: { track in
             self.delegate?.transport(self, didReceiveMediaStream: track)
         }, removed: { track in
@@ -84,7 +105,6 @@ public class HeadlessWebRTCTransport: Transport
         
         // TODO: subscribe to more callbacks and match UIWebRTCTransport's behavior
         // TODO: Populate connectionStatus
-        // TODO: Manage renegotiation
         
         /*webrtcPeer?.onMediaStreamAdded = { [weak self] streamId in
             guard let self = self else { return }
@@ -95,7 +115,7 @@ public class HeadlessWebRTCTransport: Transport
     
     public func generateOffer() async throws -> SignallingPayload
     {
-        Task { @MainActor in self.connectionStatus.signalling = .connecting }
+        self.connectionStatus.signalling = .connecting
         
         try peer.lockLocalDescription(type: .offer)
         let offerSdp = try peer.createOffer()
@@ -114,6 +134,7 @@ public class HeadlessWebRTCTransport: Transport
     
     public func generateAnswer(for offer: SignallingPayload) async throws -> SignallingPayload
     {
+        self.connectionStatus.signalling = .connecting
         logger.info("Received offer from remote: \(offer)")
         
         try peer.set(remote: offer.sdp, type: .offer)
@@ -126,6 +147,7 @@ public class HeadlessWebRTCTransport: Transport
         let answerCandidates = peer.candidates.compactMap(\.alloCandidate)
         logger.info("My answer candidates: \(answerCandidates)")
         
+        self.connectionStatus.signalling = .connected
         return SignallingPayload(
             sdp: answerSdp,
             candidates: answerCandidates,
@@ -146,6 +168,7 @@ public class HeadlessWebRTCTransport: Transport
         {
             try peer.add(remote: candidate.adc)
         }
+        self.connectionStatus.signalling = .connected
     }
     
     var renegotiationNeeded = false
@@ -173,6 +196,7 @@ public class HeadlessWebRTCTransport: Transport
     
     public func disconnect()
     {
+        self.connectionStatus.signalling = .idle
         peer.close()
         delegate?.transport(didDisconnect: self) // Apparently libdatachannel doesn't call it when manually closing peer??
         clientId = nil
@@ -185,9 +209,13 @@ public class HeadlessWebRTCTransport: Transport
         let channel = try! peer.createDataChannel(label: label.rawValue, reliable: reliable, streamId: UInt16(label.channelId), negotiated: true)
         channels[label.rawValue] = channel
         
-        channel.$lastMessage.sink { [weak self] message in
-            guard let self = self, let message = message else { return }
+        channel.$lastMessage.sink { [weak self, weak channel] message in
+            guard let self, let channel, let message else { return }
             self.delegate?.transport(self, didReceiveData: message, on: channel)
+        }.store(in: &cancellables)
+        channel.$isOpen.sink { [weak self, weak channel] isOpen in
+            guard let self, let channel else { return }
+            self.connectionStatus.data = isOpen ? .connected : (channel.lastError != nil) ? .failed : .idle;
         }.store(in: &cancellables)
         
         return channel
