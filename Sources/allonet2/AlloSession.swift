@@ -186,6 +186,7 @@ public class AlloSession : NSObject, TransportDelegate
             hasOutstandingNegotiationOffer = false
             
             logger.info("Signalling is now stable, we can now kick off the pending renegotiation.")
+            needsRenegotiationWhenStable = false
             self.transport(requestsRenegotiation: transport)
         }
     }
