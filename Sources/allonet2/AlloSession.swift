@@ -147,8 +147,8 @@ public class AlloSession : NSObject, TransportDelegate
     
     private func rollbackOffer() async throws
     {
-        hasOutstandingNegotiationOffer = false
         try await transport.rollbackOffer()
+        hasOutstandingNegotiationOffer = false
     }
     
     public func disconnect()
