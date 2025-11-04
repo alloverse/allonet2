@@ -42,17 +42,23 @@ public struct SpatialAudioAttenuationSystem: RealityKit.System
             let distance = Double(simd_distance(listenerPosition, sourcePosition))
             let rolloff = Self.rolloff
             
-            let audioCollisions = context.scene.raycast(
-                from: listenerPosition,
-                to: sourcePosition,
-                query: .nearest,
-                mask: AudioCollision.occluder,
-                relativeTo: fieldEntity
-            )
+            let isOccluded: Bool
+            // The raycast crashes on macOS 15
+            if #available(macOS 26,*) {
+                let audioCollisions = context.scene.raycast(
+                    from: listenerPosition,
+                    to: sourcePosition,
+                    query: .nearest,
+                    mask: AudioCollision.occluder,
+                    relativeTo: fieldEntity
+                )
+                isOccluded = audioCollisions.count > 0
+            } else {
+                isOccluded = false
+            }
             
             let ref = Self.referenceDistance
             let maxDist = Self.maxDistance
-            let isOccluded = audioCollisions.count > 0
             
             let newGain: Double
             if distance >= maxDist || isOccluded {
