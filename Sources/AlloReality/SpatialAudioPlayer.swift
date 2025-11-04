@@ -99,7 +99,11 @@ public class SpatialAudioPlayer
             let playState = state[stream.mediaId],
             let netent = client.placeState.current.entities[playState.eid],
             let guient = mapper.guiForEid(playState.eid)
-        else { fatalError("Should not be possible to get a stream without corresponding state and entities") }
+        else
+        {
+            streamLogger.error("Should not be possible to get a stream without corresponding state and entities")
+            return
+        }
         
         assert(playState.controller == nil, "Playing the same stream twice?")
         
