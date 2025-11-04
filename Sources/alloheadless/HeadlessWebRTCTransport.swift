@@ -70,10 +70,7 @@ public class HeadlessWebRTCTransport: Transport
         peer.$signalingState.sink { [weak self] state in
             guard let self = self else { return }
             logger.info("signalling state changed to \(state)")
-            if state == .stable && self.renegotiationNeeded
-            {
-                renegotiate()
-            }
+            self.delegate?.transport(self, didChangeSignallingState: TransportSignallingState(rawValue: state.rawValue)!)
         }.store(in: &cancellables)
         
         peer.$gatheringState.sink { [weak self] gathering in
@@ -171,26 +168,14 @@ public class HeadlessWebRTCTransport: Transport
         self.connectionStatus.signalling = .connected
     }
     
-    var renegotiationNeeded = false
-    public func scheduleRenegotiation()
+    public func rollbackOffer() async throws
     {
-        renegotiationNeeded = true
-        if self.peer.signalingState == .stable
-        {
-            logger.info("Renegotiation requested while stable, performing immediately.")
-            self.renegotiate()
-        }
-        else
-        {
-            logger.info("Renegotiation requested while unstable, scheduling...")
-        }
+        try peer.set(remote: "", type: .rollback)
     }
     
-    private func renegotiate()
+    public func scheduleRenegotiation()
     {
-        renegotiationNeeded = false
-        logger.info("Setting local description and renegotiating...")
-        // Note: AlloSession will attempt to generateOffer, which will then lockLocalDescription, so we don't need to do that here.
+        logger.info("Transport requests renegotiation from session...")
         self.delegate!.transport(requestsRenegotiation: self)
     }
     

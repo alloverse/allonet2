@@ -21,6 +21,7 @@ extension ClientId
 public protocol TransportDelegate: AnyObject {
     func transport(didConnect transport: Transport)
     func transport(didDisconnect transport: Transport)
+    func transport(_ transport: Transport, didChangeSignallingState state: TransportSignallingState)
     nonisolated func transport(_ transport: Transport, didReceiveData data: Data, on channel: DataChannel)
     func transport(_ transport: Transport, didReceiveMediaStream stream: MediaStream)
     func transport(_ transport: Transport, didRemoveMediaStream stream: MediaStream)
@@ -39,6 +40,7 @@ public protocol Transport: AnyObject
     func generateOffer() async throws -> SignallingPayload
     func generateAnswer(for offer: SignallingPayload) async throws -> SignallingPayload
     func acceptAnswer(_ answer: SignallingPayload) async throws
+    func rollbackOffer() async throws
     func disconnect()
     
     // Data channels
@@ -81,6 +83,15 @@ public struct IPOverride
         self.from = from
         self.to = to
     }
+}
+
+public enum TransportSignallingState: UInt32
+{
+    case stable = 0
+    case haveLocalOffer = 1
+    case haveRemoteOffer = 2
+    case haveLocalPRAnswer = 3
+    case haveRemotePRAnswer = 4
 }
 
 public enum DataChannelLabel: String

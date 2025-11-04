@@ -52,9 +52,9 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     
     public func generateOffer() async throws -> SignallingPayload
     {
+        logger.debug("Generating offer...")
         Task { @MainActor in self.connectionStatus.signalling = .connecting }
         let sdp: String = try await withCheckedThrowingContinuation { cont in
-            renegotiationNeeded = false
             peer.offer(for: offerAnswerConstraints) { (sdp, error) in
                 guard let sdp = sdp else {
                     cont.resume(throwing: error!)
@@ -86,7 +86,6 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
         }
         
         let sdp: String = try await withCheckedThrowingContinuation { cont in
-            renegotiationNeeded = false
             peer.answer(for: offerAnswerConstraints) { (sdp, error) in
                 guard let sdp = sdp else {
                     cont.resume(throwing: error!)
@@ -118,6 +117,25 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
         for candidate in answer.candidates
         {
             try await add(remoteCandidate: candidate.candidate())
+        }
+    }
+    
+    public func rollbackOffer() async throws
+    {
+        guard peer.signalingState == .haveLocalOffer else { return }
+        
+        logger.debug("Rolling back offer...")
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            let sdp = LKRTCSessionDescription(type: .rollback, sdp: "")
+            peer.setLocalDescription(sdp) { error in
+                if let error {
+                    self.logger.warning("Rollback failed: \(error)")
+                    cont.resume(throwing: error)
+                } else {
+                    self.logger.debug("Rollback complete")
+                    cont.resume()
+                }
+            }
         }
     }
     
@@ -281,13 +299,6 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
             Task { @MainActor in
                 self.delegate?.transport(didConnect: self)
             }
-            
-            if(renegotiationNeeded)
-            {
-                logger.notice("Renegotiation became necessary while connecting, so now renegotiating")
-                self.renegotiate()
-            }
-
         }
     }
     
@@ -295,6 +306,16 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange stateChanged: LKRTCSignalingState)
     {
         logger.info("Session \(clientId?.debugDescription ?? "unknown") signaling state \(stateChanged)")
+        let tss: TransportSignallingState = switch stateChanged {
+            case .stable, .closed: .stable
+            case .haveLocalOffer: .haveLocalOffer
+            case .haveRemoteOffer: .haveRemoteOffer
+            case .haveLocalPrAnswer: .haveLocalPRAnswer
+            case .haveRemotePrAnswer: .haveRemotePRAnswer
+        }
+        Task { @MainActor in
+            self.delegate?.transport(self, didChangeSignallingState: tss)
+        }
     }
     
     public func peerConnection(_ peerConnection: LKRTCPeerConnection, didAdd stream: LKRTCMediaStream)
@@ -321,19 +342,14 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
         }
     }
     
-    var renegotiationNeeded = false
+
     public func peerConnectionShouldNegotiate(_ peerConnection: LKRTCPeerConnection)
     {
-        logger.info("Renegotiation hinted")
-        renegotiationNeeded = true
-        if didFullyConnect
-        {
-            self.renegotiate()
+        guard let _ = clientId else {
+            // We can't "re"-negotiate until we have connected for the first time
+            return
         }
-    }
-    
-    func renegotiate()
-    {
+        logger.info("Renegotiation hinted, requesting it from session")
         Task { @MainActor in
             delegate?.transport(requestsRenegotiation: self)
         }

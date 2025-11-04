@@ -24,13 +24,17 @@ public enum PlaceErrorCode: Int
 public enum AlloverseErrorCode: Int
 {
     public static let domain = "com.alloverse.error"
+    // Interaction related errors
     case unhandledRequest = 1   // The recipient doesn't know how to respond to this interaction
     case unexpectedResponse = 2 // Interaction received some other response than was expected
     
+    // Low level protocol errors
     case incompatibleProtocolVersion = 10 // Client's allonet is too old or too new
     
+    // WebRTC related errors
     case failedSignalling = 100 // Failed to establish signalling
     case failedRenegotiation = 101 // Connection environment changed, but underlying connection failed to adapt
+    case discardedRenegotiation = 102 // Renegotiation request is politely declined. Please roll back your offer and wait for other side to send _its_ offer.
 }
 public struct AlloverseError: LocalizedError, Codable
 {
