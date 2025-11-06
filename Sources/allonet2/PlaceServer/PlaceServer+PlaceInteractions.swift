@@ -34,7 +34,7 @@ extension PlaceServer
             }
 
         case .announce(let version, let identity, let avatarDescription):
-            try await handle(announce: inter, from: client, logger: ilogger)
+            try await handle(announce: inter, from: client, ilogger: ilogger)
         case .createEntity(let description):
             let ent = await self.createEntity(from: description, for: client)
             ilogger.info("Spawned entity with id \(ent.id)")
@@ -52,7 +52,7 @@ extension PlaceServer
         }
     }
     
-    func handle(announce: Interaction, from client: ConnectedClient, logger: Logger) async throws(AlloverseError)
+    func handle(announce: Interaction, from client: ConnectedClient, ilogger: Logger) async throws(AlloverseError)
     {
         guard case .announce(let version, let identity, let avatarDescription) = announce.body else { fatalError() }
         client.identity = identity
@@ -62,15 +62,15 @@ extension PlaceServer
             Allonet.version().serverIsCompatibleWith(clientVersion: semantic)
         else
         {
-            logger.error("Incompatible version (server \(Allonet.version()), client \(version)), disconnecting.")
+            ilogger.error("Incompatible version (server \(Allonet.version()), client \(version)), disconnecting.")
             throw AlloverseError(
                 code: AlloverseErrorCode.incompatibleProtocolVersion,
                 description: "Client version \(version) is incompatible with server version \(Allonet.version()). Please update your app."
             )
         }
-        if requiresAuthenticationProvider
+        if requiresAuthenticationProvider || (identity.expectation == .app && !alloAppAuthToken.isEmpty)
         {
-            try await authenticate(identity: identity)
+            try await authenticate(identity: identity, in: ilogger)
         }
 
         client.announced = true
@@ -92,14 +92,24 @@ extension PlaceServer
         }
         
         // Finished announcing!
-        logger.info("Accepted client with email \(identity.emailAddress), display name \(identity.displayName), assigned avatar id \(avatar.id)")
+        ilogger.info("Accepted client with email \(identity.emailAddress), display name \(identity.displayName), assigned avatar id \(avatar.id)")
         await heartbeat.awaitNextSync() // make it exist before we tell client about it
         
         client.session.send(interaction: announce.makeResponse(with: .announceResponse(avatarId: avatar.id, placeName: name)))
     }
     
-    func authenticate(identity: Identity) async throws(AlloverseError)
+    func authenticate(identity: Identity, in ilogger: Logger) async throws(AlloverseError)
     {
+        if identity.expectation == .app
+        {
+            if alloAppAuthToken.isEmpty || identity.authenticationToken == alloAppAuthToken {
+                ilogger.info("Successfully authenticated app using shared secret.")
+                return
+            } else {
+                throw AlloverseError(code: PlaceErrorCode.unauthorized, description: "Authentication failed", overrideIsFatal: true)
+            }
+        }
+        
         guard let authenticationProvider, let authenticationId = authenticationProvider.avatar else {
             throw AlloverseError(code: AlloverseErrorCode.internalServerError, description: "Couldn't reach authentication server", overrideIsFatal: true)
         }
@@ -113,7 +123,7 @@ extension PlaceServer
         switch answer.body {
         case .success: break
         case .error(let domain, let code, let description):
-            logger.error("Failed authentication (\(domain)#\(code)): \(description). Disconnecting.")
+            ilogger.error("Failed authentication (\(domain)#\(code)): \(description). Disconnecting.")
             throw AlloverseError(with: answer.body, overrideIsFatal: true)
         default:
             throw AlloverseError(code: PlaceErrorCode.unauthorized, description: "Authentication failed", overrideIsFatal: true)

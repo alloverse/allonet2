@@ -97,6 +97,7 @@ public struct Identity: Equatable, Hashable, Codable, Sendable
         case none // The originating party has no expectations about the status of the identity.
         case existingUser // The originating party expects that this is a previously-registered user.
         case newUser // The originating party expects that this is a registration for a brand new user.
+        case app // This is an app that will connect using a per-place shared secret token
     }
 
     public init(expectation: Identity.Expectation, displayName: String, emailAddress: String, authenticationToken: String)

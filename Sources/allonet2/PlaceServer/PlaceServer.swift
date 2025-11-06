@@ -19,6 +19,8 @@ public class PlaceServer : AlloSessionDelegate
     let httpPort:UInt16
     let transportClass: Transport.Type
     let options: TransportConnectionOptions
+    let alloAppAuthToken: String
+    
     var logger = Logger(label: "place.server")
     
     var sfu: PlaceServerSFU!
@@ -46,7 +48,8 @@ public class PlaceServer : AlloSessionDelegate
         httpPort: UInt16 = 9080,
         customApp: AppDescription = .alloverse,
         transportClass: Transport.Type,
-        options: TransportConnectionOptions
+        options: TransportConnectionOptions,
+        alloAppAuthToken: String
     )
     {
         Allonet.Initialize()
@@ -57,6 +60,7 @@ public class PlaceServer : AlloSessionDelegate
         self.httpPort = httpPort
         self.transportClass = transportClass
         self.options = options
+        self.alloAppAuthToken = alloAppAuthToken
         self.web = PlaceServerHTTP(server: self, port: httpPort, appDescription: customApp)
         self.sfu = PlaceServerSFU(server: self)
     }
