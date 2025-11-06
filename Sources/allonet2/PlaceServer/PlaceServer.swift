@@ -28,6 +28,7 @@ public class PlaceServer : AlloSessionDelegate
     internal var authenticationProvider: ConnectedClient?
     internal var requiresAuthenticationProvider = false
 
+    // The scenegraph state of the Place
     let place: PlaceState
     lazy var heartbeat: HeartbeatTimer = {
         return HeartbeatTimer {
@@ -35,6 +36,8 @@ public class PlaceServer : AlloSessionDelegate
         }
     }()
     internal var outstandingPlaceChanges: [PlaceChange] = []
+    // This is here to help with some calculations; don't try to modify place through it.
+    let placeHelper: Place
     
     static let InteractionTimeout: TimeInterval = 10
     
@@ -48,6 +51,8 @@ public class PlaceServer : AlloSessionDelegate
     {
         Allonet.Initialize()
         self.place = PlaceState(logger: logger)
+        self.placeHelper = Place(state: self.place, client: nil)
+        
         self.name = name
         self.httpPort = httpPort
         self.transportClass = transportClass

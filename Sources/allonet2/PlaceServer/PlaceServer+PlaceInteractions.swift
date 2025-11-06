@@ -68,7 +68,8 @@ extension PlaceServer
                 description: "Client version \(version) is incompatible with server version \(Allonet.version()). Please update your app."
             )
         }
-        if requiresAuthenticationProvider {
+        if requiresAuthenticationProvider
+        {
             try await authenticate(identity: identity)
         }
 
@@ -77,15 +78,24 @@ extension PlaceServer
         clients[client.cid] = unannouncedClients.removeValue(forKey: client.cid)!
         
         // Time to create the avatar
-        let ent = await self.createEntity(from: avatarDescription, for: client)
-        client.avatar = ent.id
+        let avatar = await self.createEntity(from: avatarDescription, for: client)
+        client.avatar = avatar.id
         
+        // Find a SpawnPoint if available and move the avatar to it
+        if
+            let spawnPointEntityId = place.current.components[SpawnPoint.self].keys.randomElement(),
+            let spawnPointEntity = placeHelper.entities[spawnPointEntityId]
+        {
+            let worldTransform = spawnPointEntity.transformToWorld
+            let newUserTform = Transform(matrix: worldTransform)
+            await appendChanges([.componentUpdated(avatar.id, newUserTform)])
+        }
         
         // Finished announcing!
-        logger.info("Accepted client with email \(identity.emailAddress), display name \(identity.displayName), assigned avatar id \(ent.id)")
+        logger.info("Accepted client with email \(identity.emailAddress), display name \(identity.displayName), assigned avatar id \(avatar.id)")
         await heartbeat.awaitNextSync() // make it exist before we tell client about it
         
-        client.session.send(interaction: announce.makeResponse(with: .announceResponse(avatarId: ent.id, placeName: name)))
+        client.session.send(interaction: announce.makeResponse(with: .announceResponse(avatarId: avatar.id, placeName: name)))
     }
     
     func authenticate(identity: Identity) async throws(AlloverseError)

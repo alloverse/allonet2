@@ -21,6 +21,11 @@ public struct Transform: Component
         matrix = float4x4.identity
     }
     
+    public init(matrix: float4x4)
+    {
+        self.matrix = matrix
+    }
+    
     public init(
         translation: SIMD3<Float> = [0,0,0],
         rotation: simd_quatf = .identity,
