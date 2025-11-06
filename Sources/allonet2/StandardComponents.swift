@@ -11,6 +11,7 @@ import simd
 // These all have an almost 1-to-1 mapping to a corresponding RealityKit component.
 // They are however designed to be implementable in other engines too.
 
+/// A Transform defines the position, rotation and scale of an Entity.
 public struct Transform: Component
 {
     public var matrix: float4x4 = .init()
@@ -38,6 +39,7 @@ public struct Transform: Component
     var scale: SIMD3<Float> { matrix.scale }
 }
 
+/// Entities can have a parent and multiple children. `Relationships` is used to establish the child-to-parent relationship, and the inverse is inferred. A child is always positioned relative to its parent (in other words, its Transform is concatenated with its parent and ancestors recursively to deduce where it is and what its rotation and scale is).
 public struct Relationships: Component
 {
     public var parent: EntityID
@@ -46,6 +48,7 @@ public struct Relationships: Component
     }
 }
 
+/// Visual aspect of an Entity: a 3D model which defines how to render it.
 public struct Model: Component
 {
     @MainActor
@@ -76,6 +79,7 @@ public struct Model: Component
     }
 }
 
+/// Defines the collision shape of the Entity, mainly for defining the InputTarget tap area.
 public struct Collision: Component
 {
     @MainActor
@@ -91,11 +95,13 @@ public struct Collision: Component
     }
 }
 
+/// An Entity with an InputTarget component will be tappable, and can receive the `tap(at:)` Interaction from other users. Note that an InputTarget also requires a `Collision` to define the tappable area.
 public struct InputTarget: Component
 {
     public init() {}
 }
 
+/// A client-side effect highlighting an Entity and its children whenever the user's cursor is over it.
 public struct HoverEffect: Component
 {
     @MainActor
@@ -110,6 +116,7 @@ public struct HoverEffect: Component
     }
 }
 
+/// How transparent this entire entity should be
 public struct Opacity: Component
 {
     public var opacity: Float
@@ -119,14 +126,18 @@ public struct Opacity: Component
     }
 }
 
+/// A Billboarded Entity always faces the camera, regardless of perspective.
 public struct Billboard: Component
 {
+    // A blendFactor of 1.0 will make the Entity be entirely rotated towards the camera, and 0.0 not at all.
     public var blendFactor: Float
     public init(blendFactor: Float = 1.0)
     {
         self.blendFactor = blendFactor
     }
 }
+
+// MARK: Audio/video related components
 
 /// The LiveMedia component describes an available media stream that can be consumed in real time by other connected agents. For example, it can be attached to the "mouth" of an avatar to correspond to live audio chat for that avatar, with the corresponding mediaId track broadcasting the user's microphone audio.
 public struct LiveMedia: Component
@@ -169,10 +180,11 @@ public struct LiveMediaListener: Component
     }
 }
 
-// MARK: - Custom components
+// MARK: - Implementation details
 // These shouldn't be in StandardComponents, but because Alloverse v2 doesn't have support
 // for schemas outside of the built-in component types yet, they go in here anyway.
 
+/// VisorInfo is attached to the avatar for a connected UI user to inform other users' what their name and other Identity info is.
 public struct VisorInfo: Component
 {
     public var displayName: String
@@ -183,6 +195,7 @@ public struct VisorInfo: Component
 }
 
 // MARK: - Related types
+// Types that are not Components, but used by Components
 
 public enum Color: Equatable, Codable
 {
@@ -201,7 +214,7 @@ public enum Color: Equatable, Codable
     public static var pink: Color { .rgb(red: 1, green: 0.8, blue: 0.8, alpha: 1) }
 }
 
-// MARK: - Internals
+// MARK: - Component internals
 
 @MainActor
 func RegisterStandardComponents()
