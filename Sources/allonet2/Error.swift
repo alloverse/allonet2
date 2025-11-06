@@ -18,6 +18,10 @@ public enum PlaceErrorCode: Int
     
     case recipientUnavailable = 100 // no such entity, or agent not found for that entity
     case recipientTimedOut = 101 // agent didn't respond back to Place in a timely fashion. If it replies later, its response will be discarded.
+    
+    static public let fatalErrorCodes: [Self] = [.unauthorized]
+    // If true, the client should be disconnected immediately after response is sent
+    public var isFatal: Bool { Self.fatalErrorCodes.contains(self) }
 }
 
 // Errors raised by protocol errors
@@ -35,22 +39,28 @@ public enum AlloverseErrorCode: Int
     case failedSignalling = 100 // Failed to establish signalling
     case failedRenegotiation = 101 // Connection environment changed, but underlying connection failed to adapt
     case discardedRenegotiation = 102 // Renegotiation request is politely declined. Please roll back your offer and wait for other side to send _its_ offer.
+    
+    static public let fatalErrorCodes: [Self] = [.incompatibleProtocolVersion]
+    // If true, the client should be disconnected immediately after response is sent
+    public var isFatal: Bool { Self.fatalErrorCodes.contains(self) }
 }
 public struct AlloverseError: LocalizedError, Codable
 {
     public let domain: String
     public let code: Int
     public let description: String
+    public let overrideIsFatal: Bool
     public var errorDescription: String? {
         return "\(domain) \(code): \(description)"
     }
     
-    public init(domain: String, code: Int, description: String) {
+    public init(domain: String, code: Int, description: String, overrideIsFatal: Bool = false) {
         self.domain = domain
         self.code = code
         self.description = description
+        self.overrideIsFatal = overrideIsFatal
     }
-    public init(with unexpectedBody: InteractionBody)
+    public init(with unexpectedBody: InteractionBody, overrideIsFatal: Bool = false)
     {
         switch unexpectedBody
         {
@@ -63,7 +73,18 @@ public struct AlloverseError: LocalizedError, Codable
             self.code = AlloverseErrorCode.unexpectedResponse.rawValue
             self.description = "Unexpected body: \(unexpectedBody)"
         }
+        self.overrideIsFatal = overrideIsFatal
     }
     
     public var asBody: InteractionBody { .error(domain: domain, code: code, description: description) }
+    
+    // If true, the client should be disconnected immediately after response is sent
+    public var isFatal: Bool {
+        if overrideIsFatal { return true }
+        return switch domain {
+            case AlloverseErrorCode.domain: AlloverseErrorCode(rawValue: code)!.isFatal
+            case PlaceErrorCode.domain: PlaceErrorCode(rawValue: code)!.isFatal
+            default: false
+        }
+    }
 }

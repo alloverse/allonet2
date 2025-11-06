@@ -44,10 +44,16 @@ extension PlaceServer
         }
         catch (let e as AlloverseError)
         {
-            ilogger.error("Interaction error for \(client.cid) when handling \(inter): \(e)")
+            ilogger.error("Interaction error when handling \(inter): \(e)")
             if inter.type == .request
             {
                 client.session.send(interaction: inter.makeResponse(with: e.asBody))
+                if e.isFatal
+                {
+                    ilogger.error("Interaction error was fatal, disconnecting.")
+                    // TODO: Attach the error message to the disconnect packet too
+                    client.session.disconnect()
+                }
             }
         }
     }
