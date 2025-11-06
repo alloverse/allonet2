@@ -341,7 +341,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         {
             guard let handler = responders[inter.body.caseName] else
             {
-                throw AlloverseError(domain: AlloverseErrorCode.domain, code: AlloverseErrorCode.unhandledRequest.rawValue, description: "No handler for \(inter.body.caseName)")
+                throw AlloverseError(code: AlloverseErrorCode.unhandledRequest, description: "No handler for \(inter.body.caseName)")
             }
             let response = try await handler(inter)
             session.send(interaction: response)

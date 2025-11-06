@@ -45,10 +45,10 @@ extension PlaceServer
         let ent = place.current.entities[id]
 
         guard let ent = ent else {
-            throw AlloverseError(domain: PlaceErrorCode.domain, code: PlaceErrorCode.notFound.rawValue, description: "No such entity")
+            throw AlloverseError(code: PlaceErrorCode.notFound, description: "No such entity")
         }
         guard client == nil || ent.ownerClientId == client!.cid else {
-            throw AlloverseError(domain: PlaceErrorCode.domain, code: PlaceErrorCode.unauthorized.rawValue, description: "That's not your entity to remove")
+            throw AlloverseError(code: PlaceErrorCode.unauthorized, description: "That's not your entity to remove")
         }
         
         await appendChanges([
@@ -78,10 +78,10 @@ extension PlaceServer
         let ent = place.current.entities[eid]
         
         guard let ent = ent else {
-            throw AlloverseError(domain: PlaceErrorCode.domain, code: PlaceErrorCode.notFound.rawValue, description: "No such entity")
+            throw AlloverseError(code: PlaceErrorCode.notFound, description: "No such entity")
         }
         /*guard client == nil || ent.ownerAgentId == client!.cid.uuidString else {
-            throw AlloverseError(domain: PlaceErrorCode.domain, code: PlaceErrorCode.unauthorized.rawValue, description: "That's not your entity to modify")
+            throw AlloverseError(code: PlaceErrorCode.unauthorized, description: "That's not your entity to modify")
         }*/ // Re-enable this when we have ACLs
         
         let addOrChanges = addOrChange.map
@@ -98,7 +98,7 @@ extension PlaceServer
         let removals = try remove.map
         { (ctid: ComponentTypeID) throws(AlloverseError) -> PlaceChange in
             guard let existing = place.current.components[ctid]?[eid] else {
-                throw AlloverseError(domain: PlaceErrorCode.domain, code: PlaceErrorCode.notFound.rawValue, description: "No such entity")
+                throw AlloverseError(code: PlaceErrorCode.notFound, description: "No such entity")
             }
             return PlaceChange.componentRemoved(ent, existing)
         }

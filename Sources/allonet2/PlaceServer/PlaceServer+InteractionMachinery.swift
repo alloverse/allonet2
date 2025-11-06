@@ -32,7 +32,7 @@ extension PlaceServer
             let isValidOtherMessage = (senderEnt != nil) && senderEnt!.ownerClientId == client.cid
             if !(isValidAnnounce || isValidOtherMessage)
             {
-                throw AlloverseError(domain: PlaceErrorCode.domain, code: PlaceErrorCode.unauthorized.rawValue, description: "You may only send interactions from entities you own")
+                throw AlloverseError(code: PlaceErrorCode.unauthorized, description: "You may only send interactions from entities you own")
             }
             if inter.receiverEntityId == Interaction.PlaceEntity
             {

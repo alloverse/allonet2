@@ -7,8 +7,12 @@
 
 import Foundation
 
+public protocol ErrorDomainProviding {
+    static var domain: String { get }
+}
+
 // Errors raised by the PlaceServer
-public enum PlaceErrorCode: Int
+public enum PlaceErrorCode: Int, ErrorDomainProviding
 {
     public static let domain = "com.alloverse.place.error"
     case invalidRequest = 1 // request is malformed, programmer error
@@ -25,7 +29,7 @@ public enum PlaceErrorCode: Int
 }
 
 // Errors raised by protocol errors
-public enum AlloverseErrorCode: Int
+public enum AlloverseErrorCode: Int, ErrorDomainProviding
 {
     public static let domain = "com.alloverse.error"
     // Interaction related errors
@@ -39,6 +43,9 @@ public enum AlloverseErrorCode: Int
     case failedSignalling = 100 // Failed to establish signalling
     case failedRenegotiation = 101 // Connection environment changed, but underlying connection failed to adapt
     case discardedRenegotiation = 102 // Renegotiation request is politely declined. Please roll back your offer and wait for other side to send _its_ offer.
+    
+    // Internal errors
+    case internalServerError = 500
     
     static public let fatalErrorCodes: [Self] = [.incompatibleProtocolVersion]
     // If true, the client should be disconnected immediately after response is sent
@@ -54,11 +61,16 @@ public struct AlloverseError: LocalizedError, Codable
         return "\(domain) \(code): \(description)"
     }
     
-    public init(domain: String, code: Int, description: String, overrideIsFatal: Bool = false) {
+    public init(domain: String, code: Int, description: String, overrideIsFatal: Bool = false)
+    {
         self.domain = domain
         self.code = code
         self.description = description
         self.overrideIsFatal = overrideIsFatal
+    }
+    public init<E>(code: E, description: String, overrideIsFatal: Bool = false) where E: RawRepresentable, E.RawValue == Int, E: ErrorDomainProviding
+    {
+        self.init(domain: E.domain, code: code.rawValue, description: description, overrideIsFatal: overrideIsFatal)
     }
     public init(with unexpectedBody: InteractionBody, overrideIsFatal: Bool = false)
     {

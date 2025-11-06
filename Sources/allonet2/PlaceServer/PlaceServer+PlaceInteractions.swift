@@ -30,8 +30,7 @@ extension PlaceServer
             }
             else
             {
-                throw AlloverseError(domain: PlaceErrorCode.domain, code: PlaceErrorCode.invalidRequest.rawValue,
-                                     description: "Place server already has an authentication provider")
+                throw AlloverseError(code: PlaceErrorCode.invalidRequest, description: "Place server already has an authentication provider")
             }
 
         case .announce(let version, let identity, let avatarDescription):
@@ -48,7 +47,7 @@ extension PlaceServer
             client.session.send(interaction: inter.makeResponse(with: .success))
         default:
             if inter.type == .request {
-                throw AlloverseError(domain: PlaceErrorCode.domain, code: PlaceErrorCode.invalidRequest.rawValue, description: "Place server does not support this request")
+                throw AlloverseError(code: PlaceErrorCode.invalidRequest, description: "Place server does not support this request")
             }
         }
     }
@@ -65,8 +64,7 @@ extension PlaceServer
         {
             logger.error("Incompatible version (server \(Allonet.version()), client \(version)), disconnecting.")
             throw AlloverseError(
-                domain: AlloverseErrorCode.domain,
-                code: AlloverseErrorCode.incompatibleProtocolVersion.rawValue,
+                code: AlloverseErrorCode.incompatibleProtocolVersion,
                 description: "Client version \(version) is incompatible with server version \(Allonet.version()). Please update your app."
             )
         }
