@@ -194,6 +194,12 @@ public struct VisorInfo: Component
     }
 }
 
+/// When a new user joins a Place, the Place looks for a random SpawnPoint component'd Entity, and sets the new user's transform to that entity's transform. If none is found, the user is placed at 0,0,0.
+public struct SpawnPoint: Component
+{
+
+}
+
 // MARK: - Related types
 // Types that are not Components, but used by Components
 
