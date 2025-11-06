@@ -7,6 +7,7 @@
 
 import Foundation
 import Version
+import Logging
 
 extension PlaceServer
 {
@@ -34,57 +35,7 @@ extension PlaceServer
             }
 
         case .announce(let version, let identity, let avatarDescription):
-            client.identity = identity
-            guard
-                let semantic = Version(version),
-                Allonet.version().serverIsCompatibleWith(clientVersion: semantic)
-            else
-            {
-                ilogger.error("Incompatible version (server \(Allonet.version()), client \(version)), disconnecting.")
-                client.session.send(interaction: inter.makeResponse(with: .error(
-                    domain: AlloverseErrorCode.domain,
-                    code: AlloverseErrorCode.incompatibleProtocolVersion.rawValue,
-                    description: "Client version \(version) is incompatible with server version \(Allonet.version()). Please update your app."
-                )))
-                // TODO: Send error as disconnection reason
-                client.session.disconnect()
-                return
-            }
-
-            if let authenticationProvider, let authenticationId = authenticationProvider.avatar {
-
-                let request = Interaction(type: .request, senderEntityId: Interaction.PlaceEntity,
-                                          receiverEntityId: authenticationId,
-                                          body: .authenticationRequest(identity: identity))
-
-                let answer = await authenticationProvider.session.request(interaction: request)
-
-                switch answer.body {
-                case .success: break
-                case .error(let domain, let code, let description):
-                    ilogger.error("Failed authentication (\(domain)#\(code)): \(description). Disconnecting.")
-                    fallthrough
-                default:
-                    // Should we forward the error details back to the client?
-                    let error: InteractionBody = .error(domain: PlaceErrorCode.domain,
-                                                        code: PlaceErrorCode.unauthorized.rawValue,
-                                                        description: "Authentication failed")
-                    client.session.send(interaction: inter.makeResponse(with: error))
-                    // TODO: Send error as disconnection reason
-                    client.session.disconnect()
-                    return
-                }
-            }
-
-            client.announced = true
-            // Client is now announced, so move it into the main list of clients so it can get world states etc.
-            clients[client.cid] = unannouncedClients.removeValue(forKey: client.cid)!
-            let ent = await self.createEntity(from: avatarDescription, for: client)
-            client.avatar = ent.id
-            ilogger.info("Accepted client with email \(identity.emailAddress), display name \(identity.displayName), assigned avatar id \(ent.id)")
-            await heartbeat.awaitNextSync() // make it exist before we tell client about it
-            
-            client.session.send(interaction: inter.makeResponse(with: .announceResponse(avatarId: ent.id, placeName: name)))
+            try await handle(announce: inter, from: client, logger: ilogger)
         case .createEntity(let description):
             let ent = await self.createEntity(from: description, for: client)
             ilogger.info("Spawned entity with id \(ent.id)")
@@ -100,5 +51,62 @@ extension PlaceServer
                 throw AlloverseError(domain: PlaceErrorCode.domain, code: PlaceErrorCode.invalidRequest.rawValue, description: "Place server does not support this request")
             }
         }
+    }
+    
+    func handle(announce: Interaction, from client: ConnectedClient, logger: Logger) async throws(AlloverseError)
+    {
+        guard case .announce(let version, let identity, let avatarDescription) = announce.body else { fatalError() }
+        client.identity = identity
+        
+        guard
+            let semantic = Version(version),
+            Allonet.version().serverIsCompatibleWith(clientVersion: semantic)
+        else
+        {
+            logger.error("Incompatible version (server \(Allonet.version()), client \(version)), disconnecting.")
+            client.session.send(interaction: announce.makeResponse(with: .error(
+                domain: AlloverseErrorCode.domain,
+                code: AlloverseErrorCode.incompatibleProtocolVersion.rawValue,
+                description: "Client version \(version) is incompatible with server version \(Allonet.version()). Please update your app."
+            )))
+            // TODO: Send error as disconnection reason
+            client.session.disconnect()
+            return
+        }
+
+        if let authenticationProvider, let authenticationId = authenticationProvider.avatar {
+
+            let request = Interaction(type: .request, senderEntityId: Interaction.PlaceEntity,
+                                      receiverEntityId: authenticationId,
+                                      body: .authenticationRequest(identity: identity))
+
+            let answer = await authenticationProvider.session.request(interaction: request)
+
+            switch answer.body {
+            case .success: break
+            case .error(let domain, let code, let description):
+                logger.error("Failed authentication (\(domain)#\(code)): \(description). Disconnecting.")
+                fallthrough
+            default:
+                // Should we forward the error details back to the client?
+                let error: InteractionBody = .error(domain: PlaceErrorCode.domain,
+                                                    code: PlaceErrorCode.unauthorized.rawValue,
+                                                    description: "Authentication failed")
+                client.session.send(interaction: announce.makeResponse(with: error))
+                // TODO: Send error as disconnection reason
+                client.session.disconnect()
+                return
+            }
+        }
+
+        client.announced = true
+        // Client is now announced, so move it into the main list of clients so it can get world states etc.
+        clients[client.cid] = unannouncedClients.removeValue(forKey: client.cid)!
+        let ent = await self.createEntity(from: avatarDescription, for: client)
+        client.avatar = ent.id
+        logger.info("Accepted client with email \(identity.emailAddress), display name \(identity.displayName), assigned avatar id \(ent.id)")
+        await heartbeat.awaitNextSync() // make it exist before we tell client about it
+        
+        client.session.send(interaction: announce.makeResponse(with: .announceResponse(avatarId: ent.id, placeName: name)))
     }
 }
