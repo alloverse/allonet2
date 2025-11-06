@@ -68,28 +68,7 @@ extension PlaceServer
                 description: "Client version \(version) is incompatible with server version \(Allonet.version()). Please update your app."
             )
         }
-        }
-
-        if let authenticationProvider, let authenticationId = authenticationProvider.avatar {
-
-            let request = Interaction(type: .request, senderEntityId: Interaction.PlaceEntity,
-                                      receiverEntityId: authenticationId,
-                                      body: .authenticationRequest(identity: identity))
-
-            let answer = await authenticationProvider.session.request(interaction: request)
-
-            switch answer.body {
-            case .success: break
-            case .error(let domain, let code, let description):
-                logger.error("Failed authentication (\(domain)#\(code)): \(description). Disconnecting.")
-                throw AlloverseError(with: answer.body, overrideIsFatal: true)
-            default:
-                throw AlloverseError(domain: PlaceErrorCode.domain,
-                    code: PlaceErrorCode.unauthorized.rawValue,
-                    description: "Authentication failed",
-                    overrideIsFatal: true
-                )
-            }
+        try await authenticate(identity: identity)
         }
 
         client.announced = true
@@ -106,5 +85,27 @@ extension PlaceServer
         await heartbeat.awaitNextSync() // make it exist before we tell client about it
         
         client.session.send(interaction: announce.makeResponse(with: .announceResponse(avatarId: ent.id, placeName: name)))
+    }
+    
+    func authenticate(identity: Identity) async throws(AlloverseError)
+    {
+        guard let authenticationProvider, let authenticationId = authenticationProvider.avatar else {
+            throw AlloverseError(code: AlloverseErrorCode.internalServerError, description: "Couldn't reach authentication server", overrideIsFatal: true)
+        }
+
+        let request = Interaction(type: .request, senderEntityId: Interaction.PlaceEntity,
+                                  receiverEntityId: authenticationId,
+                                  body: .authenticationRequest(identity: identity))
+
+        let answer = await authenticationProvider.session.request(interaction: request)
+
+        switch answer.body {
+        case .success: break
+        case .error(let domain, let code, let description):
+            logger.error("Failed authentication (\(domain)#\(code)): \(description). Disconnecting.")
+            throw AlloverseError(with: answer.body, overrideIsFatal: true)
+        default:
+            throw AlloverseError(code: PlaceErrorCode.unauthorized, description: "Authentication failed", overrideIsFatal: true)
+        }
     }
 }
