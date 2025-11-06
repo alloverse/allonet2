@@ -26,6 +26,7 @@ public class PlaceServer : AlloSessionDelegate
     
     var outstandingClientToClientInteractions: [Interaction.RequestID: ClientId] = [:]
     internal var authenticationProvider: ConnectedClient?
+    internal var requiresAuthenticationProvider = false
 
     let place: PlaceState
     lazy var heartbeat: HeartbeatTimer = {

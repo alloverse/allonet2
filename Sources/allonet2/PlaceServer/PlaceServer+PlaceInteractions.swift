@@ -24,8 +24,8 @@ extension PlaceServer
             // - A client could authenticate itself
             if authenticationProvider == nil
             {
-                // TODO: Authenticate all currently connected clients to make sure they're allowed by our new provider
                 authenticationProvider = client
+                requiresAuthenticationProvider = true
                 client.session.send(interaction: inter.makeResponse(with: .success))
             }
             else
@@ -68,7 +68,8 @@ extension PlaceServer
                 description: "Client version \(version) is incompatible with server version \(Allonet.version()). Please update your app."
             )
         }
-        try await authenticate(identity: identity)
+        if requiresAuthenticationProvider {
+            try await authenticate(identity: identity)
         }
 
         client.announced = true
