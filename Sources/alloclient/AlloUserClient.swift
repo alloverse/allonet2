@@ -16,9 +16,13 @@ public class AlloUserClient : AlloClient
     {
         didSet { userTransport.microphoneEnabled = micEnabled }
     }
-    public func createMicrophoneTrack() -> AudioTrack
+    private var micTrack: AudioTrack? = nil
+    public func createMicrophoneTrackIfNeeded() -> AudioTrack
     {
-        return userTransport.createMicrophoneTrack()
+        if micTrack == nil {
+            micTrack = userTransport.createMicrophoneTrack()
+        }
+        return micTrack!
     }
     
     public override init(url: URL, identity: Identity, avatarDescription: EntityDescription, connectionOptions: TransportConnectionOptions)
@@ -30,6 +34,7 @@ public class AlloUserClient : AlloClient
     open override func reset()
     {
         userTransport = UIWebRTCTransport(with: self.connectionOptions, status: connectionStatus)
+        let _ = createMicrophoneTrackIfNeeded()
         reset(with: userTransport)
     }
 }

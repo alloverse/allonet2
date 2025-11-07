@@ -455,6 +455,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     // MARK: - Audio
     private func beginAudioSession()
     {
+        logger.info("Starting audio session")
 #if os(macOS)
         let arbiter = AVAudioRoutingArbiter.shared
         arbiter.begin(category: .playAndRecordVoice)
@@ -474,6 +475,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     
     private func endAudioSession()
     {
+        logger.info("Stopping audio session")
 #if os(macOS)
         let arbiter = AVAudioRoutingArbiter.shared
         arbiter.leave()
@@ -491,6 +493,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     // Start capturing audio from microphone
     public func createMicrophoneTrack() -> AudioTrack
     {
+        logger.info("Creating microphone track")
         if !audioSessionActive
         {
             beginAudioSession()
@@ -498,6 +501,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
         let audioConstraints = LKRTCMediaConstraints(mandatoryConstraints: [:], optionalConstraints: [:])
         let audioSource = Self.factory.audioSource(with: audioConstraints)
         let audioTrack = Self.factory.audioTrack(with: audioSource, trackId: micTrackName)
+        logger.info("Adding audio track to peer")
         peer.add(audioTrack, streamIds: ["voice"])
         
         // TODO: Replace this with some createTrack() in session or something, so that we can also create a LiveMedia component
