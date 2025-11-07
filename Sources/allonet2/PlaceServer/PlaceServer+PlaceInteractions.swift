@@ -65,7 +65,7 @@ extension PlaceServer
             ilogger.error("Incompatible version (server \(Allonet.version()), client \(version)), disconnecting.")
             throw AlloverseError(
                 code: AlloverseErrorCode.incompatibleProtocolVersion,
-                description: "Client version \(version) is incompatible with server version \(Allonet.version()). Please update your app."
+                description: "Please update your app.\n\nClient version \(version) is incompatible with server version \(Allonet.version())."
             )
         }
         if requiresAuthenticationProvider || (identity.expectation == .app && !alloAppAuthToken.isEmpty)
