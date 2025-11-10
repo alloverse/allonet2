@@ -108,6 +108,7 @@ public class SpatialAudioPlayer
         assert(playState.controller == nil, "Playing the same stream twice?")
         
         streamLogger.info("Setting up LiveMedia on \(netent.id)")
+        var stats = StreamStats()
         
         // TODO: Pick these up as settings from an Alloverse component
         let spatial = SpatialAudioComponent(
@@ -127,7 +128,7 @@ public class SpatialAudioPlayer
         let handler: Audio.GeneratorRenderHandler = { (isSilence, timestamp, frameCount, audioBufferList) -> OSStatus in
             let requested = Int(frameCount)
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            streamLogger.trace("Rendering \(requested) rendering from \(ringBuffer)")
+            Self.logStatistics(requested, ringBuffer, into: streamLogger, from: stats)
             ringBuffer.readOrSilence(into: ablPointer, frames: requested)
             return noErr
         }
@@ -139,6 +140,38 @@ public class SpatialAudioPlayer
             return
         }
         streamLogger.info("Successfully set up audio renderer \(netent.id)")
+    }
+    
+    class StreamStats {
+        var requestCountSinceLast: Int = 0
+        var avgRequested: Double! = nil
+        var avgReadCapacity: Double! = nil
+        var avgWriteCapacity: Double! = nil
+        
+        let alpha: Double = 0.2 // Smoothing factor: 0 < alpha <= 1. Larger = more reactive
+        var lastLoggedAt: Date = Date.now
+        static var logEveryNSeconds: TimeInterval = 2
+
+        func updateEMA(current: inout Double!, with newValue: Int) {
+            if current == nil {
+                current = Double(newValue)
+            } else {
+                current = alpha * Double(newValue) + (1 - alpha) * current
+            }
+        }
+    }
+    static func logStatistics(_ requested: Int, _ ringBuffer: AVFAudioRingBuffer, into streamLogger: Logger, from stats: StreamStats)
+    {
+        stats.updateEMA(current: &stats.avgRequested, with: requested)
+        stats.updateEMA(current: &stats.avgReadCapacity, with: ringBuffer.availableToRead())
+        stats.updateEMA(current: &stats.avgWriteCapacity, with: ringBuffer.availableToWrite())
+        stats.requestCountSinceLast += 1
+        
+        if Date.now.timeIntervalSince(stats.lastLoggedAt) > StreamStats.logEveryNSeconds {
+            streamLogger.trace("Render stats: \(Int(stats.requestCountSinceLast)) * \(Int(stats.avgRequested)) frames rendered, from buffered \(Int(stats.avgReadCapacity)) available \(Int(stats.avgWriteCapacity))")
+            stats.requestCountSinceLast = 0
+            stats.lastLoggedAt = Date.now
+        }
     }
     
     func stop(streamId: MediaStreamId)
