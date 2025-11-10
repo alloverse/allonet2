@@ -127,7 +127,7 @@ public class SpatialAudioPlayer
         let handler: Audio.GeneratorRenderHandler = { (isSilence, timestamp, frameCount, audioBufferList) -> OSStatus in
             let requested = Int(frameCount)
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            //streamLogger.trace("Rendering \(requested) rendering from \(ringBuffer)")
+            streamLogger.trace("Rendering \(requested) rendering from \(ringBuffer)")
             ringBuffer.readOrSilence(into: ablPointer, frames: requested)
             return noErr
         }

@@ -1,10 +1,13 @@
 import RealityKit
 import simd
+import Logging
 
 /// Attenuate audio by adjusting SpatialAudioComponents' gain manually every frame. This is needed on macOS because we're displaying a diorama, where the full transform at the root node is actually in centimeters or less, and we can't tell RealityKit to use `roomRoot` as the audio spatial field.
 // TODO: Better solution: Instead of setting audioListener, we should do the vision pro hack on macos as well!! That way, the spatial field uses real world coordinates without any kind of scaling or custom listener position or anything — it’s just a real spatial audio field with correct distances. We might need this attenuation system to do "audio hidden by wall" etc though...
 public struct SpatialAudioAttenuationSystem: RealityKit.System
 {
+    let logger: Logger! = Logger(label: "spatialaudioattenuationsystem")
+    
     public init(scene: Scene) {}
     
     /// The reference distance (in meters) for the distance attenuation model. Distances below this value produce full gain.
@@ -74,7 +77,7 @@ public struct SpatialAudioAttenuationSystem: RealityKit.System
             let epsilonDB = 20.0 * log10(1.0 + linearTolerance)  // ≈ 0.173 dB
             if abs(spatialAudio.gain - newGain) > epsilonDB
             {
-                //print("\tSource: \(entity.name) \(distance)m away at \(sourcePosition)\(isOccluded ? " (occluded)":""). Gain: \(spatialAudio.gain) -> \(newGain)")
+                logger.trace("\tSource: \(entity.name) \(distance)m away at \(sourcePosition)\(isOccluded ? " (occluded)":""). Gain: \(spatialAudio.gain) -> \(newGain)")
                 spatialAudio.gain = newGain
                 entity.components[SpatialAudioComponent.self] = spatialAudio
             }
