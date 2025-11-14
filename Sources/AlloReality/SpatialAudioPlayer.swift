@@ -21,17 +21,19 @@ public class SpatialAudioPlayer
     let client: AlloUserClient
     let content: RealityViewContentProtocol
     let listenerEid: EntityID? = nil
+    let addon: ListenerAddon?
     fileprivate var state: [MediaStreamId: SpatialAudioPlaybackState] = [:]
     var streamCancellables: Set<AnyCancellable> = []
     var listenerCancellables: Set<AnyCancellable> = []
     var logger: Logger! = Logger(label: "spatialaudioplayer")
     
     /// Construct a SpatialAudioPlayer which uses `mapper` to create audio related components and `client` to react to network events. Note: announce must have completed and avatar exist before instantiating this class.
-    public init(mapper: RealityViewMapper, client: AlloUserClient, content: RealityViewContentProtocol)
+    public init(mapper: RealityViewMapper, client: AlloUserClient, content: RealityViewContentProtocol, addon: ListenerAddon? = nil)
     {
         self.mapper = mapper
         self.client = client
         self.content = content
+        self.addon = addon
         self.logger = Logger(label: "spatialaudioplayer", metadataProvider: Logger.MetadataProvider { [weak self] in
             guard let self, let cid = self.client.cid else { return [:] }
             return ["clientId": .stringConvertible(cid)]
@@ -78,13 +80,15 @@ public class SpatialAudioPlayer
             guard let edata = self.client.placeState.current.entities[eid] else { return }
             guard edata.ownerClientId != self.client.cid else { return }
             streamIds.insert(liveMedia.mediaId)
-            self.state[liveMedia.mediaId] = SpatialAudioPlaybackState(streamId: liveMedia.mediaId, eid: eid)
+            let callback = self.addon?.mediaAdded(eid, liveMedia)
+            self.state[liveMedia.mediaId] = SpatialAudioPlaybackState(streamId: liveMedia.mediaId, eid: eid, callback: callback)
             updateListener()
         }.store(in: &listenerCancellables)
-        client.placeState.observers[LiveMedia.self].removed.sink { _eid, liveMedia in
+        client.placeState.observers[LiveMedia.self].removed.sink { edata, liveMedia in
             streamIds.remove(liveMedia.mediaId)
             updateListener()
             self.stop(streamId: liveMedia.mediaId)
+            self.addon?.mediaRemoved(edata.id, liveMedia)
         }.store(in: &listenerCancellables)
     }
     
@@ -125,11 +129,12 @@ public class SpatialAudioPlayer
         
         // TODO: Adjust playback speed to keep the buffered amount stable at ~50ms latency?
         let config = AudioGeneratorConfiguration(layoutTag: kAudioChannelLayoutTag_Mono)
-        let handler: Audio.GeneratorRenderHandler = { (isSilence, timestamp, frameCount, audioBufferList) -> OSStatus in
+        let handler: Audio.GeneratorRenderHandler = { [weak playState] (isSilence, timestamp, frameCount, audioBufferList) -> OSStatus in
             let requested = Int(frameCount)
             let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
             Self.logStatistics(requested, ringBuffer, into: streamLogger, from: stats)
             ringBuffer.readOrSilence(into: ablPointer, frames: requested)
+            playState?.pcmCallback?(ablPointer, requested)
             return noErr
         }
         do {
@@ -195,6 +200,18 @@ public class SpatialAudioPlayer
         streamCancellables.forEach { $0.cancel() }; streamCancellables.removeAll()
         listenerCancellables.forEach { $0.cancel() }; listenerCancellables.removeAll()
     }
+    
+    public typealias PCMCallback = ((UnsafeMutableAudioBufferListPointer, Int) -> Void)
+    public struct ListenerAddon
+    {
+        public let mediaAdded: (EntityID, LiveMedia) -> PCMCallback?
+        public let mediaRemoved: (EntityID, LiveMedia) -> Void
+        public init(mediaAdded: @escaping (EntityID, LiveMedia) -> PCMCallback?, mediaRemoved: @escaping (EntityID, LiveMedia) -> Void)
+        {
+            self.mediaAdded = mediaAdded
+            self.mediaRemoved = mediaRemoved
+        }
+    }
 }
 
 @MainActor
@@ -202,6 +219,7 @@ fileprivate class SpatialAudioPlaybackState
 {
     let streamId: MediaStreamId
     let eid: EntityID
+    let pcmCallback: ((UnsafeMutableAudioBufferListPointer, Int) -> Void)?
     
     var cancellables: Set<AnyCancellable> = []
     var controller: AudioGeneratorController? = nil
@@ -212,10 +230,11 @@ fileprivate class SpatialAudioPlaybackState
         controller?.stop()
     }
     
-    fileprivate init(streamId: MediaStreamId, eid: EntityID)
+    fileprivate init(streamId: MediaStreamId, eid: EntityID, callback: SpatialAudioPlayer.PCMCallback? = nil)
     {
         self.streamId = streamId
         self.eid = eid
+        self.pcmCallback = callback
     }
 }
 
