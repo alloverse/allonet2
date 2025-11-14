@@ -116,7 +116,7 @@ public class SpatialAudioPlayer
         
         // TODO: Pick these up as settings from an Alloverse component
         let spatial = SpatialAudioComponent(
-            gain: -1000, // Overridden by `SpatialAudioAttenuationSystem`
+            gain: 0, // Overridden by `SpatialAudioAttenuationSystem`
             directLevel: .zero,
             reverbLevel: .zero,
             directivity: .beam(focus: 0.3),
