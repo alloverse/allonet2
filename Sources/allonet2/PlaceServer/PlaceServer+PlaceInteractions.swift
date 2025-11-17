@@ -87,7 +87,10 @@ extension PlaceServer
             let spawnPointEntity = placeHelper.entities[spawnPointEntityId]
         {
             let worldTransform = spawnPointEntity.transformToWorld
-            let newUserTform = Transform(matrix: worldTransform)
+            var newUserTform = Transform(matrix: worldTransform)
+            // Slightly offset each new incoming user so that users never exactly overlap. This fixes the audio bug. Not okay. https://www.notion.so/alloverse/Still-no-audio-when-testing-w-Tobes-2a4383c5f0558020a885fb75df1787b2
+            newUserTform.matrix.translation.x += Float.random(in: -0.02...0.02)
+            newUserTform.matrix.translation.z += Float.random(in: -0.02...0.02)
             await appendChanges([.componentUpdated(avatar.id, newUserTform)])
         }
         
