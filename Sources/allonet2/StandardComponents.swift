@@ -205,6 +205,49 @@ public struct SpawnPoint: Component
     public init() {}
 }
 
+// MARK: - Koja types that absolutely markedly DO NOT belong here
+// But we don't have custom types yet, so here we are.
+
+@MainActor
+public enum PresenceMode: String, Codable
+{
+    // Green dot, speaker on, mic optionally on
+    case available = "Available"
+    // Red dot, speaker off, mic off
+    case doNotDisturb = "Do Not Disturb"
+    // Same as DND, but no expectation that user even can reply. Screen locked, etc
+    case away = "Away"
+    // Not spatial (i e no location in place), speaker off, mic off
+    case invisible = "Invisible"
+}
+
+@MainActor
+public struct KojaUser: Codable, Equatable, Identifiable
+{
+    public var id: String
+    public var displayName: String
+    public var email: String?
+    public var presence: PresenceMode
+    public var avatarId: EntityID
+}
+
+@MainActor
+public struct KojaRoom: Codable, Equatable, Identifiable
+{
+    public var id: String
+    public var name: String
+    public var entity: EntityID
+    // TODO: room usage (meeting, team room, etc)
+    public var users: [KojaUser]
+}
+
+@MainActor
+public struct KojaPlaceInfo: Component
+{
+    public var users: [KojaUser]
+    public var rooms: [KojaRoom]
+}
+
 // MARK: - Related types
 // Types that are not Components, but used by Components
 
@@ -243,6 +286,7 @@ func RegisterStandardComponents()
     LiveMedia.register()
     LiveMediaListener.register()
     SpawnPoint.register()
+    KojaPlaceInfo.register()
 }
 
 extension Transform
