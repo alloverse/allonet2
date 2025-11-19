@@ -209,7 +209,7 @@ public struct SpawnPoint: Component
 // But we don't have custom types yet, so here we are.
 
 @MainActor
-public enum PresenceMode: String, Codable
+public enum PresenceMode: String, Codable, CaseIterable, Identifiable
 {
     // Green dot, speaker on, mic optionally on
     case available = "Available"
@@ -219,6 +219,8 @@ public enum PresenceMode: String, Codable
     case away = "Away"
     // Not spatial (i e no location in place), speaker off, mic off
     case invisible = "Invisible"
+    
+    public var id: String { rawValue }
 }
 
 @MainActor
