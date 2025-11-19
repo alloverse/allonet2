@@ -29,6 +29,7 @@ public class AlloUserClient : AlloClient
     {
         self.micEnabled = true
         super.init(url: url, identity: identity, avatarDescription: avatarDescription, connectionOptions: connectionOptions)
+        startSendingLogs()
     }
     
     open override func reset()
@@ -36,5 +37,24 @@ public class AlloUserClient : AlloClient
         userTransport = UIWebRTCTransport(with: self.connectionOptions, status: connectionStatus)
         let _ = createMicrophoneTrackIfNeeded()
         reset(with: userTransport)
+    }
+    
+    var cancellables: Set<AnyCancellable> = []
+    func startSendingLogs()
+    {
+        var task: Task<Void, Never>? = nil
+        self.connectionStatus.$reconnection.sink { [weak self] in
+            if $0 == .connected {
+                task = Task {
+                     for await log in await LogStore.shared.stream() {
+                        self?.session.send(log)
+                     }
+                }
+                // clear out history after sending the first batch
+                Task { await LogStore.shared.clear() }
+            } else {
+                task?.cancel()
+            }
+        }.store(in: &cancellables)
     }
 }

@@ -18,6 +18,7 @@ internal class ConnectedClient
     var cid: ClientId = UUID()
     var avatar: EntityID? // Assigned in the place server upon successful client announce
     var logger: Logger
+    var remoteLoggers: [String: Logger] = [:]
 
     init(session: AlloSession, status: ConnectionStatus)
     {

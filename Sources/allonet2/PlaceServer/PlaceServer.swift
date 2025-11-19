@@ -138,6 +138,24 @@ public class PlaceServer : AlloSessionDelegate
         }
     }
     
+    public func session(_ sess: AlloSession, didReceiveLog m: StoredLogMessage)
+    {
+        let cid = sess.clientId!
+        guard let client = self.clients[cid] else { return }
+        let logger = client.remoteLoggers[m.label, setDefault: Logger(label: "remote:\(m.label)")]
+        var metadata = m.metadata ?? [:]
+        metadata["loggedFromClientId"] = .string(cid.uuidString)
+        logger.log(
+            level: m.level,
+            m.message,
+            metadata: metadata,
+            source: m.source,
+            file: m.file,
+            function: m.function,
+            line: m.line
+        )
+    }
+    
     public func session(_ sess: AlloSession, didReceiveMediaStream stream: any MediaStream)
     {
         let cid = sess.clientId!

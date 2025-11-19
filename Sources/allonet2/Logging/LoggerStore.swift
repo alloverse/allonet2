@@ -10,12 +10,18 @@ import Logging
 
 public struct StoredLogMessage: Codable
 {
-    let timestamp: TimeInterval
-    let message: Logger.Message
     let label: String
+    let timestamp: TimeInterval
+    
     let level: Logger.Level
+    let message: Logger.Message
     let metadata: [String: Logger.MetadataValue]?
+    let source: String
+    let file: String
+    let function: String
+    let line: UInt
 }
+
 
 /// A LogHandler that stores each incoming log message, so that it can be later be displayed in debug UI
 public class StoringLogHandler: LogHandler
@@ -55,11 +61,16 @@ public class StoringLogHandler: LogHandler
         )
 
         let storedMessage = StoredLogMessage(
-            timestamp: Date.now.timeIntervalSince1970,
-            message: message,
             label: label,
+            timestamp: Date.now.timeIntervalSince1970,
+            
             level: level,
-            metadata: effectiveMetadata
+            message: message,
+            metadata: effectiveMetadata,
+            source: source,
+            file: file,
+            function: function,
+            line: line
         )
         Task { await LogStore.shared.store(storedMessage) }
     }
@@ -93,7 +104,11 @@ public class StoringLogHandler: LogHandler
 public actor LogStore
 {
     public private(set) static var shared = LogStore()
-    
+    public var capacity: Int = 5000
+    public func setCapacity(_ newValue: Int) {
+        self.capacity = newValue
+    }
+
     // MARK: Storage + streaming
     private var logs: [StoredLogMessage] = []
     private var continuations: [UUID: AsyncStream<StoredLogMessage>.Continuation] = [:]
@@ -121,7 +136,7 @@ public actor LogStore
     
     public func store(_ log: StoredLogMessage)
     {
-        if logs.count > 10000 { logs.removeFirst(1000) }
+        if logs.count > capacity { logs.removeFirst(capacity/10) }
         
         logs.append(log)
         

@@ -98,6 +98,7 @@ public enum DataChannelLabel: String
 {
     case interactions = "interactions"
     case intentWorldState = "worldstate"
+    case logs = "logs"
 }
 
 extension DataChannelLabel
@@ -106,6 +107,7 @@ extension DataChannelLabel
         switch self {
         case .interactions: 1
         case .intentWorldState: 2
+        case .logs: 3
         }
     } }
 }

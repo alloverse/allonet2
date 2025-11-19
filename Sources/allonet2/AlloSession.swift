@@ -21,6 +21,7 @@ public protocol AlloSessionDelegate: AnyObject
     
     func session(_: AlloSession, didReceivePlaceChangeSet changeset: PlaceChangeSet)
     func session(_: AlloSession, didReceiveIntent intent: Intent)
+    func session(_: AlloSession, didReceiveLog message: StoredLogMessage)
     
     /// New audio or video track connected.
     func session(_: AlloSession, didReceiveMediaStream: MediaStream)
@@ -39,6 +40,7 @@ public class AlloSession : NSObject, TransportDelegate
     
     private var interactionChannel: DataChannel!
     private var worldstateChannel: DataChannel!
+    private var logsChannel: DataChannel!
     
     // TODO: This should be called streams, because it includes both incoming and outgoing
     @Published
@@ -118,6 +120,12 @@ public class AlloSession : NSObject, TransportDelegate
         transport.send(data: data, on: .intentWorldState)
     }
     
+    public func send(_ logLine: StoredLogMessage)
+    {
+        let data = try! encoder.encode(logLine)
+        transport.send(data: data, on: .logs)
+    }
+    
     public func generateOffer() async throws -> SignallingPayload
     {
         logger.debug("Generating offer...")
@@ -160,6 +168,7 @@ public class AlloSession : NSObject, TransportDelegate
     {
         interactionChannel = transport.createDataChannel(label: .interactions, reliable: true)
         worldstateChannel = transport.createDataChannel(label: .intentWorldState, reliable: false)
+        logsChannel = transport.createDataChannel(label: .logs, reliable: true)
     }
     
     //MARK: - Transport delegates
@@ -229,6 +238,15 @@ public class AlloSession : NSObject, TransportDelegate
                 return
             }
             Task { @MainActor in self.delegate?.session(self, didReceiveIntent: intent) }
+        case .logs:
+            let logLine: StoredLogMessage
+            do {
+                logLine = try decoder.decode(StoredLogMessage.self, from: data)
+            } catch {
+                logger.warning("Dropped unparseable log line: \(error)")
+                return
+            }
+            Task { @MainActor in self.delegate?.session(self, didReceiveLog: logLine) }
         default:
             fatalError("Unexpected message")
         }

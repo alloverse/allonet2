@@ -372,7 +372,11 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         }
     }
     
-    nonisolated public func session(_: AlloSession, didReceiveIntent intent: Intent)
+    public func session(_: AlloSession, didReceiveIntent intent: Intent)
+    {
+        assert(false) // should never happen on client
+    }
+    public func session(_: AlloSession, didReceiveLog message: StoredLogMessage)
     {
         assert(false) // should never happen on client
     }
