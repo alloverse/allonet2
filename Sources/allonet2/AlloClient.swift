@@ -265,35 +265,33 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         }
     }
     
-    nonisolated public func session(didDisconnect sess: AlloSession)
+    public func session(didDisconnect sess: AlloSession)
     {
-        Task { @MainActor in
-            logger.info("Disconnected")
-            avatarId = nil
-            self.connectionStatus.signalling = .failed
-            if(false)
-            {
-                // TODO: Propagate disconnection reason, and notice if it's permanent
-                // state = .error ...
-            }
-            else if(self.connectionLoopCancellable != nil)
-            {
-                self.connectionStatus.reconnection = .waitingForReconnect
-            }
-            else
-            {
-                self.connectionStatus.reconnection = .idle
-            }
+        logger.info("Disconnected")
+        avatarId = nil
+        self.connectionStatus.signalling = .failed
+        if(false)
+        {
+            // TODO: Propagate disconnection reason, and notice if it's permanent
+            // state = .error ...
+        }
+        else if(self.connectionLoopCancellable != nil)
+        {
+            self.connectionStatus.reconnection = .waitingForReconnect
+        }
+        else
+        {
+            self.connectionStatus.reconnection = .idle
         }
     }
     
-    nonisolated public func session(_: AlloSession, didReceiveMediaStream: MediaStream)
+    public func session(_: AlloSession, didReceiveMediaStream: MediaStream)
     {
         // Playback is handled in SpatialAudioPlayer
         // TODO: If I expose incomingTracks through Combine, why even have this callback?
     }
     
-    nonisolated public func session(_: AlloSession, didRemoveMediaStream: MediaStream)
+    public func session(_: AlloSession, didRemoveMediaStream: MediaStream)
     {}
     
     // MARK: - Interactions, intent and place state
@@ -320,7 +318,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     /// Use this to register handlers for all other kinds of Interactions.
     public var handlers = InteractionHandler<Void>()
     
-    nonisolated public func session(_: AlloSession, didReceiveInteraction inter: Interaction)
+    public func session(_: AlloSession, didReceiveInteraction inter: Interaction)
     {
         Task { @MainActor in
             do
@@ -357,19 +355,16 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         }
     }
     
-    nonisolated public func session(_: AlloSession, didReceivePlaceChangeSet changeset: PlaceChangeSet)
+    public func session(_: AlloSession, didReceivePlaceChangeSet changeset: PlaceChangeSet)
     {
         //logger.trace("Received place change for revision \(changeset.fromRevision) -> \(changeset.toRevision)")
-        Task
-        { @MainActor in
-            guard placeState.applyChangeSet(changeset) else
-            {
-                logger.warning("Failed to apply change set, asking for a full diff")
-                currentIntent = Intent(ackStateRev: 0)
-                return
-            }
-            currentIntent = Intent(ackStateRev: changeset.toRevision)
+        guard placeState.applyChangeSet(changeset) else
+        {
+            logger.warning("Failed to apply change set, asking for a full diff")
+            currentIntent = Intent(ackStateRev: 0)
+            return
         }
+        currentIntent = Intent(ackStateRev: changeset.toRevision)
     }
     
     public func session(_: AlloSession, didReceiveIntent intent: Intent)
