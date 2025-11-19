@@ -59,7 +59,7 @@ public class Place: CustomStringConvertible
 
 /// An entity is the thing in Place that components are part of. This is the convenience API for accessing all the related data for an entity in a single place.
 @MainActor
-public struct Entity: CustomStringConvertible
+public struct Entity: CustomStringConvertible, Equatable
 {
     public let id: EntityID
     public let components: ComponentSet
@@ -124,6 +124,9 @@ public struct Entity: CustomStringConvertible
         \n\(prefix)Children:
         \( ch.map { $0.indentedDescription("\(prefix)\t") }.joined(separator: "\n") )
         """
+    }
+    public static func == (lhs: Entity, rhs: Entity) -> Bool {
+        lhs.id == rhs.id
     }
 }
 
