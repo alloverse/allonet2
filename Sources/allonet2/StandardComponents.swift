@@ -219,6 +219,8 @@ public enum PresenceMode: String, Codable, CaseIterable, Identifiable
     case away = "Away"
     // Not spatial (i e no location in place), speaker off, mic off
     case invisible = "Invisible"
+    // Not currently connected. Cannot be set by user.
+    case offline = "Offline"
     
     public var id: String { rawValue }
 }
@@ -226,13 +228,14 @@ public enum PresenceMode: String, Codable, CaseIterable, Identifiable
 @MainActor
 public struct KojaUser: Codable, Equatable, Identifiable
 {
-    public let id: String
-    public let avatarId: EntityID
+    public typealias ID = String
+    public let id: KojaUser.ID
+    public let avatarId: EntityID? // nil = offline
     public var displayName: String
     public var email: String?
     public var presence: PresenceMode
     
-    public init(id: String, avatarId: EntityID, displayName: String, email: String?, presence: PresenceMode) {
+    public init(id: String, avatarId: EntityID?, displayName: String, email: String?, presence: PresenceMode) {
         self.id = id
         self.avatarId = avatarId
         self.displayName = displayName
@@ -244,11 +247,12 @@ public struct KojaUser: Codable, Equatable, Identifiable
 @MainActor
 public struct KojaRoom: Codable, Equatable, Identifiable
 {
-    public let id: String
+    public typealias ID = String
+    public let id: KojaRoom.ID
     public let name: String
     public let entity: EntityID
     // TODO: room usage (meeting, team room, etc)
-    public var users: [KojaUser] = []
+    public var users: [KojaUser.ID: KojaUser] = [:]
     
     public init(id: String, name: String, entity: EntityID) {
         self.id = id
@@ -260,13 +264,13 @@ public struct KojaRoom: Codable, Equatable, Identifiable
 @MainActor
 public struct KojaPlaceInfo: Component
 {
-    public var rooms: [KojaRoom] = []
-    public var invisibleUsers: [KojaUser] = []
-    public var offlineUsers: [KojaUser] = []
+    public var rooms: [KojaRoom.ID: KojaRoom] = [:]
+    public var invisibleUsers: [KojaUser.ID: KojaUser] = [:]
+    public var offlineUsers: [KojaUser.ID: KojaUser] = [:]
     public init() {}
     
-    public var allUsers: [KojaUser] {
-        return rooms.flatMap { $0.users } + invisibleUsers + offlineUsers
+    public var allUsers: [KojaUser.ID: KojaUser] {
+        Dictionary(rooms.values.flatMap(\.users) + invisibleUsers + offlineUsers, uniquingKeysWith: { _, new in new })
     }
 }
 
