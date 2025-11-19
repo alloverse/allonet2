@@ -70,7 +70,7 @@ extension PlaceServer
         }
         if requiresAuthenticationProvider || (identity.expectation == .app && !alloAppAuthToken.isEmpty)
         {
-            try await authenticate(identity: identity, in: ilogger)
+            try await authenticate(identity: identity, from: client.cid, in: ilogger)
         }
 
         client.announced = true
@@ -101,7 +101,7 @@ extension PlaceServer
         client.session.send(interaction: announce.makeResponse(with: .announceResponse(avatarId: avatar.id, placeName: name)))
     }
     
-    func authenticate(identity: Identity, in ilogger: Logger) async throws(AlloverseError)
+    func authenticate(identity: Identity, from cid: ClientId, in ilogger: Logger) async throws(AlloverseError)
     {
         if identity.expectation == .app
         {
@@ -119,7 +119,7 @@ extension PlaceServer
 
         let request = Interaction(type: .request, senderEntityId: Interaction.PlaceEntity,
                                   receiverEntityId: authenticationId,
-                                  body: .authenticationRequest(identity: identity))
+                                  body: .authenticationRequest(clientId: cid, identity: identity))
 
         let answer = await authenticationProvider.session.request(interaction: request)
 

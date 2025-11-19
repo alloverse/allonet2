@@ -60,7 +60,7 @@ public enum InteractionBody : Codable
 
     // - Authentication (App agent to place)
     case registerAsAuthenticationProvider // -> .success or .error
-    case authenticationRequest(identity: Identity) // -> .success or .error
+    case authenticationRequest(clientId: ClientId, identity: Identity) // -> .success or .error
 
     // - Agent to agent
     case tap(at: SIMD3<Float>) // oneway

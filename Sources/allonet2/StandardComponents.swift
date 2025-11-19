@@ -226,28 +226,48 @@ public enum PresenceMode: String, Codable, CaseIterable, Identifiable
 @MainActor
 public struct KojaUser: Codable, Equatable, Identifiable
 {
-    public var id: String
+    public let id: String
+    public let avatarId: EntityID
     public var displayName: String
     public var email: String?
     public var presence: PresenceMode
-    public var avatarId: EntityID
+    
+    public init(id: String, avatarId: EntityID, displayName: String, email: String?, presence: PresenceMode) {
+        self.id = id
+        self.avatarId = avatarId
+        self.displayName = displayName
+        self.email = email
+        self.presence = presence
+    }
 }
 
 @MainActor
 public struct KojaRoom: Codable, Equatable, Identifiable
 {
-    public var id: String
-    public var name: String
-    public var entity: EntityID
+    public let id: String
+    public let name: String
+    public let entity: EntityID
     // TODO: room usage (meeting, team room, etc)
-    public var users: [KojaUser]
+    public var users: [KojaUser] = []
+    
+    public init(id: String, name: String, entity: EntityID) {
+        self.id = id
+        self.name = name
+        self.entity = entity
+    }
 }
 
 @MainActor
 public struct KojaPlaceInfo: Component
 {
-    public var users: [KojaUser]
-    public var rooms: [KojaRoom]
+    public var rooms: [KojaRoom] = []
+    public var invisibleUsers: [KojaUser] = []
+    public var offlineUsers: [KojaUser] = []
+    public init() {}
+    
+    public var allUsers: [KojaUser] {
+        return rooms.flatMap { $0.users } + invisibleUsers + offlineUsers
+    }
 }
 
 // MARK: - Related types
