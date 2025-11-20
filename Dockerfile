@@ -34,7 +34,7 @@ RUN echo "deb http://www.deb-multimedia.org sid main" >> /etc/apt/sources.list &
     DEBIAN_FRONTEND=noninteractive \
     apt-get install --allow-unauthenticated -y --no-install-recommends \
         deb-multimedia-keyring \
-        libdatachannel0.23 libcurl4  \
+        libdatachannel0.24 libcurl4  \
         ca-certificates && \
     rm -rf /var/lib/apt/lists/*
 
