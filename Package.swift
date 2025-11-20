@@ -46,6 +46,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
         .package(url: "https://github.com/alloverse/OpenCombine.git", branch: "fix/vision-support"), // So we can use Combine on Linux.
         .package(url: "https://github.com/keyvariable/kvSIMD.swift.git", from: "1.1.0"), // So we can use simd on Linux
+        .package(url: "https://github.com/computer-graphics-tools/simd-tools", from: "0.0.1"),
         .package(path: "Packages/AlloDataChannel"),
         .package(url: "https://github.com/DimaRU/PackageBuildInfo", branch: "master"),
         .package(url: "https://github.com/mxcl/Version.git", from: "2.0.0"),
@@ -62,6 +63,7 @@ let package = Package(
                 "FlyingFoxMacros",
                 "Version",
                 .product(name: "kvSIMD", package: "kvSIMD.swift"),
+                .product(name: "SIMDTools", package:"simd-tools"),
                 .product(name: "OpenCombineShim", package: "opencombine"),
                 .product(name: "Atomics", package: "swift-atomics"),
                 .product(name: "Logging", package: "swift-log")
