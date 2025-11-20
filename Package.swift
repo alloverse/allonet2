@@ -46,7 +46,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
         .package(url: "https://github.com/alloverse/OpenCombine.git", branch: "fix/vision-support"), // So we can use Combine on Linux.
         .package(url: "https://github.com/keyvariable/kvSIMD.swift.git", from: "1.1.0"), // So we can use simd on Linux
-        .package(url: "https://github.com/computer-graphics-tools/simd-tools", from: "0.0.1"),
+        .package(url: "https://github.com/alloverse/simd-tools", branch: "fix/linux-build"),
         .package(path: "Packages/AlloDataChannel"),
         .package(url: "https://github.com/DimaRU/PackageBuildInfo", branch: "master"),
         .package(url: "https://github.com/mxcl/Version.git", from: "2.0.0"),
