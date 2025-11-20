@@ -49,6 +49,7 @@ public class HeadlessWebRTCTransport: Transport
             datachannelLogger.log(level: level, "\(msg)")
         }
     }
+    public static var version: String { LibdatachannelVersion() }
     
     public required init(with connectionOptions: allonet2.TransportConnectionOptions, status: ConnectionStatus)
     {

@@ -11,7 +11,7 @@ public struct Allonet
     {
         guard !alreadyInitialized else { return }
         alreadyInitialized = true
-        logger.notice("Allonet \(buildInfo().describe) initialization")
+        logger.notice("Allonet \(buildInfo().describe) initializing. ")
         RegisterStandardComponents()
     }
     

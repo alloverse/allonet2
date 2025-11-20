@@ -37,6 +37,8 @@ struct PlaceServerApp: AsyncParsableCommand
     {
         configurePrintBuffering()
         configureLogging()
+        logger.info("Using libdatachannel version \(HeadlessWebRTCTransport.version)")
+
         let name = name
         let app = AppDescription(name: appName, downloadURL: appDownloadURL, URLProtocol: appURLProtocol)
         let server = PlaceServer(
