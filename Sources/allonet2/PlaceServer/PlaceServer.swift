@@ -140,12 +140,22 @@ public class PlaceServer : AlloSessionDelegate
     
     public func session(_ sess: AlloSession, didReceiveLog m: StoredLogMessage)
     {
-        let cid = sess.clientId!
-        guard let client = self.clients[cid] else { return }
-        let logger = client.remoteLoggers[m.label, setDefault: Logger(labelSuffix: "remote:\(m.label)")]
         var metadata = m.metadata ?? [:]
-        metadata["loggedFromClientId"] = .string(cid.uuidString)
-        logger.log(
+        var message = m.message
+        let clogger: Logger
+        if
+            let cid = sess.clientId,
+            let client = self.clients[cid]
+        {
+            metadata["loggedFromClientId"] = .string(cid.uuidString)
+            clogger = client.remoteLoggers[m.label, setDefault: Logger(labelSuffix: "remote:\(m.label)")]
+        } else
+        {
+            metadata["loggedFromClientId"] = .string("unknown")
+            clogger = Logger(labelSuffix: "remote:\(m.label)")
+        }
+        
+        clogger.log(
             level: m.level,
             m.message,
             metadata: metadata,
