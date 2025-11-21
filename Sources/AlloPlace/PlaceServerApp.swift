@@ -67,23 +67,19 @@ struct PlaceServerApp: AsyncParsableCommand
     {
         LoggingSystem.bootstrap
         { label in
-            // Demangle the name of the module that is creating this Logger instance.
-            // XXX: this will bite me in the ass when Apple changes the foramt of callStackSymbols...
-            var callerModule: String = "allo"
-            for trace in Thread.callStackSymbols.dropFirst()
-            {
-                let moduleName = trace
-                    .split(separator:try! Regex("\\s+"))[3] // each trace is stack #, object file, address, symbol. Pick symbol.
-                    .split(separator: try! Regex("\\d+"))[1] // swift symbol is always sNmoduleN... where N is the number of characters of the upcoming symbol. split on the two numbers and get the module name.
-                if moduleName != "Logging" {
-                    callerModule = "allo.\(moduleName)"
-                    break
-                }
+            let module: String, sublabel: String
+            let maybeModuleAndSublabel = label.split(separator:":")
+            if maybeModuleAndSublabel.count > 1 {
+                module = String(maybeModuleAndSublabel[0])
+                sublabel = String(maybeModuleAndSublabel[1])
+            } else {
+                module = "koja"
+                sublabel = label
             }
 #if os(macOS)
-            var console = OSLogHandler(subsystem: callerModule, category: label)
+            var console = OSLogHandler(subsystem: module, category: sublabel)
 #else
-            var console = StreamLogHandler.standardOutput(label: "\(callerModule).label")
+            var console = StreamLogHandler.standardOutput(label: label)
 #endif
             console.logLevel = .debug
             
