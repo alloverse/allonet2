@@ -4,7 +4,7 @@ import allonet2
 import alloheadless
 import Logging
 
-private var logger = Logger(label: "place.app")
+private var logger = Logger(labelSuffix: "place.app")
 
 @main @MainActor
 struct PlaceServerApp: AsyncParsableCommand

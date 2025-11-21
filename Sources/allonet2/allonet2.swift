@@ -4,7 +4,7 @@ import Logging
 @MainActor
 public struct Allonet
 {
-    static var logger = Logger(label: "allonet")
+    static var logger = Logger(labelSuffix: "allonet")
     private static var alreadyInitialized = false
     @MainActor
     public static func Initialize()

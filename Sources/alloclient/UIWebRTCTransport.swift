@@ -30,7 +30,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     private let offerAnswerConstraints = LKRTCMediaConstraints(mandatoryConstraints: [:], optionalConstraints: [:])
     
     private let audioSessionActive = false
-    private var logger = Logger(label: "transport.webrtc")
+    private var logger = Logger(labelSuffix: "transport.webrtc")
     
     public required init(
         with connectionOptions: TransportConnectionOptions,
@@ -214,7 +214,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
             // Warning: LKRTCCallbackLoggers are installed globally. If two WebRTC sessions are running in the same process, both will get both's log messages.
             wlogger = LKRTCCallbackLogger()
             wlogger!.severity = .warning
-            var innerLogger = Logger(label: "transport.webrtc.wrapped")
+            var innerLogger = Logger(labelSuffix: "transport.webrtc.wrapped")
             wlogger!.start(messageAndSeverityHandler: { [weak self] (message, severity) in
                 guard let self = self else {
                     innerLogger.warning("WebRTC log AFTER deallocation: \(message)")
@@ -677,7 +677,7 @@ extension SignallingIceCandidate
 /// LKRTCAudioDeviceModule delegate whose only purpose is to stop playout/playback of every incoming audio track. This is because we want allonet to only deliver PCM packets up to the app layer to be played back spatially, and not have GoogleWebRTC play it back in stereo. I couldn't find any API to change this behavior without overriding this delegate.
 class PlaybackDisablingAudioDeviceModuleDelegate: NSObject, LKRTCAudioDeviceModuleDelegate
 {
-    var logger = Logger(label: "transport.webrtc.adc")
+    var logger = Logger(labelSuffix: "transport.webrtc.adc")
     
     func audioDeviceModule(_ audioDeviceModule: LKRTCAudioDeviceModule, didReceiveSpeechActivityEvent speechActivityEvent: LKRTCSpeechActivityEvent)
     {

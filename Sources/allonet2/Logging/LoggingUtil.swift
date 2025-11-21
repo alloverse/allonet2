@@ -23,3 +23,18 @@ extension Logger
         return interactionLogger
     }
 }
+
+extension Logger
+{
+    public init(labelSuffix: String, fileId: String = #fileID)
+    {
+        let module = fileId.split(separator: "/").first!
+        self.init(label: "\(module):\(labelSuffix)")
+    }
+    
+    public init(labelSuffix: String, fileId: String = #fileID, metadataProvider: MetadataProvider)
+    {
+        let module = fileId.split(separator: "/").first!
+        self.init(label: "\(module):\(labelSuffix)", metadataProvider: metadataProvider)
+    }
+}

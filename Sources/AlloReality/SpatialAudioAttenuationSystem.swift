@@ -6,7 +6,7 @@ import Logging
 // TODO: Better solution: Instead of setting audioListener, we should do the vision pro hack on macos as well!! That way, the spatial field uses real world coordinates without any kind of scaling or custom listener position or anything — it’s just a real spatial audio field with correct distances. We might need this attenuation system to do "audio hidden by wall" etc though...
 public struct SpatialAudioAttenuationSystem: RealityKit.System
 {
-    let logger: Logger! = Logger(label: "spatialaudioattenuationsystem")
+    let logger: Logger! = Logger(labelSuffix: "spatialaudioattenuationsystem")
     
     public init(scene: Scene) {}
     

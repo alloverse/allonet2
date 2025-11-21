@@ -21,7 +21,7 @@ public class PlaceServer : AlloSessionDelegate
     let options: TransportConnectionOptions
     let alloAppAuthToken: String
     
-    var logger = Logger(label: "place.server")
+    var logger = Logger(labelSuffix: "place.server")
     
     var sfu: PlaceServerSFU!
     var web: PlaceServerHTTP!
@@ -142,7 +142,7 @@ public class PlaceServer : AlloSessionDelegate
     {
         let cid = sess.clientId!
         guard let client = self.clients[cid] else { return }
-        let logger = client.remoteLoggers[m.label, setDefault: Logger(label: "remote:\(m.label)")]
+        let logger = client.remoteLoggers[m.label, setDefault: Logger(labelSuffix: "remote:\(m.label)")]
         var metadata = m.metadata ?? [:]
         metadata["loggedFromClientId"] = .string(cid.uuidString)
         logger.log(

@@ -25,14 +25,14 @@ public class HeadlessWebRTCTransport: Transport
             }
         }
     }
-    var logger = Logger(label: "transport.headless")
+    var logger = Logger(labelSuffix: "transport.headless")
     
     private var peer: AlloWebRTCPeer
     private var channels: [String: AlloWebRTCPeer.DataChannel] = [:] // track which channels are created
     private var connectionStatus: ConnectionStatus
     private var cancellables = Set<AnyCancellable>()
     
-    private static var datachannelLogger = Logger(label: "transport.headless.libdatachannel")
+    private static var datachannelLogger = Logger(labelSuffix: "transport.headless.libdatachannel")
     private static var initialized: Bool = false
     private static func initialize()
     {
@@ -231,7 +231,7 @@ public class HeadlessWebRTCTransport: Transport
     
     public static func forward(mediaStream: MediaStream, from sender: any Transport, to receiver: any Transport) throws -> MediaStreamForwarder
     {
-        var logger = Logger(label: "transport.libdatachannel").forClient(receiver.clientId!)
+        var logger = Logger(labelSuffix: "transport.libdatachannel").forClient(receiver.clientId!)
         logger.info("Forwarding media stream \(mediaStream.mediaId) from \(sender.clientId) to \(receiver.clientId)")
         let track = mediaStream as! AlloWebRTCPeer.Track
         let receiverHeadless = (receiver as! HeadlessWebRTCTransport)

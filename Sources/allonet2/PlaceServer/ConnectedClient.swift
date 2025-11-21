@@ -24,6 +24,6 @@ internal class ConnectedClient
     {
         self.session = session
         self.status = status
-        self.logger = Logger(label: "place.server").forClient(self.cid)
+        self.logger = Logger(labelSuffix: "place.server").forClient(self.cid)
     }
 }

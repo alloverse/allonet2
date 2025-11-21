@@ -47,7 +47,7 @@ internal struct ForwardingId: Equatable, Hashable, CustomStringConvertible
 @MainActor
 class PlaceServerSFU
 {
-    private var logger = Logger(label: "place.sfu")
+    private var logger = Logger(labelSuffix: "place.sfu")
     
     /// This is done by reconciling two async event streams:
     /// 1. Requests for **desired streams** come in as component changes of the type `LiveMediaListener`

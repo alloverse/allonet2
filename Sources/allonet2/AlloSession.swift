@@ -34,7 +34,7 @@ public protocol AlloSessionDelegate: AnyObject
 public class AlloSession : NSObject, TransportDelegate
 {
     public weak var delegate: AlloSessionDelegate?
-    nonisolated(unsafe) private var logger = Logger(label: "session")
+    nonisolated(unsafe) private var logger = Logger(labelSuffix: "session")
 
     internal let transport: Transport
     
@@ -79,7 +79,7 @@ public class AlloSession : NSObject, TransportDelegate
         self.side = side
         self.transport = transport
         super.init()
-        self.logger = Logger(label: "session", metadataProvider: Logger.MetadataProvider {
+        self.logger = Logger(labelSuffix: "session", metadataProvider: Logger.MetadataProvider {
             guard let cid = self.clientId else { return [:] }
             return ["clientId": .stringConvertible(cid)]
         })

@@ -25,7 +25,7 @@ public class SpatialAudioPlayer
     fileprivate var state: [MediaStreamId: SpatialAudioPlaybackState] = [:]
     var streamCancellables: Set<AnyCancellable> = []
     var listenerCancellables: Set<AnyCancellable> = []
-    var logger: Logger! = Logger(label: "spatialaudioplayer")
+    var logger: Logger! = Logger(labelSuffix: "spatialaudioplayer")
     
     /// Construct a SpatialAudioPlayer which uses `mapper` to create audio related components and `client` to react to network events. Note: announce must have completed and avatar exist before instantiating this class.
     public init(mapper: RealityViewMapper, client: AlloUserClient, content: RealityViewContentProtocol, addon: ListenerAddon? = nil)
@@ -34,7 +34,7 @@ public class SpatialAudioPlayer
         self.client = client
         self.content = content
         self.addon = addon
-        self.logger = Logger(label: "spatialaudioplayer", metadataProvider: Logger.MetadataProvider { [weak self] in
+        self.logger = Logger(labelSuffix: "spatialaudioplayer", metadataProvider: Logger.MetadataProvider { [weak self] in
             guard let self, let cid = self.client.cid else { return [:] }
             return ["clientId": .stringConvertible(cid)]
         })

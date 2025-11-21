@@ -73,7 +73,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         return lhs.url == rhs.url && lhs.identity == rhs.identity
     }
     
-    public var logger = Logger(label: "client")
+    public var logger = Logger(labelSuffix: "client")
     
     // MARK: - Connection state related
     
