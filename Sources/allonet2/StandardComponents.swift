@@ -186,8 +186,7 @@ public struct LiveMediaListener: Component
 }
 
 // MARK: - Implementation details
-// These shouldn't be in StandardComponents, but because Alloverse v2 doesn't have support
-// for schemas outside of the built-in component types yet, they go in here anyway.
+// These are protocol implementation detaults, and should not be used by third parties.
 
 /// VisorInfo is attached to the avatar for a connected UI user to inform other users' what their name and other Identity info is.
 public struct VisorInfo: Component
@@ -203,75 +202,6 @@ public struct VisorInfo: Component
 public struct SpawnPoint: Component
 {
     public init() {}
-}
-
-// MARK: - Koja types that absolutely markedly DO NOT belong here
-// But we don't have custom types yet, so here we are.
-
-@MainActor
-public enum PresenceMode: String, Codable, CaseIterable, Identifiable
-{
-    // Green dot, speaker on, mic optionally on
-    case available = "Available"
-    // Red dot, speaker off, mic off
-    case doNotDisturb = "Do Not Disturb"
-    // Same as DND, but no expectation that user even can reply. Screen locked, etc
-    case away = "Away"
-    // Not spatial (i e no location in place), speaker off, mic off
-    case invisible = "Invisible"
-    // Not currently connected. Cannot be set by user.
-    case offline = "Offline"
-    
-    public var id: String { rawValue }
-}
-
-@MainActor
-public struct KojaUser: Codable, Equatable, Identifiable
-{
-    public typealias ID = String
-    public let id: KojaUser.ID
-    public let avatarId: EntityID? // nil = offline
-    public var displayName: String
-    public var email: String?
-    public var presence: PresenceMode
-    
-    public init(id: String, avatarId: EntityID?, displayName: String, email: String?, presence: PresenceMode) {
-        self.id = id
-        self.avatarId = avatarId
-        self.displayName = displayName
-        self.email = email
-        self.presence = presence
-    }
-}
-
-@MainActor
-public struct KojaRoom: Codable, Equatable, Identifiable
-{
-    public typealias ID = String
-    public let id: KojaRoom.ID
-    public let name: String
-    public let entity: EntityID
-    // TODO: room usage (meeting, team room, etc)
-    public var users: [KojaUser.ID: KojaUser] = [:]
-    
-    public init(id: String, name: String, entity: EntityID) {
-        self.id = id
-        self.name = name
-        self.entity = entity
-    }
-}
-
-@MainActor
-public struct KojaPlaceInfo: Component
-{
-    public var rooms: [KojaRoom.ID: KojaRoom] = [:]
-    public var invisibleUsers: [KojaUser.ID: KojaUser] = [:]
-    public var offlineUsers: [KojaUser.ID: KojaUser] = [:]
-    public init() {}
-    
-    public var allUsers: [KojaUser.ID: KojaUser] {
-        Dictionary(rooms.values.flatMap(\.users) + invisibleUsers + offlineUsers, uniquingKeysWith: { _, new in new })
-    }
 }
 
 // MARK: - Related types
@@ -312,7 +242,6 @@ func RegisterStandardComponents()
     LiveMedia.register()
     LiveMediaListener.register()
     SpawnPoint.register()
-    KojaPlaceInfo.register()
 }
 
 extension Transform
