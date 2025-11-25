@@ -78,7 +78,7 @@ extension PlaceContents
                 {
                     added.append(.componentAdded(entityId, component))
                 }
-                else if !component.isEqualTo(prev!)
+                else if component != prev!
                 {
                     updated.append(.componentUpdated(entityId, component))
                 }
@@ -135,15 +135,15 @@ extension PlaceContents
             case .entityRemoved(let e):
                 entities[e.id] = nil
             case .componentAdded(let eid, let component):
-                let key = type(of:component).componentTypeId
+                let key = component.componentTypeId
                 lists[key, default: [:]][eid] = component
             case .componentUpdated(let eid, let component):
-                let key = type(of:component).componentTypeId
+                let key = component.componentTypeId
                 guard let _ = lists[key]?[eid] else { return nil }
                 lists[key]![eid]! = component
             case .componentRemoved(let edata, let component):
-                guard let _ = lists[type(of:component).componentTypeId] else { return nil }
-                lists[type(of:component).componentTypeId]![edata.id] = nil
+                guard let _ = lists[component.componentTypeId] else { return nil }
+                lists[component.componentTypeId]![edata.id] = nil
             }
         }
         return PlaceContents(revision: changeSet.toRevision, entities: entities, components: ComponentLists(lists: lists), logger: self.logger)

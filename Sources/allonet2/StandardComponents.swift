@@ -6,6 +6,7 @@
 //
 
 import simd
+import SIMDTools // for float4x4 codable
 import PotentCodables
 
 // MARK: Rendering/RealityKit related components

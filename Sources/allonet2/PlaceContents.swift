@@ -63,12 +63,12 @@ public class PlaceState
             case .entityRemoved(let entity):
                 observers.entityRemovedSubject.send(entity)
             case .componentAdded(let entityID, let comp):
-                observers[type(of: comp).componentTypeId].sendAdded(entityID: entityID, component: comp)
-                observers[type(of: comp).componentTypeId].sendUpdated(entityID: entityID, component: comp)
+                observers[comp.componentTypeId]?.sendAdded(entityID: entityID, component: comp)
+                observers[comp.componentTypeId]?.sendUpdated(entityID: entityID, component: comp)
             case .componentUpdated(let entityID, let comp):
-                observers[type(of: comp).componentTypeId].sendUpdated(entityID: entityID, component: comp)
+                observers[comp.componentTypeId]?.sendUpdated(entityID: entityID, component: comp)
             case .componentRemoved(let entityData, let comp):
-                observers[type(of: comp).componentTypeId].sendRemoved(entityData: entityData, component: comp)
+                observers[comp.componentTypeId]?.sendRemoved(entityData: entityData, component: comp)
             }
         }
     }
@@ -248,11 +248,10 @@ public struct PlaceObservers
             return lists[componentType.componentTypeId, setDefault: ComponentCallbacks<T>(state)] as! ComponentCallbacks<T>
         }
     }
-    internal subscript(componentTypeID: ComponentTypeID) -> AnyComponentCallbacksProtocol
+    // Get the same set of callbacks, but type-erased, and only if it already exists (which means someone has a registered listener from calling the above API)
+    internal subscript(componentTypeID: ComponentTypeID) -> AnyComponentCallbacksProtocol?
     {
-        mutating get {
-            return lists[componentTypeID, setDefault: ComponentRegistry.shared.createCallbacks(for: componentTypeID, state: state)!]
-        }
+        return lists[componentTypeID]
     }
     
     private var lists: Dictionary<ComponentTypeID, AnyComponentCallbacksProtocol> = [:]
@@ -277,9 +276,9 @@ public struct ComponentCallbacks<T: Component>  : AnyComponentCallbacksProtocol
     /// A component has been removed from an entity.
     public var removed: AnyPublisher<(EntityData, T), Never> { removedSubject.eraseToAnyPublisher() }
 
-    internal func sendAdded  (entityID: String, component: any Component) { addedSubject.send((entityID, component as! T)) }
-    internal func sendUpdated(entityID: String, component: any Component) { updatedSubject.send((entityID, component as! T)) }
-    internal func sendRemoved(entityData: EntityData, component: any Component) { removedSubject.send((entityData, component as! T)) }
+    internal func sendAdded  (entityID: String, component: AnyComponent) { addedSubject.send((entityID, component.decoded() as! T)) }
+    internal func sendUpdated(entityID: String, component: AnyComponent) { updatedSubject.send((entityID, component.decoded() as! T)) }
+    internal func sendRemoved(entityData: EntityData, component: AnyComponent) { removedSubject.send((entityData, component.decoded() as! T)) }
     private let addedSubject = PassthroughSubject<(EntityID, T), Never>()
     private let updatedSubject = PassthroughSubject<(EntityID, T), Never>()
     private let removedSubject = PassthroughSubject<(EntityData, T), Never>()
@@ -295,9 +294,9 @@ public struct ComponentCallbacks<T: Component>  : AnyComponentCallbacksProtocol
 // MARK: Internals
 @MainActor
 protocol AnyComponentCallbacksProtocol {
-    func sendAdded(entityID: EntityID, component: any Component)
-    func sendUpdated(entityID: EntityID, component: any Component)
-    func sendRemoved(entityData: EntityData, component: any Component)
+    func sendAdded(entityID: EntityID, component: AnyComponent)
+    func sendUpdated(entityID: EntityID, component: AnyComponent)
+    func sendRemoved(entityData: EntityData, component: AnyComponent)
 }
 
 extension Component
@@ -341,11 +340,11 @@ extension PlaceChange: Equatable {
         case (.entityRemoved(let e1), .entityRemoved(let e2)):
             return e1 == e2
         case (.componentAdded(let id1, let comp1), .componentAdded(let id2, let comp2)):
-            return id1 == id2 && comp1.isEqualTo(comp2)
+            return id1 == id2 && comp1 == comp2
         case (.componentUpdated(let id1, let comp1), .componentUpdated(let id2, let comp2)):
-            return id1 == id2 && comp1.isEqualTo(comp2)
+            return id1 == id2 && comp1 == comp2
         case (.componentRemoved(let id1, let comp1), .componentRemoved(let id2, let comp2)):
-            return id1 == id2 && comp1.isEqualTo(comp2)
+            return id1 == id2 && comp1 == comp2
         default:
             return false
         }
