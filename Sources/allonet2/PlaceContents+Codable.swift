@@ -6,6 +6,8 @@
 //
 
 import Logging
+import PotentCodables
+import PotentCBOR
 
 extension PlaceContents: Equatable
 {
@@ -59,50 +61,62 @@ public final class ComponentRegistry
     }
 }
 
+/// `AnyComponent` lets AlloPlace only store and forward type-erased value trees of Components, while client code can use `decoded()` to receive the real concrete Component type.
 @MainActor
 public struct AnyComponent: Component {
     public static func == (lhs: AnyComponent, rhs: AnyComponent) -> Bool {
-        return lhs.base.isEqualTo(rhs.base)
+        return lhs.treeValue == rhs.treeValue
     }
     
-    public var base: any Component
+    // The concrete Component type we use
+    public func decoded() -> any Component
+    {
+        return decodedIfAvailable()!
+    }
+    // ... or nil, if the type is not compiled into this binary and registered with the ComponentRegistry.
+    public func decodedIfAvailable() -> (any Component)?
+    {
+        guard
+            let type = ComponentRegistry.shared.component(for: componentTypeId),
+            let base = try? CBORDecoder().decodeTree(type.self, from: treeValue)
+        else { return nil }
+        return base
+    }
+    /*public func decodeCustom() -> CustomComponent
+    {
+        return CustomComponent(typeId: componentTypeId, fields: treeValue.anyValue)
+    }*/
     
-    public var componentTypeId: String { type(of:base).componentTypeId }
+    // The type-erased content, available whether the concrete type is available or not
+    public var treeValue: CBOR
+    public var componentTypeId: String
     
-    public init(_ base: some Component) {
-        self.base = base
+    public init(_ base: some Component)
+    {
+        componentTypeId = type(of: base).componentTypeId
+        treeValue = try! CBOREncoder().encodeTree(base)
     }
     
-    // MARK: - Codable
-    private enum CodingKeys: String, CodingKey {
-        case type
-        case payload
-    }
-    
-    public init(from decoder: Decoder) throws {
-        // First, decode the type discriminator.
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let typeId = try container.decode(String.self, forKey: .type)
-        
-        // Ask the registry for the correct concrete type.
-        guard let componentType = ComponentRegistry.shared.component(for: typeId) else {
-            throw DecodingError.dataCorruptedError(forKey: .type,
-                                                   in: container,
-                                                   debugDescription: "Unknown component type: \(typeId)")
+    public init(from decoder: Decoder) throws
+    {
+        let treeContainer = try decoder.singleValueContainer() as! TreeValueDecodingContainer
+        guard
+            let cbor = treeContainer.decodeTreeValue() as? CBOR,
+            let map = cbor.mapValue,
+            let ctypeId = cbor.componentTypeId?.utf8StringValue
+        else
+        {
+            throw DecodingError.dataCorruptedError(in: treeContainer,
+                                                   debugDescription: "Invalid Component CBOR")
         }
-        
-        // Decode the actual component.
-        self.base = try componentType.init(from: container.superDecoder(forKey: .payload))
+        treeValue = cbor
+        componentTypeId = ctypeId
     }
     
-    public func encode(to encoder: Encoder) throws {
-        // Create a container for both the type discriminator and the payload.
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        // Write out the type identifier. We use the static property from the concrete type.
-        try container.encode(String(describing: type(of: base)), forKey: .type)
-        
-        // Encode the underlying component.
-        try base.encode(to: container.superEncoder(forKey: .payload))
+    public func encode(to encoder: Encoder) throws
+    {
+        var treeContainer = try encoder.singleValueContainer()
+        try treeContainer.encode(treeValue)
     }
 }
 
@@ -161,15 +175,15 @@ extension PlaceChange: Codable
         case .componentAdded:
             let eid = try container.decode(EntityID.self, forKey: .entityID)
             let anyComp = try container.decode(AnyComponent.self, forKey: .component)
-            self = .componentAdded(eid, anyComp.base)
+            self = .componentAdded(eid, anyComp)
         case .componentUpdated:
             let eid = try container.decode(EntityID.self, forKey: .entityID)
             let anyComp = try container.decode(AnyComponent.self, forKey: .component)
-            self = .componentUpdated(eid, anyComp.base)
+            self = .componentUpdated(eid, anyComp)
         case .componentRemoved:
             let edata = try container.decode(EntityData.self, forKey: .entity)
             let anyComp = try container.decode(AnyComponent.self, forKey: .component)
-            self = .componentRemoved(edata, anyComp.base)
+            self = .componentRemoved(edata, anyComp)
         }
     }
 }

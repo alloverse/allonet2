@@ -136,7 +136,7 @@ public struct EntityData: Codable, Equatable, Identifiable
 @MainActor
 public protocol Component: Codable, Equatable, CustomStringConvertible
 {
-    /// Internals: how to disambiguate this component on the wire protocol
+    /// Internals: how to disambiguate this component on the wire protocol. Uses `String(describing:type(of:self))`.
     static var componentTypeId: ComponentTypeID { get }
     
     // For debugging
@@ -158,9 +158,9 @@ public struct ComponentLists
 {
     public subscript<T>(componentType: T.Type) -> [EntityID: T] where T : Component
     {
-        return (lists[componentType.componentTypeId] ?? [:]) as! [EntityID: T]
+        return (decodedLists[componentType.componentTypeId] ?? [:]) as! [EntityID: T]
     }
-    public subscript(componentTypeID: ComponentTypeID) -> [EntityID: any Component]?
+    public subscript(componentTypeID: ComponentTypeID) -> [EntityID: AnyComponent]?
     {
         return lists[componentTypeID]
     }
@@ -171,16 +171,24 @@ public struct ComponentLists
         lists = [:]
     }
     
-    internal let lists: Dictionary<ComponentTypeID, [EntityID: any Component]>
-    internal init(lists: Dictionary<ComponentTypeID, [EntityID: any Component]>)
+    internal let lists: Dictionary<ComponentTypeID, [EntityID: AnyComponent]>
+    internal var decodedLists : LazyMap<ComponentTypeID, [EntityID: AnyComponent], [EntityID: any Component]>
+    {
+        return LazyMap<ComponentTypeID, [EntityID: AnyComponent], [EntityID: any Component]>(storage:lists)
+        { (k, v) in
+            return v.mapValues { $0.decoded() }
+        }
+    }
+    
+    internal init(lists: Dictionary<ComponentTypeID, [EntityID: AnyComponent]>)
     {
         self.lists = lists
     }
     
     /// Collects all the components of all types for a single entity and returns as a map.
-    public func componentsForEntity(_ entityID: EntityID) -> [ComponentTypeID: any Component]
+    public func componentsForEntity(_ entityID: EntityID) -> [ComponentTypeID: AnyComponent]
     {
-        var result: [ComponentTypeID: any Component] = [:]
+        var result: [ComponentTypeID: AnyComponent] = [:]
         for (componentTypeID, list) in lists {
             if let component = list[entityID] {
                 result[componentTypeID] = component
@@ -208,9 +216,9 @@ public enum PlaceChange
 {
     case entityAdded(EntityData)
     case entityRemoved(EntityData)
-    case componentAdded(EntityID, any Component)
-    case componentUpdated(EntityID, any Component)
-    case componentRemoved(EntityData, any Component)
+    case componentAdded(EntityID, AnyComponent)
+    case componentUpdated(EntityID, AnyComponent)
+    case componentRemoved(EntityData, AnyComponent)
 }
 
 /// Convenience callbacks, including per-component-typed callbacks for when entities and components change in the place.

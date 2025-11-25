@@ -6,6 +6,7 @@
 //
 
 import simd
+import PotentCodables
 
 // MARK: Rendering/RealityKit related components
 // These all have an almost 1-to-1 mapping to a corresponding RealityKit component.
@@ -183,6 +184,15 @@ public struct LiveMediaListener: Component
     {
         self.mediaIds = mediaIds
     }
+}
+
+// MARK: - Custom components
+// You can implement your own Component subtypes and use them, as long as the compile time types are available to both producers and consumers of the type. If you provide a type that isn't available on the other side, it will be decoded as a CustomComponent that you can still use, but without type safety.
+
+public struct CustomComponent
+{
+    public var typeId: ComponentTypeID
+    public var fields: AnyValue
 }
 
 // MARK: - Implementation details
