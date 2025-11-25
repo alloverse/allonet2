@@ -6,7 +6,7 @@
 //
 
 import Foundation
-import AnyCodable
+import PotentCodables
 
 @MainActor
 public struct Interaction : Codable
@@ -66,7 +66,7 @@ public enum InteractionBody : Codable
     case tap(at: SIMD3<Float>) // oneway
     
     // - Other
-    case custom(value: [String: AnyCodable])
+    case custom(value: [String: AnyValue])
     
     // - Generic responses
     case error(domain: String, code: Int, description: String)

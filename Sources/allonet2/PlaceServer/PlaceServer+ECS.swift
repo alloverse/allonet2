@@ -88,11 +88,11 @@ extension PlaceServer
         {
             if let _ = place.current.components[$0.componentTypeId]?[eid]
             {
-                return PlaceChange.componentUpdated(eid, $0.base)
+                return PlaceChange.componentUpdated(eid, $0)
             }
             else
             {
-                return PlaceChange.componentAdded(eid, $0.base)
+                return PlaceChange.componentAdded(eid, $0)
             }
         }
         let removals = try remove.map
@@ -117,12 +117,12 @@ internal extension EntityDescription
             ent,
             [
                 .entityAdded(ent),
-                .componentAdded(ent.id, Transform()) // every entity should have Transform
+                .componentAdded(ent.id, AnyComponent(Transform())) // every entity should have Transform
             ]
-            + components.map { .componentAdded(ent.id, $0.base) }
+            + components.map { .componentAdded(ent.id, $0) }
             + children.flatMap {
                 let (child, changes) = $0.changes(for: ownerClientId)
-                let relationship = PlaceChange.componentAdded(child.id, Relationships(parent: ent.id))
+                let relationship = PlaceChange.componentAdded(child.id, AnyComponent(Relationships(parent: ent.id)))
                 return changes + [relationship]
             }
         )

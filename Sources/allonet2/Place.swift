@@ -136,7 +136,7 @@ public struct ComponentSet: CustomStringConvertible
 {
     public subscript<T>(componentType: T.Type) -> T? where T : Component
     {
-        return state.current.components[componentType.componentTypeId]?[id] as! T?
+        return state.current.components[componentType.componentTypeId]?[id]?.decoded() as! T?
     }
     public func set<T>(_ newValue: T) async throws(AlloverseError) where T: Component
     {
@@ -145,7 +145,7 @@ public struct ComponentSet: CustomStringConvertible
     }
     public subscript(componentTypeID: ComponentTypeID) -> (any Component)?
     {
-        return state.current.components[componentTypeID]?[id]
+        return state.current.components[componentTypeID]?[id]?.decoded()
     }
     
     private let state: PlaceState

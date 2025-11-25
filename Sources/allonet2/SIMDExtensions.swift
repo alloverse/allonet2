@@ -15,38 +15,6 @@ public extension simd_float3x3 {
     }
 }
 
-extension simd_float4x4 : Codable
-{
-    public func encode(to encoder: Encoder) throws
-    {
-        var container = encoder.unkeyedContainer()
-        // Encode in row-major order: for each row, encode all columns.
-        for row in 0..<4
-        {
-            for col in 0..<4
-            {
-                try container.encode(self[col][row])
-            }
-        }
-    }
-    
-    public init(from decoder: Decoder) throws
-    {
-        var container = try decoder.unkeyedContainer()
-        var matrix = simd_float4x4()
-        // Decode in row-major order.
-        for row in 0..<4
-        {
-            for col in 0..<4
-            {
-                let value = try container.decode(Float.self)
-                matrix[col][row] = value
-            }
-        }
-        self = matrix
-    }
-}
-
 extension simd_float4x4 {
     public static var identity: simd_float4x4 {
         return matrix_identity_float4x4

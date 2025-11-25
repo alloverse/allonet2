@@ -6,7 +6,8 @@
 //
 
 import Foundation
-import BinaryCodable
+import PotentCodables
+import PotentCBOR
 import OpenCombineShim
 import Logging
 
@@ -91,7 +92,7 @@ public class AlloSession : NSObject, TransportDelegate
     // TODO: this unsafe is going to bite me... store it threadsafely so logging can use it?
     nonisolated(unsafe) public var clientId: ClientId? { transport.clientId }
     
-    let encoder = BinaryEncoder()
+    let encoder = CBOREncoder()
     
     public func send(interaction: Interaction)
     {
@@ -200,7 +201,7 @@ public class AlloSession : NSObject, TransportDelegate
         }
     }
     
-    let decoder = BinaryDecoder()
+    let decoder = CBORDecoder()
     nonisolated public func transport(_ transport: Transport, didReceiveData data: Data, on channel: DataChannel)
     {
         switch channel.alloLabel {

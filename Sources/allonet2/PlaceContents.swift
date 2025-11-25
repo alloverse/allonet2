@@ -63,12 +63,12 @@ public class PlaceState
             case .entityRemoved(let entity):
                 observers.entityRemovedSubject.send(entity)
             case .componentAdded(let entityID, let comp):
-                observers[type(of: comp).componentTypeId].sendAdded(entityID: entityID, component: comp)
-                observers[type(of: comp).componentTypeId].sendUpdated(entityID: entityID, component: comp)
+                observers[comp.componentTypeId]?.sendAdded(entityID: entityID, component: comp)
+                observers[comp.componentTypeId]?.sendUpdated(entityID: entityID, component: comp)
             case .componentUpdated(let entityID, let comp):
-                observers[type(of: comp).componentTypeId].sendUpdated(entityID: entityID, component: comp)
+                observers[comp.componentTypeId]?.sendUpdated(entityID: entityID, component: comp)
             case .componentRemoved(let entityData, let comp):
-                observers[type(of: comp).componentTypeId].sendRemoved(entityData: entityData, component: comp)
+                observers[comp.componentTypeId]?.sendRemoved(entityData: entityData, component: comp)
             }
         }
     }
@@ -136,7 +136,7 @@ public struct EntityData: Codable, Equatable, Identifiable
 @MainActor
 public protocol Component: Codable, Equatable, CustomStringConvertible
 {
-    /// Internals: how to disambiguate this component on the wire protocol
+    /// Internals: how to disambiguate this component on the wire protocol. Uses `String(describing:type(of:self))`.
     static var componentTypeId: ComponentTypeID { get }
     
     // For debugging
@@ -158,9 +158,9 @@ public struct ComponentLists
 {
     public subscript<T>(componentType: T.Type) -> [EntityID: T] where T : Component
     {
-        return (lists[componentType.componentTypeId] ?? [:]) as! [EntityID: T]
+        return (decodedLists[componentType.componentTypeId] ?? [:]) as! [EntityID: T]
     }
-    public subscript(componentTypeID: ComponentTypeID) -> [EntityID: any Component]?
+    public subscript(componentTypeID: ComponentTypeID) -> [EntityID: AnyComponent]?
     {
         return lists[componentTypeID]
     }
@@ -171,16 +171,24 @@ public struct ComponentLists
         lists = [:]
     }
     
-    internal let lists: Dictionary<ComponentTypeID, [EntityID: any Component]>
-    internal init(lists: Dictionary<ComponentTypeID, [EntityID: any Component]>)
+    internal let lists: Dictionary<ComponentTypeID, [EntityID: AnyComponent]>
+    internal var decodedLists : LazyMap<ComponentTypeID, [EntityID: AnyComponent], [EntityID: any Component]>
+    {
+        return LazyMap<ComponentTypeID, [EntityID: AnyComponent], [EntityID: any Component]>(storage:lists)
+        { (k, v) in
+            return v.mapValues { $0.decoded() }
+        }
+    }
+    
+    internal init(lists: Dictionary<ComponentTypeID, [EntityID: AnyComponent]>)
     {
         self.lists = lists
     }
     
     /// Collects all the components of all types for a single entity and returns as a map.
-    public func componentsForEntity(_ entityID: EntityID) -> [ComponentTypeID: any Component]
+    public func componentsForEntity(_ entityID: EntityID) -> [ComponentTypeID: AnyComponent]
     {
-        var result: [ComponentTypeID: any Component] = [:]
+        var result: [ComponentTypeID: AnyComponent] = [:]
         for (componentTypeID, list) in lists {
             if let component = list[entityID] {
                 result[componentTypeID] = component
@@ -208,9 +216,9 @@ public enum PlaceChange
 {
     case entityAdded(EntityData)
     case entityRemoved(EntityData)
-    case componentAdded(EntityID, any Component)
-    case componentUpdated(EntityID, any Component)
-    case componentRemoved(EntityData, any Component)
+    case componentAdded(EntityID, AnyComponent)
+    case componentUpdated(EntityID, AnyComponent)
+    case componentRemoved(EntityData, AnyComponent)
 }
 
 /// Convenience callbacks, including per-component-typed callbacks for when entities and components change in the place.
@@ -240,11 +248,10 @@ public struct PlaceObservers
             return lists[componentType.componentTypeId, setDefault: ComponentCallbacks<T>(state)] as! ComponentCallbacks<T>
         }
     }
-    internal subscript(componentTypeID: ComponentTypeID) -> AnyComponentCallbacksProtocol
+    // Get the same set of callbacks, but type-erased, and only if it already exists (which means someone has a registered listener from calling the above API)
+    internal subscript(componentTypeID: ComponentTypeID) -> AnyComponentCallbacksProtocol?
     {
-        mutating get {
-            return lists[componentTypeID, setDefault: ComponentRegistry.shared.createCallbacks(for: componentTypeID, state: state)!]
-        }
+        return lists[componentTypeID]
     }
     
     private var lists: Dictionary<ComponentTypeID, AnyComponentCallbacksProtocol> = [:]
@@ -269,9 +276,9 @@ public struct ComponentCallbacks<T: Component>  : AnyComponentCallbacksProtocol
     /// A component has been removed from an entity.
     public var removed: AnyPublisher<(EntityData, T), Never> { removedSubject.eraseToAnyPublisher() }
 
-    internal func sendAdded  (entityID: String, component: any Component) { addedSubject.send((entityID, component as! T)) }
-    internal func sendUpdated(entityID: String, component: any Component) { updatedSubject.send((entityID, component as! T)) }
-    internal func sendRemoved(entityData: EntityData, component: any Component) { removedSubject.send((entityData, component as! T)) }
+    internal func sendAdded  (entityID: String, component: AnyComponent) { addedSubject.send((entityID, component.decoded() as! T)) }
+    internal func sendUpdated(entityID: String, component: AnyComponent) { updatedSubject.send((entityID, component.decoded() as! T)) }
+    internal func sendRemoved(entityData: EntityData, component: AnyComponent) { removedSubject.send((entityData, component.decoded() as! T)) }
     private let addedSubject = PassthroughSubject<(EntityID, T), Never>()
     private let updatedSubject = PassthroughSubject<(EntityID, T), Never>()
     private let removedSubject = PassthroughSubject<(EntityData, T), Never>()
@@ -287,9 +294,9 @@ public struct ComponentCallbacks<T: Component>  : AnyComponentCallbacksProtocol
 // MARK: Internals
 @MainActor
 protocol AnyComponentCallbacksProtocol {
-    func sendAdded(entityID: EntityID, component: any Component)
-    func sendUpdated(entityID: EntityID, component: any Component)
-    func sendRemoved(entityData: EntityData, component: any Component)
+    func sendAdded(entityID: EntityID, component: AnyComponent)
+    func sendUpdated(entityID: EntityID, component: AnyComponent)
+    func sendRemoved(entityData: EntityData, component: AnyComponent)
 }
 
 extension Component
@@ -333,11 +340,11 @@ extension PlaceChange: Equatable {
         case (.entityRemoved(let e1), .entityRemoved(let e2)):
             return e1 == e2
         case (.componentAdded(let id1, let comp1), .componentAdded(let id2, let comp2)):
-            return id1 == id2 && comp1.isEqualTo(comp2)
+            return id1 == id2 && comp1 == comp2
         case (.componentUpdated(let id1, let comp1), .componentUpdated(let id2, let comp2)):
-            return id1 == id2 && comp1.isEqualTo(comp2)
+            return id1 == id2 && comp1 == comp2
         case (.componentRemoved(let id1, let comp1), .componentRemoved(let id2, let comp2)):
-            return id1 == id2 && comp1.isEqualTo(comp2)
+            return id1 == id2 && comp1 == comp2
         default:
             return false
         }
