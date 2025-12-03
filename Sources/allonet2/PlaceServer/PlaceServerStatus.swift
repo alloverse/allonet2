@@ -148,6 +148,8 @@ class PlaceServerStatus: WSMessageHandler
             <body>
                 <h1>Status for \(server.name) | <a href="dashboard/logs">Logs</a></h1>
                 
+                <p>AlloPlace \(Allonet.buildInfo().describe)</p>
+                
                 <h2>Scenegraph at revision \(server.place.current.revision)</h2>
                 <pre class="mermaid">
                     \(sceneGraph)
