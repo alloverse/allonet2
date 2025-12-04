@@ -7,10 +7,8 @@
 
 import Foundation
 import FlyingFox
-import FlyingFoxMacros
 
 @MainActor
-@HTTPHandler
 class PlaceServerStatus: WSMessageHandler
 {
     weak var server: PlaceServer!
@@ -24,13 +22,16 @@ class PlaceServerStatus: WSMessageHandler
     
     func start(on http: HTTPServer) async throws
     {
-        await http.appendRoute("GET /dashboard", to: self)
-        await http.appendRoute("GET /dashboard/*", to: self)
+        await http.appendRoute("GET /dashboard") {
+            return await self.index($0)
+        }
+        await http.appendRoute("GET /dashboard/logs") {
+            return await self.logs($0)
+        }
         await http.appendRoute("GET /dashboard/logs/follow", to: .webSocket(self))
     }
     
     // MARK: Status page
-    @HTTPRoute("dashboard")
     func index(_ request: HTTPRequest) async -> HTTPResponse
     {
         let body = """
@@ -328,7 +329,6 @@ class PlaceServerStatus: WSMessageHandler
     }
     
 // - MARK: Logs
-    @HTTPRoute("dashboard/logs")
     func logs(_ request: HTTPRequest) async -> HTTPResponse
     {
         let body = """

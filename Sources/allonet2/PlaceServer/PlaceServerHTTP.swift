@@ -7,7 +7,6 @@
 
 import Foundation
 import FlyingFox
-import FlyingFoxMacros
 
 public struct AppDescription
 {
@@ -19,7 +18,6 @@ public struct AppDescription
 }
 
 @MainActor
-@HTTPHandler
 class PlaceServerHTTP
 {
     private var http: HTTPServer! = nil
@@ -37,10 +35,11 @@ class PlaceServerHTTP
     }
     func start() async throws
     {
-        self.http = HTTPServer(port: port, handler: self)
-        // Routes are also added with @HTTPRoute/@JSONRoute, see below.
+        self.http = HTTPServer(port: port)
+        await self.http.appendRoute("GET /") { return try await self.landingPage($0) }
+        await self.http.appendRoute("POST /") { return try await self.handleIncomingClient($0) }
         try await self.status.start(on: http)
-            
+        
         try await http.start()
     }
     
@@ -49,7 +48,6 @@ class PlaceServerHTTP
         await http.stop()
     }
     
-    @HTTPRoute("GET /")
     func landingPage(_ request: HTTPRequest) async -> HTTPResponse
     {
         let host = request.headers[.host] ?? "localhost"
@@ -97,8 +95,7 @@ class PlaceServerHTTP
         )
     }
     
-    @JSONRoute("POST /")
-    func handleIncomingClient(_ request: HTTPRequest) async throws -> SignallingPayload
+    func handleIncomingClient(_ request: HTTPRequest) async throws -> HTTPResponse
     {
         let offer = try await JSONDecoder().decode(SignallingPayload.self, from: request.bodyData)
         
@@ -115,6 +112,10 @@ class PlaceServerHTTP
         let response = try await session.generateAnswer(offer: offer)
         client.logger.info("Client is \(session.clientId!), sending answer...")
         
-        return response
+        return HTTPResponse(
+            statusCode: .ok,
+            headers: [.contentType: "application/json"],
+            body: try await JSONEncoder().encode(response)
+        )
     }
 }
