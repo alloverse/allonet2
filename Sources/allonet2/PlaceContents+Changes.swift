@@ -27,16 +27,6 @@ extension PlaceState
         return true
     }
     
-    /// Client: When server can't give us a delta, use this full snapshot instead. This is e g true for the first delta.
-    internal func applyFullSnapshot(_ snapshot: PlaceContents)
-    {
-        // Derive a delta so we can use it for calling callbacks
-        self.changeSet = current.changeSet(from: self.current)
-        setCurrent(contents: snapshot)
-        
-        callChangeObservers()
-    }
-    
     // Also adds the new current state to history
     private func setCurrent(contents: PlaceContents)
     {
