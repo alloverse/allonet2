@@ -10,6 +10,7 @@ extension PlaceState
     /// Find the historical state at the given revision, and apply the given changeset to it, and use it as the freshly updated current state.
     internal func applyChangeSet(_ changeSet: PlaceChangeSet) -> Bool
     {
+        logger.trace("Applying changeSet \(changeSet.fromRevision)->\(changeSet.toRevision) with \(changeSet.changes.count) changes")
         guard let old = getHistory(at: changeSet.fromRevision) else { return false }
         
         guard let new = old.applyChangeSet(changeSet) else {

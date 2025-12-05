@@ -259,20 +259,20 @@ public struct PlaceObservers
 }
 
 @MainActor
-public struct ComponentCallbacks<T: Component>  : AnyComponentCallbacksProtocol
+public class ComponentCallbacks<T: Component>  : AnyComponentCallbacksProtocol
 {
     /// An entity has received a new component of this type
     public var added: AnyPublisher<(EntityID, T), Never> { addedSubject.eraseToAnyPublisher() }
-    public var addedWithInitial: AnyPublisher<(EntityID, T), Never> {
+    public lazy var addedWithInitial: AnyPublisher<(EntityID, T), Never> = {
         let initial = state.current.components[T.self].map { ($0.key, $0.value) }
         return added.prepend(initial).eraseToAnyPublisher()
-    }
+    }()
     /// An entity has received an update to a component with the following contents. NOTE: This is also called immediately after `added`, so you can put all your "react to property changes regardless of add or update" in one place.
     public var updated: AnyPublisher<(EntityID, T), Never> { updatedSubject.eraseToAnyPublisher() }
-    public var updatedWithInitial: AnyPublisher<(EntityID, T), Never> {
+    public lazy var updatedWithInitial: AnyPublisher<(EntityID, T), Never> = {
         let initial = state.current.components[T.self].map { ($0.key, $0.value) }
         return updated.prepend(initial).eraseToAnyPublisher()
-    }
+    }()
     /// A component has been removed from an entity.
     public var removed: AnyPublisher<(EntityData, T), Never> { removedSubject.eraseToAnyPublisher() }
 
