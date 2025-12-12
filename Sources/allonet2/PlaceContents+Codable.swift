@@ -7,6 +7,7 @@
 
 import Logging
 import PotentCodables
+import Foundation
 
 extension PlaceContents: Equatable
 {
@@ -92,7 +93,20 @@ public struct AnyComponent: Codable, Equatable
     
     func indentedDescription(_ prefix: String) -> String
     {
-        return decodedIfAvailable()?.indentedDescription(prefix) ?? "\(prefix)AnyComponent<\(componentTypeId)>: \(anyValue.description)"
+        if let decoded = decodedIfAvailable() {
+            return decoded.indentedDescription(prefix)
+        } else {
+            var desc = "\(prefix)[\(componentTypeId)]:"
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = .prettyPrinted
+            guard
+                let data = try? encoder.encode(self.anyValue),
+                let string = String(data: data, encoding: .utf8)
+             else { return desc }
+            let lines = string.split(separator: "\n").dropFirst().dropLast()
+            desc += "\n\(prefix)\t" + lines.joined(separator: "\n\(prefix)\t")
+            return desc
+        }
     }
     
     // MARK: Codable
