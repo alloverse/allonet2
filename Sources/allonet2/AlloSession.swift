@@ -96,6 +96,7 @@ public class AlloSession : NSObject, TransportDelegate
     
     public func send(interaction: Interaction)
     {
+        dispatchPrecondition(condition: .onQueue(.main))
         let data = try! encoder.encode(interaction)
         transport.send(data: data, on: .interactions)
     }
@@ -111,18 +112,21 @@ public class AlloSession : NSObject, TransportDelegate
     
     public func send(placeChangeSet: PlaceChangeSet)
     {
+        dispatchPrecondition(condition: .onQueue(.main))
         let data = try! encoder.encode(placeChangeSet)
         transport.send(data: data, on: .intentWorldState)
     }
     
     public func send(_ intent: Intent)
     {
+        dispatchPrecondition(condition: .onQueue(.main))
         let data = try! encoder.encode(intent)
         transport.send(data: data, on: .intentWorldState)
     }
     
     public func send(_ logLine: StoredLogMessage)
     {
+        dispatchPrecondition(condition: .onQueue(.main))
         let data = try! encoder.encode(logLine)
         transport.send(data: data, on: .logs)
     }
@@ -162,6 +166,7 @@ public class AlloSession : NSObject, TransportDelegate
     
     public func disconnect()
     {
+        dispatchPrecondition(condition: .onQueue(.main))
         transport.disconnect()
     }
     
