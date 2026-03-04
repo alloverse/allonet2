@@ -57,7 +57,7 @@ final class MockTransport: Transport {
     // --- Init ---
     required init(with connectionOptions: TransportConnectionOptions, status: ConnectionStatus) {
         self.connectionOptions = connectionOptions
-        self.connectionStatus = connectionStatus
+        self.connectionStatus = status
     }
 
     // --- Transport protocol ---
