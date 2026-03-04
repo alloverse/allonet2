@@ -1,6 +1,7 @@
 import XCTest
 import OpenCombineShim
 import Logging
+import PotentCBOR
 @testable import allonet2
 
 public struct TestComponent: Component
@@ -27,8 +28,9 @@ final class PlaceDescriptionTests: XCTestCase
         super.setUp()
         TestComponent.register()
         Test3Component.register()
+        Relationships.register()
     }
-    
+
     func testEntityDescription() throws
     {
         let e1 = EntityData(id: "entity1", ownerClientId: UUID())
@@ -42,8 +44,8 @@ final class PlaceDescriptionTests: XCTestCase
             revision: 1,
             entities: [ e1.id: e1, e2.id: e2],
             components: ComponentLists(lists:[
-                Test3Component.componentTypeId: [e1.id: e1test, e2.id: e2test],
-                Relationships.componentTypeId: [e2.id: e2rel]
+                Test3Component.componentTypeId: [e1.id: AnyComponent(e1test), e2.id: AnyComponent(e2test)],
+                Relationships.componentTypeId: [e2.id: AnyComponent(e2rel)]
             ]),
             logger: testLogger
         )
@@ -68,17 +70,16 @@ final class PlaceChangeCodingTests: XCTestCase
         let changeSet = PlaceChangeSet(changes: [
             .entityAdded(EntityData(id: "c", ownerClientId: cid)),
             .entityRemoved(EntityData(id: "b", ownerClientId: cid)),
-            .componentAdded("c", TestComponent(radius: 6.0)),
-            .componentAdded("c", Test2Component(thingie: 3)),
-            .componentUpdated("a", TestComponent(radius: 7.0)),
-            .componentRemoved(EntityData(id: "b", ownerClientId: cid), TestComponent(radius: 5.0))
+            .componentAdded("c", AnyComponent(TestComponent(radius: 6.0))),
+            .componentAdded("c", AnyComponent(Test2Component(thingie: 3))),
+            .componentUpdated("a", AnyComponent(TestComponent(radius: 7.0))),
+            .componentRemoved(EntityData(id: "b", ownerClientId: cid), AnyComponent(TestComponent(radius: 5.0)))
         ], fromRevision: 0, toRevision: 1)
-        
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+
+        let encoder = CBOREncoder()
         let data = try encoder.encode(changeSet)
-        
-        let decoder = JSONDecoder()
+
+        let decoder = CBORDecoder()
         let decodedChangeSet = try decoder.decode(PlaceChangeSet.self, from: data)
         
         XCTAssertEqual(changeSet, decodedChangeSet, "The decoded ChangeSet should equal the original ChangeSet.")
@@ -103,8 +104,8 @@ final class PlaceChangeSetTests: XCTestCase
         let cid = UUID()
         state.changeSet = PlaceChangeSet(changes: [
             .entityAdded(EntityData(id: "entity1", ownerClientId: cid)),
-            .componentAdded("entity1", TestComponent(radius: 5.0)),
-            .componentUpdated("entity1", TestComponent(radius: 6.0))
+            .componentAdded("entity1", AnyComponent(TestComponent(radius: 5.0))),
+            .componentUpdated("entity1", AnyComponent(TestComponent(radius: 6.0)))
         ], fromRevision: 0, toRevision: 1)
         var entityAddedReceived = false
         var componentAddedReceived = false
@@ -141,7 +142,7 @@ final class PlaceChangeSetTests: XCTestCase
         let cid = UUID()
         let success = state.applyChangeSet(PlaceChangeSet(changes: [
             .entityAdded(EntityData(id: "entity1", ownerClientId: cid)),
-            .componentAdded("entity1", TestComponent(radius: 5.0)),
+            .componentAdded("entity1", AnyComponent(TestComponent(radius: 5.0))),
         ], fromRevision: 0, toRevision: 1))
         XCTAssertTrue(success)
         
@@ -164,7 +165,7 @@ final class PlaceChangeSetTests: XCTestCase
         XCTAssertFalse(componentUpdatedReceived, "Expected updated to not fire, should only be called when new changes come in")
         
         let success2 = state.applyChangeSet(PlaceChangeSet(changes: [
-            .componentUpdated("entity1", TestComponent(radius: 6.0))
+            .componentUpdated("entity1", AnyComponent(TestComponent(radius: 6.0)))
         ], fromRevision: 1, toRevision: 2))
         XCTAssertTrue(success2)
         
@@ -181,21 +182,21 @@ final class PlaceChangeSetTests: XCTestCase
             "b": EntityData(id: "b", ownerClientId: cid)
         ], components: ComponentLists(lists: [
             TestComponent.componentTypeId: [
-                "a": TestComponent(radius: 5.0),
-                "b": TestComponent(radius: 5.0)
+                "a": AnyComponent(TestComponent(radius: 5.0)),
+                "b": AnyComponent(TestComponent(radius: 5.0))
             ],
             Test2Component.componentTypeId: [
-                "a": Test2Component(thingie: 4)
+                "a": AnyComponent(Test2Component(thingie: 4))
             ]
         ]), logger: testLogger)
-        
+
         let new = PlaceContents(revision: 2, entities: [
             "a": EntityData(id: "a", ownerClientId: cid),
             "c": EntityData(id: "c", ownerClientId: cid)
         ], components: ComponentLists(lists: [
             TestComponent.componentTypeId: [
-                "a": TestComponent(radius: 6.0),
-                "c": TestComponent(radius: 7.0)
+                "a": AnyComponent(TestComponent(radius: 6.0)),
+                "c": AnyComponent(TestComponent(radius: 7.0))
             ]
         ]), logger: testLogger)
         
@@ -207,25 +208,29 @@ final class PlaceChangeSetTests: XCTestCase
         var aCompChanged = false
         var cAdded = false
         var cCompAdded = false
-        
+
         for change in diff.changes
         {
             switch change
             {
             case .entityRemoved(let e) where e.id == "b":
                 bRemoved = true
-            case .componentRemoved(let edata, let comp as TestComponent) where edata.id == "b" :
+            case .componentRemoved(let edata, let anyComp) where edata.id == "b" && anyComp.componentTypeId == TestComponent.componentTypeId:
+                let comp = anyComp.decoded() as! TestComponent
                 XCTAssertEqual(comp.radius, 5.0)
                 bCompRemoved = true
-            case .componentRemoved(let edata, let comp as Test2Component) where edata.id == "a" :
+            case .componentRemoved(let edata, let anyComp) where edata.id == "a" && anyComp.componentTypeId == Test2Component.componentTypeId:
+                let comp = anyComp.decoded() as! Test2Component
                 XCTAssertEqual(comp.thingie, 4)
                 componentCategoryRemoved = true
-            case .componentUpdated(let eid, let comp as TestComponent) where eid == "a":
+            case .componentUpdated(let eid, let anyComp) where eid == "a" && anyComp.componentTypeId == TestComponent.componentTypeId:
+                let comp = anyComp.decoded() as! TestComponent
                 XCTAssertEqual(comp.radius, 6.0, "Component update didn't generate the expected change")
                 aCompChanged = true
             case .entityAdded(let e) where e.id == "c":
                 cAdded = true
-            case .componentAdded(let eid, let comp as TestComponent) where eid == "c":
+            case .componentAdded(let eid, let anyComp) where eid == "c" && anyComp.componentTypeId == TestComponent.componentTypeId:
+                let comp = anyComp.decoded() as! TestComponent
                 XCTAssertEqual(comp.radius, 7.0, "Component update didn't generate the expected change")
                 cCompAdded = true
             default: continue
@@ -248,18 +253,18 @@ final class PlaceChangeSetTests: XCTestCase
             "b": EntityData(id: "b", ownerClientId: cid)
         ], components: ComponentLists(lists: [
             TestComponent.componentTypeId: [
-                "a": TestComponent(radius: 5.0),
-                "b": TestComponent(radius: 5.0)
+                "a": AnyComponent(TestComponent(radius: 5.0)),
+                "b": AnyComponent(TestComponent(radius: 5.0))
             ]
         ]), logger: testLogger)
-        
+
         let changeSet = PlaceChangeSet(changes: [
             .entityAdded(EntityData(id: "c", ownerClientId: cid)),
             .entityRemoved(EntityData(id: "b", ownerClientId: cid)),
-            .componentAdded("c", TestComponent(radius: 6.0)),
-            .componentAdded("c", Test2Component(thingie: 3)),
-            .componentUpdated("a", TestComponent(radius: 7.0)),
-            .componentRemoved(EntityData(id: "b", ownerClientId: cid), TestComponent(radius: 5.0))
+            .componentAdded("c", AnyComponent(TestComponent(radius: 6.0))),
+            .componentAdded("c", AnyComponent(Test2Component(thingie: 3))),
+            .componentUpdated("a", AnyComponent(TestComponent(radius: 7.0))),
+            .componentRemoved(EntityData(id: "b", ownerClientId: cid), AnyComponent(TestComponent(radius: 5.0)))
         ], fromRevision: 1, toRevision: 2)
         
         let new: PlaceContents! = old.applyChangeSet(changeSet)
