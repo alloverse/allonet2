@@ -161,35 +161,38 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         reset()
     }
     
+    open func performHTTPSignalling(offer: SignallingPayload) async throws -> SignallingPayload
+    {
+        // Original schema is alloplace2://. We call this with HTTP(S) to establish a WebRTC connection,
+        // which means we need to rewrite the schema to be http(s).
+        guard var httpcomps = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw URLError(.badURL) }
+        guard let scheme = url.scheme else { throw URLError(.badURL) }
+        httpcomps.scheme = scheme.last == "s" ? "https" : "http"
+        guard let httpUrl = httpcomps.url else { throw URLError(.badURL) }
+
+        var request = URLRequest(url: httpUrl)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(offer)
+        let (data, response) = try await URLSession.shared.data(for: request as URLRequest)
+        let http = response as! HTTPURLResponse
+        guard http.statusCode >= 200 && http.statusCode < 300 else {
+            throw AlloverseError(
+                domain: AlloverseErrorCode.domain,
+                code: AlloverseErrorCode.failedSignalling.rawValue,
+                description: "HTTP error \(http.statusCode): \(String(data: data, encoding: .utf8) ?? "(no data)")"
+            )
+        }
+        return try JSONDecoder().decode(SignallingPayload.self, from: data)
+    }
+
     private func connect() async
     {
         do {
             logger.info("Trying to connect to \(url)...")
             let offer = try await session.generateOffer()
-
-            // Original schema is alloplace2://. We call this with HTTP(S) to establish a WebRTC connection, which means we need to rewrite the
-            // schema to be http(s).
-            guard var httpcomps = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw URLError(.badURL) }
-            guard let scheme = url.scheme else { throw URLError(.badURL) }
-            httpcomps.scheme = scheme.last == "s" ? "https" : "http"
-            guard let httpUrl = httpcomps.url else { throw URLError(.badURL) }
-
-            var request = URLRequest(url: httpUrl)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try JSONEncoder().encode(offer)
-            let (data, response) = try await URLSession.shared.data(for: request as URLRequest)
-            let http = response as! HTTPURLResponse
-            guard http.statusCode >= 200 && http.statusCode < 300 else {
-                throw AlloverseError(
-                    domain: AlloverseErrorCode.domain,
-                    code: AlloverseErrorCode.failedSignalling.rawValue,
-                    description: "HTTP error \(http.statusCode): \(String(data: data, encoding: .utf8) ?? "(no data)")"
-                )
-            }
+            let answer = try await performHTTPSignalling(offer: offer)
             connectionStatus.signalling = .connected
-            let answer = try JSONDecoder().decode(SignallingPayload.self, from: data)
-
             try await session.acceptAnswer(answer)
             // Guard: if we disconnected between awaits, bail out
             guard case .connecting = state.current else { return }
