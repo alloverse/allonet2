@@ -53,24 +53,29 @@ public class AlloSession : NSObject, TransportDelegate
     private let side: Side
     
     // --- Negotiation
-    // We've kicked off renegotiation and we are waiting for a response. TODO: This should be exactly equivalent to peer.signalingState==.hasLocalOffer. Remove the bool and query the transport for its signalingState instead?
-    private var hasOutstandingNegotiationOffer = false
-    // Our state dirtied _while_ connecting or renegotiating, so as soon as we're stable, kick off another negotation round
-    private var needsRenegotiationWhenStable = false
-    
-    /// What to do if we receive an offer while we already have an outstanding offer? In other words, if we get a renegotiation request _while_ we're already renegotiating?
-    private enum RenegotiationConflictBehavior
-    {
-        // This side will throw away their request and rollback their offer; apply the other side's offer, and when we create an answer we'll get to apply our changes anyway.
-        case polite
-        // This side will discard the incoming request and await an answer to their outstanding offer.
-        case impolite
-    }
+    private let negotiation = StateMachine<NegotiationState>(.stable, label: "Negotiation")
+
+    /// What to do if we receive an offer while we already have an outstanding offer?
+    /// Client is polite (rolls back own offer, accepts theirs).
+    /// Server is impolite (rejects incoming, keeps own).
+    private enum RenegotiationConflictBehavior { case polite, impolite }
     private var renegotiationConflictBehavior: RenegotiationConflictBehavior
     {
         switch side {
             case .client: return .polite
             case .server: return .impolite
+        }
+    }
+
+    /// Transition negotiation back to stable, and auto-trigger renegotiation if one was deferred.
+    private func negotiationTransitionToStable()
+    {
+        let hadDeferred = negotiation.current.hasDeferredRenegotiation
+        negotiation.transition(to: .stable)
+        if hadDeferred
+        {
+            logger.info("Deferred renegotiation pending; kicking it off now.")
+            self.transport(requestsRenegotiation: transport)
         }
     }
     
@@ -134,12 +139,11 @@ public class AlloSession : NSObject, TransportDelegate
     public func generateOffer() async throws -> SignallingPayload
     {
         logger.debug("Generating offer...")
-        assert(hasOutstandingNegotiationOffer == false)
-        hasOutstandingNegotiationOffer = true
+        negotiation.transition(to: .negotiating(role: .offering, deferredRenegotiation: false))
         do {
             return try await transport.generateOffer()
         } catch {
-            hasOutstandingNegotiationOffer = false
+            negotiation.transition(to: .stable)
             throw error
         }
     }
@@ -147,21 +151,26 @@ public class AlloSession : NSObject, TransportDelegate
     public func generateAnswer(offer: SignallingPayload) async throws -> SignallingPayload
     {
         logger.debug("Generating answer...")
-        assert(hasOutstandingNegotiationOffer == false)
-        return try await transport.generateAnswer(for: offer)
+        negotiation.transition(to: .negotiating(role: .answering, deferredRenegotiation: false))
+        do {
+            return try await transport.generateAnswer(for: offer)
+        } catch {
+            negotiation.transition(to: .stable)
+            throw error
+        }
     }
     
     public func acceptAnswer(_ answer: SignallingPayload) async throws
     {
         logger.debug("Accepting answer...")
-        defer { hasOutstandingNegotiationOffer = false }
+        defer { negotiationTransitionToStable() }
         try await transport.acceptAnswer(answer)
     }
     
     private func rollbackOffer() async throws
     {
         try await transport.rollbackOffer()
-        hasOutstandingNegotiationOffer = false
+        negotiationTransitionToStable()
     }
     
     public func disconnect()
@@ -195,14 +204,9 @@ public class AlloSession : NSObject, TransportDelegate
     
     public func transport(_ transport: any Transport, didChangeSignallingState state: TransportSignallingState)
     {
-        if state == .stable && needsRenegotiationWhenStable
+        if state == .stable && negotiation.current.hasDeferredRenegotiation
         {
-            // xxx: we're setting this to false both in the end of negotiation methods, and here... not sure I like that
-            hasOutstandingNegotiationOffer = false
-            
-            logger.info("Signalling is now stable, we can now kick off the pending renegotiation.")
-            needsRenegotiationWhenStable = false
-            self.transport(requestsRenegotiation: transport)
+            negotiationTransitionToStable()
         }
     }
     
@@ -277,10 +281,10 @@ public class AlloSession : NSObject, TransportDelegate
 
     private func renegotiateInner() async throws
     {
-        if hasOutstandingNegotiationOffer
+        if case .negotiating(let role, _) = negotiation.current
         {
             logger.info("Renegotiation requested while negotiating; postponing it...")
-            needsRenegotiationWhenStable = true
+            negotiation.transition(to: .negotiating(role: role, deferredRenegotiation: true))
             return
         }
         
@@ -307,7 +311,7 @@ public class AlloSession : NSObject, TransportDelegate
     private func respondToRenegotiation(offer: SignallingPayload, request: Interaction) async
     {
         logger.info("Received renegotiation offer over RPC")
-        if hasOutstandingNegotiationOffer
+        if negotiation.current.isNegotiating
         {
             switch renegotiationConflictBehavior {
             case .polite:
@@ -324,14 +328,14 @@ public class AlloSession : NSObject, TransportDelegate
                 return
             }
         }
-        
+
         do
         {
             try await respondToRenegotiationInner(offer: offer, request: request)
         }
         catch(let e)
         {
-            // TODO: store the error, mark as temporary, and force upper lever to reconnect
+            // TODO: store the error, mark as temporary, and force upper level to reconnect
             logger.info("Failed to renegotiate answer: \(e)")
             transport.disconnect()
         }
@@ -340,10 +344,11 @@ public class AlloSession : NSObject, TransportDelegate
     func respondToRenegotiationInner(offer: SignallingPayload, request: Interaction) async throws
     {
         let answer = try await generateAnswer(offer: offer)
-        
+
         let response = request.makeResponse(with: .internal_renegotiate(.answer, answer))
         self.send(interaction: response)
-        
+
+        negotiationTransitionToStable()
         logger.info("RTC renegotiation complete on the answering side")
     }
     
