@@ -76,11 +76,10 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     public var logger = Logger(labelSuffix: "client")
     
     // MARK: - Connection state related
-    
+
     public private(set) var connectionStatus = ConnectionStatus()
-    
+    public let state = StateMachine<ClientConnectionState>(.disconnected, label: "Client")
     private var connectTask: Task<Void, Never>? = nil
-    private var reconnectionAttempts = 0
     
     public nonisolated(unsafe) var cid: UUID? { session.clientId }
     public var id: String? { cid?.uuidString }
@@ -96,60 +95,37 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         self.reset()
     }
     
-    private var connectionLoopCancellable: AnyCancellable?
     /// Connect, and stay connected until a permanent connection error happens, or user disconnects.
     public func stayConnected()
     {
-        guard connectionLoopCancellable == nil else { return }
-        
-        // Move out of the idle state since we've been asked to get going.
-        if connectionStatus.reconnection == .idle {
-            logger.info("Going from .idle to .waitingForReconnect")
-            connectionStatus.reconnection = .waitingForReconnect
-        }
-        
-        connectionLoopCancellable = connectionStatus.$reconnection.receive(on: DispatchQueue.main).sink
-        { [weak self] nextState in
-            guard let self = self else { return }
-            logger.info("Reconnection state: \(connectionStatus.reconnection)")
-            switch nextState {
-            case .waitingForReconnect:
-                self.handleWaitingForReconnect()
-            case .idle:
-                disconnect()
-            default:
-                break
-            }
-        }
+        guard !state.current.isStayingConnected else { return }
+        logger.info("Going from .disconnected to .waitingToRetry")
+        state.transition(to: .waitingToRetry(attempt: 0))
+        connectionStatus.reconnection = .waitingForReconnect
+        scheduleConnect(attempt: 0)
     }
-    
-    private func handleWaitingForReconnect()
+
+    private func scheduleConnect(attempt: Int)
     {
-        // Prevent concurrent connection attempts.
-        guard connectTask == nil else { return }
-        
-        // Reconnection backoff with exponential delay and a cap at 1m/try
-        let delaySeconds = reconnectionAttempts == 0 ? 0 : min(60, pow(2.0, Double(reconnectionAttempts)))
+        // Reconnection backoff with exponential delay, capped at 1 minute
+        let delaySeconds = attempt == 0 ? 0.0 : min(60.0, pow(2.0, Double(attempt)))
         connectionStatus.willReconnectAt = delaySeconds > 0 ? Date().addingTimeInterval(delaySeconds) : nil
-        reconnectionAttempts += 1
-        logger.info("connection attempt \(reconnectionAttempts) in \(delaySeconds) seconds")
-        
-        // Schedule connect() to be called at willReconnectAt.
+        logger.info("Connection attempt \(attempt) in \(delaySeconds) seconds")
+
         connectTask = Task { [weak self] in
-            guard let self = self else { return }
-            
-            let delay = connectionStatus.willReconnectAt?.timeIntervalSinceNow ?? 0
-            logger.info("waiting for reconnect in \(String(format: " %.1f seconds", delay))")
-            if delay > 0 {
-                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            guard let self else { return }
+
+            if delaySeconds > 0 {
+                logger.info("Waiting for reconnect in \(String(format: "%.1f seconds", delaySeconds))")
+                try? await Task.sleep(nanoseconds: UInt64(delaySeconds * 1_000_000_000))
             }
-            
-            // Clear the task and reconnectDate before connecting.
-            await MainActor.run {
-                self.connectTask = nil
-                connectionStatus.willReconnectAt = nil
-            }
-            logger.info("connecting...")
+            guard !Task.isCancelled else { return }
+
+            state.transition(to: .connecting(attempt: attempt))
+            connectionStatus.reconnection = .connecting
+            connectionStatus.willReconnectAt = nil
+            connectionStatus.signalling = .connecting
+
             await self.connect()
         }
     }
@@ -173,13 +149,13 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     /// Disconnect from peers and remain disconnected until asked to connect again by user
     public func disconnect()
     {
+        guard state.current.isStayingConnected else { return }
         logger.info("Disconnecting...")
         connectTask?.cancel()
         connectTask = nil
-        connectionLoopCancellable?.cancel()
-        connectionLoopCancellable = nil
+        state.transition(to: .disconnected)
+        connectionStatus.reconnection = .idle
         connectionStatus.willReconnectAt = nil
-        reconnectionAttempts = 0
         avatarId = nil
         session.disconnect()
         reset()
@@ -187,23 +163,17 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     
     private func connect() async
     {
-        connectionStatus.signalling = .connecting
-        precondition(connectionStatus.reconnection == .waitingForReconnect, "Trying to connect while \(connectionStatus.reconnection)")
-        DispatchQueue.main.async {
-            self.connectionStatus.reconnection = .connecting
-        }
-        
         do {
             logger.info("Trying to connect to \(url)...")
             let offer = try await session.generateOffer()
-            
+
             // Original schema is alloplace2://. We call this with HTTP(S) to establish a WebRTC connection, which means we need to rewrite the
             // schema to be http(s).
             guard var httpcomps = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw URLError(.badURL) }
             guard let scheme = url.scheme else { throw URLError(.badURL) }
             httpcomps.scheme = scheme.last == "s" ? "https" : "http"
             guard let httpUrl = httpcomps.url else { throw URLError(.badURL) }
-            
+
             var request = URLRequest(url: httpUrl)
             request.httpMethod = "POST"
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -219,17 +189,19 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
             }
             connectionStatus.signalling = .connected
             let answer = try JSONDecoder().decode(SignallingPayload.self, from: data)
-            
-            // Use session's transport methods
+
             try await session.acceptAnswer(answer)
+            // Guard: if we disconnected between awaits, bail out
+            guard case .connecting = state.current else { return }
             logger.info("AlloClient RTC initial signalling complete")
-        } catch (let e) {
-            logger.error("failed to connect: \(e)")
-            DispatchQueue.main.async {
-                self.connectionStatus.lastError = e
-                self.connectionStatus.reconnection = .idle
-                self.connectionStatus.signalling = .failed
-            }
+        } catch {
+            // If we were cancelled/disconnected during the awaits, don't touch state
+            guard case .connecting = state.current else { return }
+            logger.error("Failed to connect: \(error)")
+            connectionStatus.signalling = .failed
+            connectionStatus.lastError = error
+            state.transition(to: .failed(error: error))
+            disconnect()
         }
     }
     
@@ -237,9 +209,10 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     {
         Task
         { @MainActor in
-            self.reconnectionAttempts = 0
+            // Guard: if we disconnected between transport connect and this callback, bail
+            guard case .connecting = state.current else { return }
             self.connectionStatus.reconnection = .connected
-            
+
             logger = logger.forClient(sess.clientId!)
             logger.info("Connected as \(sess.clientId!)")
 
@@ -249,15 +222,18 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
                 receiverEntityId: Interaction.PlaceEntity,
                 body: .announce(version: Allonet.version().description, identity: identity, avatar: avatarDesc)
             ))
+            // Guard again: disconnect may have happened during announce
+            guard case .connecting = state.current else { return }
             guard case .announceResponse(let avatarId, let placeName) = response.body else
             {
                 logger.error("Announce failed: \(response)")
                 self.connectionStatus.lastError = AlloverseError(with: response.body)
-                self.connectionStatus.reconnection = .idle
+                state.transition(to: .failed(error: AlloverseError(with: response.body)))
                 self.disconnect()
                 return
             }
             logger.info("Received announce response: \(response.body)")
+            state.transition(to: .announced(avatarId: avatarId, placeName: placeName))
             self.avatarId = avatarId
             self.placeName = placeName
             self.connectionStatus.hasReceivedAnnounceResponse = true
@@ -269,20 +245,17 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     {
         logger.info("Disconnected")
         avatarId = nil
-        self.connectionStatus.signalling = .failed
-        if(false)
-        {
-            // TODO: Propagate disconnection reason, and notice if it's permanent
-            // state = .error ...
-        }
-        else if(self.connectionLoopCancellable != nil)
-        {
-            self.connectionStatus.reconnection = .waitingForReconnect
-        }
-        else
-        {
-            self.connectionStatus.reconnection = .idle
-        }
+        connectionStatus.signalling = .failed
+
+        // If already disconnected (user-initiated via disconnect()), nothing more to do
+        guard state.current.isStayingConnected else { return }
+
+        // Transport-initiated disconnect: auto-reconnect
+        let attempt = state.current.attempt
+        reset()
+        state.transition(to: .waitingToRetry(attempt: attempt))
+        connectionStatus.reconnection = .waitingForReconnect
+        scheduleConnect(attempt: attempt)
     }
     
     public func session(_: AlloSession, didReceiveMediaStream: MediaStream)

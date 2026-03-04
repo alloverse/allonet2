@@ -150,3 +150,110 @@ final class TransportConnectionStateTests: XCTestCase
         XCTAssertEqual(sm.current.description, "connected")
     }
 }
+
+@MainActor
+final class ClientConnectionStateTests: XCTestCase
+{
+    func testHappyPath()
+    {
+        let sm = StateMachine<ClientConnectionState>(.disconnected, label: "test")
+        sm.transition(to: .waitingToRetry(attempt: 0))
+        sm.transition(to: .connecting(attempt: 0))
+        sm.transition(to: .announced(avatarId: "avatar-1", placeName: "Test Place"))
+        XCTAssertEqual(sm.current.avatarId, "avatar-1")
+        XCTAssertEqual(sm.current.placeName, "Test Place")
+        XCTAssertTrue(sm.current.isStayingConnected)
+    }
+
+    func testReconnectionAfterDisconnect()
+    {
+        let sm = StateMachine<ClientConnectionState>(.disconnected, label: "test")
+        sm.transition(to: .waitingToRetry(attempt: 0))
+        sm.transition(to: .connecting(attempt: 0))
+        sm.transition(to: .announced(avatarId: "avatar-1", placeName: "Test Place"))
+        // Transport drops
+        sm.transition(to: .waitingToRetry(attempt: 0))
+        XCTAssertNil(sm.current.avatarId)
+        XCTAssertTrue(sm.current.isStayingConnected)
+        // Reconnect
+        sm.transition(to: .connecting(attempt: 0))
+        sm.transition(to: .announced(avatarId: "avatar-2", placeName: "Test Place"))
+        XCTAssertEqual(sm.current.avatarId, "avatar-2")
+    }
+
+    func testFailureAndRetry()
+    {
+        let sm = StateMachine<ClientConnectionState>(.disconnected, label: "test")
+        sm.transition(to: .waitingToRetry(attempt: 0))
+        sm.transition(to: .connecting(attempt: 0))
+        sm.transition(to: .failed(error: URLError(.timedOut)))
+        // Retry after failure
+        sm.transition(to: .waitingToRetry(attempt: 1))
+        XCTAssertEqual(sm.current.attempt, 1)
+        sm.transition(to: .connecting(attempt: 1))
+        XCTAssertEqual(sm.current.attempt, 1)
+    }
+
+    func testUserDisconnectFromAnnounced()
+    {
+        let sm = StateMachine<ClientConnectionState>(.disconnected, label: "test")
+        sm.transition(to: .waitingToRetry(attempt: 0))
+        sm.transition(to: .connecting(attempt: 0))
+        sm.transition(to: .announced(avatarId: "avatar-1", placeName: "Test Place"))
+        sm.transition(to: .disconnected)
+        XCTAssertFalse(sm.current.isStayingConnected)
+        XCTAssertNil(sm.current.avatarId)
+    }
+
+    func testUserDisconnectFromConnecting()
+    {
+        let sm = StateMachine<ClientConnectionState>(.disconnected, label: "test")
+        sm.transition(to: .waitingToRetry(attempt: 0))
+        sm.transition(to: .connecting(attempt: 0))
+        sm.transition(to: .disconnected)
+        XCTAssertFalse(sm.current.isStayingConnected)
+    }
+
+    func testUserDisconnectFromWaiting()
+    {
+        let sm = StateMachine<ClientConnectionState>(.disconnected, label: "test")
+        sm.transition(to: .waitingToRetry(attempt: 0))
+        sm.transition(to: .disconnected)
+        XCTAssertFalse(sm.current.isStayingConnected)
+    }
+
+    func testTransportDropDuringConnect()
+    {
+        // ICE failure during connection: connecting → waitingToRetry
+        let sm = StateMachine<ClientConnectionState>(.disconnected, label: "test")
+        sm.transition(to: .waitingToRetry(attempt: 0))
+        sm.transition(to: .connecting(attempt: 0))
+        sm.transition(to: .waitingToRetry(attempt: 1))
+        XCTAssertEqual(sm.current.attempt, 1)
+    }
+
+    func testConvenienceAccessors()
+    {
+        let disconnected = ClientConnectionState.disconnected
+        XCTAssertFalse(disconnected.isStayingConnected)
+        XCTAssertNil(disconnected.avatarId)
+        XCTAssertNil(disconnected.placeName)
+        XCTAssertEqual(disconnected.attempt, 0)
+
+        let waiting = ClientConnectionState.waitingToRetry(attempt: 3)
+        XCTAssertTrue(waiting.isStayingConnected)
+        XCTAssertEqual(waiting.attempt, 3)
+
+        let connecting = ClientConnectionState.connecting(attempt: 2)
+        XCTAssertTrue(connecting.isStayingConnected)
+        XCTAssertEqual(connecting.attempt, 2)
+
+        let announced = ClientConnectionState.announced(avatarId: "a", placeName: "p")
+        XCTAssertTrue(announced.isStayingConnected)
+        XCTAssertEqual(announced.avatarId, "a")
+        XCTAssertEqual(announced.placeName, "p")
+
+        let failed = ClientConnectionState.failed(error: URLError(.badURL))
+        XCTAssertTrue(failed.isStayingConnected)
+    }
+}
