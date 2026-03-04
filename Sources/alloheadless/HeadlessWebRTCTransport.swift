@@ -28,9 +28,10 @@ public class HeadlessWebRTCTransport: Transport
     var logger = Logger(labelSuffix: "transport.headless")
     
     private var peer: AlloWebRTCPeer
-    private var channels: [String: AlloWebRTCPeer.DataChannel] = [:] // track which channels are created
+    private var channels: [String: AlloWebRTCPeer.DataChannel] = [:]
     private var connectionStatus: ConnectionStatus
     private var cancellables = Set<AnyCancellable>()
+    let connectionState = StateMachine<TransportConnectionState>(.idle, label: "HeadlessTransport")
     
     private static var datachannelLogger = Logger(labelSuffix: "transport.headless.libdatachannel")
     private static var initialized: Bool = false
@@ -59,13 +60,19 @@ public class HeadlessWebRTCTransport: Transport
         peer = AlloWebRTCPeer(portRange: connectionOptions.portRange, ipOverride: connectionOptions.ipOverride?.adc)
         
         peer.$state.sink { [weak self] state in
-            // TODO: replicate UIWebRTCTransport's behavior and only signal connected when data channels are connected?
             guard let self = self else { return }
-            logger.info("state changed to \(state)")
-            if state == .connected {
-                self.delegate?.transport(didConnect: self)
-            } else if state == .closed || state == .failed {
-                self.delegate?.transport(didDisconnect: self)
+            logger.info("peer state changed to \(state)")
+            if state == .connected
+            {
+                self.maybeConnected()
+            }
+            else if state == .closed || state == .failed
+            {
+                let didTransition = self.connectionState.transitionIf(to: .disconnected) { $0 != .disconnected }
+                if didTransition
+                {
+                    self.delegate?.transport(didDisconnect: self)
+                }
             }
         }.store(in: &cancellables)
         peer.$signalingState.sink { [weak self] state in
@@ -101,20 +108,31 @@ public class HeadlessWebRTCTransport: Transport
             self.delegate?.transport(self, didRemoveMediaStream: track)
         }).store(in: &cancellables)
         
-        // TODO: subscribe to more callbacks and match UIWebRTCTransport's behavior
-        // TODO: Populate connectionStatus
-        
-        /*webrtcPeer?.onMediaStreamAdded = { [weak self] streamId in
-            guard let self = self else { return }
-            let stream = ServerMediaStream(streamId: streamId)
-            self.delegate?.transport(self, didReceiveMediaStream: stream)
-        }*/
+    }
+
+    /// Check if both ICE and data channels are ready; transition to .connected if so.
+    private func maybeConnected()
+    {
+        let peerConnected = (peer.state == .connected)
+        let allChannelsOpen = !channels.isEmpty && channels.values.allSatisfy({ $0.isOpen })
+        guard peerConnected && allChannelsOpen else { return }
+
+        let didTransition = connectionState.transitionIf(to: .connected) { state in
+            if case .connecting = state { return true }
+            return false
+        }
+        if didTransition
+        {
+            logger.info("Transport is fully connected (ICE + data channels)")
+            delegate?.transport(didConnect: self)
+        }
     }
     
     public func generateOffer() async throws -> SignallingPayload
     {
+        connectionState.transition(to: .connecting)
         self.connectionStatus.signalling = .connecting
-        
+
         try peer.lockLocalDescription(type: .offer)
         let offerSdp = try peer.createOffer()
         logger.info("Generated my offer: \(offerSdp)")
@@ -132,6 +150,7 @@ public class HeadlessWebRTCTransport: Transport
     
     public func generateAnswer(for offer: SignallingPayload) async throws -> SignallingPayload
     {
+        connectionState.transition(to: .connecting)
         self.connectionStatus.signalling = .connecting
         logger.info("Received offer from remote: \(offer)")
         
@@ -183,8 +202,14 @@ public class HeadlessWebRTCTransport: Transport
     public func disconnect()
     {
         self.connectionStatus.signalling = .idle
+        let didTransition = connectionState.transitionIf(to: .disconnected) { $0 != .disconnected }
         peer.close()
-        delegate?.transport(didDisconnect: self) // Apparently libdatachannel doesn't call it when manually closing peer??
+        // libdatachannel doesn't always fire the closed callback on manual close,
+        // so we handle it via the state machine transition above.
+        if didTransition
+        {
+            delegate?.transport(didDisconnect: self)
+        }
         clientId = nil
         logger[metadataKey: "clientId"] = nil
         cancellables.forEach { $0.cancel() }
@@ -201,7 +226,8 @@ public class HeadlessWebRTCTransport: Transport
         }.store(in: &cancellables)
         channel.$isOpen.sink { [weak self, weak channel] isOpen in
             guard let self, let channel else { return }
-            self.connectionStatus.data = isOpen ? .connected : (channel.lastError != nil) ? .failed : .idle;
+            self.connectionStatus.data = isOpen ? .connected : (channel.lastError != nil) ? .failed : .idle
+            if isOpen { self.maybeConnected() }
         }.store(in: &cancellables)
         
         return channel
