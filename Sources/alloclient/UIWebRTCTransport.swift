@@ -12,9 +12,19 @@ import allonet2
 import Logging
 
 /// Uses Google's WebRTC implementation meant for client-side UI apps.
-// TODO: @MainActor this class, and declare all the delegate methods nonisolated, and fix all the threading issues in here
+@MainActor
 class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTCDataChannelDelegate
 {
+    // MARK: - Threading Safety
+    /// WebRTC delegate callbacks arrive on arbitrary threads. This helper safely dispatches to MainActor.
+    private nonisolated func dispatchToMain(_ block: @escaping @MainActor @Sendable () -> Void) {
+        if Thread.isMainThread {
+            MainActor.assumeIsolated(block)
+        } else {
+            Task { @MainActor in block() }
+        }
+    }
+
     public var clientId: ClientId?
     private var peer: LKRTCPeerConnection! = nil
     private var channels: [DataChannelLabel: LKRTCDataChannel] = [:]
@@ -43,6 +53,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     
     public func disconnect()
     {
+        dispatchPrecondition(condition: .onQueue(.main))
         peer.close()
         if audioSessionActive
         {
@@ -53,7 +64,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     public func generateOffer() async throws -> SignallingPayload
     {
         logger.debug("Generating offer...")
-        Task { @MainActor in self.connectionStatus.signalling = .connecting }
+        self.connectionStatus.signalling = .connecting
         let sdp: String = try await withCheckedThrowingContinuation { cont in
             peer.offer(for: offerAnswerConstraints) { (sdp, error) in
                 guard let sdp = sdp else {
@@ -179,6 +190,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
 
     public func createDataChannel(label: DataChannelLabel, reliable: Bool) -> DataChannel?
     {
+        dispatchPrecondition(condition: .onQueue(.main))
         let config = LKRTCDataChannelConfiguration()
         config.isNegotiated = true
         config.isOrdered = reliable
@@ -196,6 +208,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     
     public func send(data: Data, on channelLabel: DataChannelLabel)
     {
+        dispatchPrecondition(condition: .onQueue(.main))
         guard let channel = channels[channelLabel] else {
             fatalError("Missing channel for label \(channelLabel)");
             return
@@ -288,6 +301,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     private var didFullyConnect = false
     private func maybeConnected()
     {
+        dispatchPrecondition(condition: .onQueue(.main))
         if
             !didFullyConnect &&
             (peer.iceConnectionState == .connected || peer.iceConnectionState == .completed) &&
@@ -296,16 +310,13 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
         {
             logger.info("Transport is fully connected")
             didFullyConnect = true
-            Task { @MainActor in
-                self.delegate?.transport(didConnect: self)
-            }
+            self.delegate?.transport(didConnect: self)
         }
     }
     
     //MARK: - Peer connection delegates
-    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange stateChanged: LKRTCSignalingState)
+    nonisolated public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange stateChanged: LKRTCSignalingState)
     {
-        logger.info("Session \(clientId?.debugDescription ?? "unknown") signaling state \(stateChanged)")
         let tss: TransportSignallingState = switch stateChanged {
             case .stable, .closed: .stable
             case .haveLocalOffer: .haveLocalOffer
@@ -313,12 +324,14 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
             case .haveLocalPrAnswer: .haveLocalPRAnswer
             case .haveRemotePrAnswer: .haveRemotePRAnswer
         }
-        Task { @MainActor in
+        dispatchToMain { [weak self] in
+            guard let self else { return }
+            self.logger.info("Session \(self.clientId?.debugDescription ?? "unknown") signaling state \(stateChanged)")
             self.delegate?.transport(self, didChangeSignallingState: tss)
         }
     }
     
-    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didAdd stream: LKRTCMediaStream)
+    nonisolated public func peerConnection(_ peerConnection: LKRTCPeerConnection, didAdd stream: LKRTCMediaStream)
     {
         let sender = peerConnection.transceivers.first(where: {
             $0.sender.streamIds.first == stream.streamId
@@ -328,37 +341,41 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
             $0.receiver.track == stream.videoTracks.first
         })
         stream.wrapper.streamDirection = sender != nil ? .sendonly : .recvonly
-        logger.info("Received stream for: \(stream.wrapper.streamDirection) \(stream)")
-        Task { @MainActor in
-            delegate?.transport(self, didReceiveMediaStream: stream.wrapper)
+        dispatchToMain { [weak self] in
+            guard let self else { return }
+            self.logger.info("Received stream for: \(stream.wrapper.streamDirection) \(stream)")
+            self.delegate?.transport(self, didReceiveMediaStream: stream.wrapper)
         }
     }
     
-    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didRemove stream: LKRTCMediaStream)
+    nonisolated public func peerConnection(_ peerConnection: LKRTCPeerConnection, didRemove stream: LKRTCMediaStream)
     {
-        logger.info("Lost stream: \(stream)")
-        Task { @MainActor in
-            delegate?.transport(self, didRemoveMediaStream: stream.wrapper)
+        dispatchToMain { [weak self] in
+            guard let self else { return }
+            self.logger.info("Lost stream: \(stream)")
+            self.delegate?.transport(self, didRemoveMediaStream: stream.wrapper)
         }
     }
     
 
-    public func peerConnectionShouldNegotiate(_ peerConnection: LKRTCPeerConnection)
+    nonisolated public func peerConnectionShouldNegotiate(_ peerConnection: LKRTCPeerConnection)
     {
-        guard let _ = clientId else {
-            // We can't "re"-negotiate until we have connected for the first time
-            return
-        }
-        logger.info("Renegotiation hinted, requesting it from session")
-        Task { @MainActor in
-            delegate?.transport(requestsRenegotiation: self)
+        dispatchToMain { [weak self] in
+            guard let self else { return }
+            guard self.clientId != nil else {
+                // We can't "re"-negotiate until we have connected for the first time
+                return
+            }
+            self.logger.info("Renegotiation hinted, requesting it from session")
+            self.delegate?.transport(requestsRenegotiation: self)
         }
     }
     
-    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: LKRTCIceConnectionState)
+    nonisolated public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: LKRTCIceConnectionState)
     {
-        logger.info("Session ICE state \(newState)")
-        DispatchQueue.main.async {
+        dispatchToMain { [weak self] in
+            guard let self else { return }
+            self.logger.info("Session ICE state \(newState)")
             self.connectionStatus.iceConnection = switch newState
             {
                 case .new: .idle
@@ -367,74 +384,84 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
                 case .failed, .disconnected, .closed: .failed
                 case .count: .idle
             }
-        }
-        if newState == .connected || newState == .completed
-        {
-            // actually, just checking the data channels is enough?
-            self.maybeConnected()
-        }
-        else if newState == .failed || newState == .disconnected
-        {
-            // TODO: Disconnected can resolve itself; don't assume it's broken immediately
-            self.disconnect() // will invoke this callback again with .closed
-        }
-        else if newState == .closed
-        {
-            Task { @MainActor in
+
+            if newState == .connected || newState == .completed
+            {
+                // actually, just checking the data channels is enough?
+                self.maybeConnected()
+            }
+            else if newState == .failed || newState == .disconnected
+            {
+                // TODO: Disconnected can resolve itself; don't assume it's broken immediately
+                self.disconnect() // will invoke this callback again with .closed
+            }
+            else if newState == .closed
+            {
                 self.delegate?.transport(didDisconnect: self)
             }
         }
     }
     
-    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: LKRTCIceGatheringState)
+    nonisolated public func peerConnection(_ peerConnection: LKRTCPeerConnection, didChange newState: LKRTCIceGatheringState)
     {
-        logger.info("Session ICE gathering state \(newState)")
-        DispatchQueue.main.async {
+        dispatchToMain { [weak self] in
+            guard let self else { return }
+            self.logger.info("Session ICE gathering state \(newState)")
             self.connectionStatus.iceGathering = switch newState
             {
                 case .new: .idle
                 case .gathering: .connecting
                 case .complete: .connected
             }
-        }
-        if newState == .complete
-        {
-            candidatesLocked = true
-            if let candidatesContinuation = candidatesContinuation
+
+            if newState == .complete
             {
-                candidatesContinuation.resume()
+                self.candidatesLocked = true
+                if let candidatesContinuation = self.candidatesContinuation
+                {
+                    candidatesContinuation.resume()
+                }
             }
         }
     }
     
-    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didGenerate candidate: LKRTCIceCandidate)
+    nonisolated public func peerConnection(_ peerConnection: LKRTCPeerConnection, didGenerate candidate: LKRTCIceCandidate)
     {
-        if candidatesLocked
-        {
-            logger.error("!! discovered local candidate after response already sent")
-            return
+        dispatchToMain { [weak self] in
+            guard let self else { return }
+            if self.candidatesLocked
+            {
+                self.logger.error("!! discovered local candidate after response already sent")
+                return
+            }
+            self.localCandidates.append(candidate)
         }
-        localCandidates.append(candidate)
     }
     
-    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didRemove candidates: [LKRTCIceCandidate])
+    nonisolated public func peerConnection(_ peerConnection: LKRTCPeerConnection, didRemove candidates: [LKRTCIceCandidate])
     {
-        logger.error("!! Lost candidate, shouldn't happen since we're not gathering continuously")
+        dispatchToMain { [weak self] in
+            self?.logger.error("!! Lost candidate, shouldn't happen since we're not gathering continuously")
+        }
     }
     
-    public func peerConnection(_ peerConnection: LKRTCPeerConnection, didOpen dataChannel: LKRTCDataChannel)
+    nonisolated public func peerConnection(_ peerConnection: LKRTCPeerConnection, didOpen dataChannel: LKRTCDataChannel)
     {
-        logger.info("Data channel \(dataChannel.label) is now open")
-        dataChannel.delegate = self
-        self.maybeConnected()
+        dispatchToMain { [weak self] in
+            guard let self else { return }
+            self.logger.info("Data channel \(dataChannel.label) is now open")
+            dataChannel.delegate = self
+            self.maybeConnected()
+        }
     }
     
     //MARK: - Data channel delegate
-    public func dataChannelDidChangeState(_ dataChannel: LKRTCDataChannel)
+    nonisolated public func dataChannelDidChangeState(_ dataChannel: LKRTCDataChannel)
     {
         let readyState = dataChannel.readyState
-        logger.info("Data channel \(dataChannel.label) state \(readyState)")
-        DispatchQueue.main.async {
+        dispatchToMain { [weak self] in
+            guard let self else { return }
+            self.logger.info("Data channel \(dataChannel.label) state \(readyState)")
             // TODO: There are more than one data channel. Track them separately.
             self.connectionStatus.data = switch readyState
             {
@@ -442,14 +469,17 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
                 case .connecting: .connecting
                 case .open: .connected
             }
+            self.maybeConnected()
         }
-        maybeConnected()
     }
     
-    public func dataChannel(_ dataChannel: LKRTCDataChannel, didReceiveMessageWith buffer: LKRTCDataBuffer)
+    nonisolated public func dataChannel(_ dataChannel: LKRTCDataChannel, didReceiveMessageWith buffer: LKRTCDataBuffer)
     {
-        logger.trace("Message on data channel \(dataChannel.label): \(buffer.data.count) bytes")
-        delegate?.transport(self, didReceiveData: buffer.data, on: dataChannel.wrapper)
+        dispatchToMain { [weak self] in
+            guard let self else { return }
+            self.logger.trace("Message on data channel \(dataChannel.label): \(buffer.data.count) bytes")
+            self.delegate?.transport(self, didReceiveData: buffer.data, on: dataChannel.wrapper)
+        }
     }
     
     // MARK: - Audio
