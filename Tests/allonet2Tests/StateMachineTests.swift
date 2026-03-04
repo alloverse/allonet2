@@ -98,3 +98,55 @@ final class NegotiationStateTests: XCTestCase
         XCTAssertTrue(deferred.hasDeferredRenegotiation)
     }
 }
+
+@MainActor
+final class TransportConnectionStateTests: XCTestCase
+{
+    func testHappyPath()
+    {
+        let sm = StateMachine<TransportConnectionState>(.idle, label: "test")
+        sm.transition(to: .connecting)
+        sm.transition(to: .connected)
+        XCTAssertEqual(sm.current.description, "connected")
+    }
+
+    func testDisconnectFromConnecting()
+    {
+        let sm = StateMachine<TransportConnectionState>(.idle, label: "test")
+        sm.transition(to: .connecting)
+        sm.transition(to: .disconnected)
+        XCTAssertEqual(sm.current.description, "disconnected")
+    }
+
+    func testDisconnectFromConnected()
+    {
+        let sm = StateMachine<TransportConnectionState>(.idle, label: "test")
+        sm.transition(to: .connecting)
+        sm.transition(to: .connected)
+        sm.transition(to: .disconnected)
+        XCTAssertEqual(sm.current.description, "disconnected")
+    }
+
+    func testRenegotiation()
+    {
+        let sm = StateMachine<TransportConnectionState>(.idle, label: "test")
+        sm.transition(to: .connecting)
+        sm.transition(to: .connected)
+        // Renegotiation: connected → connecting → connected
+        sm.transition(to: .connecting)
+        sm.transition(to: .connected)
+        XCTAssertEqual(sm.current.description, "connected")
+    }
+
+    func testTransitionIfGuard()
+    {
+        let sm = StateMachine<TransportConnectionState>(.connected, label: "test")
+        // Should not transition to connected if already connected
+        let did = sm.transitionIf(to: .connected) { state in
+            if case .connecting = state { return true }
+            return false
+        }
+        XCTAssertFalse(did)
+        XCTAssertEqual(sm.current.description, "connected")
+    }
+}

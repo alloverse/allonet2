@@ -28,14 +28,15 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     public var clientId: ClientId?
     private var peer: LKRTCPeerConnection! = nil
     private var channels: [DataChannelLabel: LKRTCDataChannel] = [:]
-    
+
     public weak var delegate: TransportDelegate?
-    
+
     private var localCandidates : [LKRTCIceCandidate] = []
     private var candidatesLocked = false
     private var candidatesContinuation: CheckedContinuation<Void, Never>?
-    
+
     private var connectionStatus: ConnectionStatus
+    let connectionState = StateMachine<TransportConnectionState>(.idle, label: "UITransport")
     
     private let offerAnswerConstraints = LKRTCMediaConstraints(mandatoryConstraints: [:], optionalConstraints: [:])
     
@@ -54,6 +55,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     public func disconnect()
     {
         dispatchPrecondition(condition: .onQueue(.main))
+        connectionState.transitionIf(to: .disconnected) { $0 != .disconnected }
         peer.close()
         if audioSessionActive
         {
@@ -61,9 +63,20 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
         }
     }
     
+    /// Reset ICE candidate gathering state before starting a new offer/answer cycle.
+    /// Fixes stale candidates on renegotiation.
+    private func resetGatheringState()
+    {
+        localCandidates = []
+        candidatesLocked = false
+        candidatesContinuation = nil
+    }
+
     public func generateOffer() async throws -> SignallingPayload
     {
         logger.debug("Generating offer...")
+        resetGatheringState()
+        connectionState.transition(to: .connecting)
         self.connectionStatus.signalling = .connecting
         let sdp: String = try await withCheckedThrowingContinuation { cont in
             peer.offer(for: offerAnswerConstraints) { (sdp, error) in
@@ -91,6 +104,8 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     
     public func generateAnswer(for offer: SignallingPayload) async throws -> SignallingPayload
     {
+        resetGatheringState()
+        connectionState.transition(to: .connecting)
         try await set(remoteDescription: offer.desc(for: .offer))
         for candidate in offer.rtcCandidates() {
             try await add(remoteCandidate: candidate)
@@ -298,18 +313,22 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
         return factory
     }()
     
-    private var didFullyConnect = false
     private func maybeConnected()
     {
         dispatchPrecondition(condition: .onQueue(.main))
-        if
-            !didFullyConnect &&
+        guard
             (peer.iceConnectionState == .connected || peer.iceConnectionState == .completed) &&
-             channels.count > 0 &&
+            channels.count > 0 &&
             channels.values.allSatisfy({$0.readyState == .open})
+        else { return }
+
+        let didTransition = connectionState.transitionIf(to: .connected) { state in
+            if case .connecting = state { return true }
+            return false
+        }
+        if didTransition
         {
             logger.info("Transport is fully connected")
-            didFullyConnect = true
             self.delegate?.transport(didConnect: self)
         }
     }
@@ -387,7 +406,6 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
 
             if newState == .connected || newState == .completed
             {
-                // actually, just checking the data channels is enough?
                 self.maybeConnected()
             }
             else if newState == .failed || newState == .disconnected
@@ -397,6 +415,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
             }
             else if newState == .closed
             {
+                self.connectionState.transitionIf(to: .disconnected) { $0 != .disconnected }
                 self.delegate?.transport(didDisconnect: self)
             }
         }
