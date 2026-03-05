@@ -38,6 +38,7 @@ public class PlaceServer : AlloSessionDelegate
         }
     }()
     internal var outstandingPlaceChanges: [PlaceChange] = []
+    internal var lastSimulationTime: Double = CFAbsoluteTimeGetCurrent()
     // This is here to help with some calculations; don't try to modify place through it.
     let placeHelper: Place
     
@@ -126,6 +127,12 @@ public class PlaceServer : AlloSessionDelegate
             if let client = self.clients[cid]
             {
                 client.ackdRevision = intent.ackStateRev
+                client.latestIntent = intent
+                // Keep ticking while any client wants to move
+                if intent.moveDirection != .zero
+                {
+                    await self.heartbeat.markChanged()
+                }
             } else
             {
                 // If it's not in clients, it should be in unacknowledged... just double checking

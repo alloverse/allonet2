@@ -6,25 +6,71 @@
 //
 
 import Foundation
+import simd
 
 extension PlaceServer
 {
+    /// Movement speed in meters per second (matching old alloplace2 convention)
+    static let movementSpeed: Float = 2.0
+
     internal func appendChanges(_ changes: [PlaceChange]) async
     {
         outstandingPlaceChanges.append(contentsOf: changes)
         await heartbeat.markChanged()
     }
-    
+
     func applyAndBroadcastState()
     {
+        simulateMovement()
+
         let success = place.applyChangeSet(PlaceChangeSet(changes: outstandingPlaceChanges, fromRevision: place.current.revision, toRevision: place.current.revision + 1))
         assert(success) // bug if this doesn't succeed
         outstandingPlaceChanges.removeAll()
         for client in clients.values {
             let lastContents = client.ackdRevision.flatMap { place.getHistory(at: $0) } ?? PlaceContents(logger: logger)
             let changeSet = place.current.changeSet(from: lastContents)
-            
+
             client.session.send(placeChangeSet: changeSet)
+        }
+    }
+
+    /// Apply movement from client intents to avatar transforms.
+    /// Called every heartbeat tick before state is broadcast.
+    private func simulateMovement()
+    {
+        let now = CFAbsoluteTimeGetCurrent()
+        let dt = Float(now - lastSimulationTime)
+        lastSimulationTime = now
+
+        // Clamp dt to avoid huge jumps after long idle periods
+        let clampedDt = min(dt, 0.25)
+
+        let transforms = place.current.components[Transform.self]
+        var anyMoving = false
+        for client in clients.values
+        {
+            guard
+                let intent = client.latestIntent,
+                intent.moveDirection != .zero,
+                let avatarId = client.avatar,
+                let currentTransform = transforms[avatarId]
+            else { continue }
+
+            anyMoving = true
+            let displacement = intent.moveDirection * Self.movementSpeed * clampedDt
+            var newTransform = currentTransform
+            newTransform.matrix.translation.x += displacement.x
+            newTransform.matrix.translation.z -= displacement.y // SIMD2.y (forward) maps to -Z in 3D
+
+            outstandingPlaceChanges.append(
+                .componentUpdated(avatarId, AnyComponent(newTransform))
+            )
+        }
+
+        // Keep ticking while clients are moving
+        if anyMoving
+        {
+            Task { await heartbeat.markChanged() }
         }
     }
     

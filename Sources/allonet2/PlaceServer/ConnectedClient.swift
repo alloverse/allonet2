@@ -15,6 +15,7 @@ internal class ConnectedClient
     var identity: Identity? = nil
     var announced = false
     var ackdRevision : StateRevision? // Last ack'd place contents revision, or nil if none
+    var latestIntent: Intent? // Latest intent received from this client
     var cid: ClientId = UUID()
     var avatar: EntityID? // Assigned in the place server upon successful client announce
     var logger: Logger

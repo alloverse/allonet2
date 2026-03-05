@@ -11,6 +11,7 @@ import FoundationNetworking
 #endif
 import OpenCombineShim
 import Logging
+import simd
 
 /// A persistent connection as a client to an AlloPlace. If disconnected by temporary network issues, it will try to reconnect automatically.
 @MainActor
@@ -358,6 +359,17 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         session.send(currentIntent)
     }
     
+    // MARK: - Movement
+
+    /// Set the desired movement direction. Normalized -1..1 per axis.
+    /// x = strafe right, y = forward. Set to .zero to stop.
+    /// The server applies speed and delta time.
+    public var moveDirection: SIMD2<Float>
+    {
+        get { currentIntent.moveDirection }
+        set { currentIntent.moveDirection = newValue }
+    }
+
     // MARK: - Convenience API
     
     public func request(receiverEntityId: EntityID, body: InteractionBody) async -> Interaction
