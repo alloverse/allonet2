@@ -52,3 +52,6 @@ Read `README.md` and the notes under `docs/` (start at `docs/index.md`) first â€
 **Backlog.** Development is planned in Patch â€” the **Allonet2** project in the shared roadmap. Loop workers claim cards there. Refer to a card in prose as `~<ID>` (e.g. `~610`), never `#` (that's a GitHub PR).
 
 **Merge convention.** Atomic commits, module named in parentheses in the subject, body explains why/how. `gh pr merge <n> --merge` (no squash), branch off `main`.
+
+@README.md
+@docs/index.md
