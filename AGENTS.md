@@ -43,7 +43,7 @@ allonet2 is a Swift Package (macOS/iOS/visionOS), WebRTC-based — Alloverse's r
 * `git submodule update --init --recursive` — `Packages/AlloDataChannel` is a submodule; a bare worktree has `Packages/` empty until it's initialized, and nothing resolves.
 * `swift build` then `swift test`, on macOS.
 * The first build pulls `webrtc-xcframework` (a large binary dependency); provision warms it so the gate runs incrementally after.
-* Some products target visionOS/iOS; the gate builds + tests on macOS. For an observable protocol/behaviour change, prefer a Swift Testing case that exercises it over a manual check.
+* The gate builds + tests on **macOS**, but CI also builds on **Linux (amd64 + arm64)** — a change that's green locally can still break Linux CI (a platform `#if os`, a Darwin-only import). When you touch platform-sensitive code, sanity-check it still compiles for Linux. Some products also target visionOS/iOS; for an observable protocol/behaviour change, prefer a Swift Testing case that exercises it over a manual check.
 
 ## Project info
 
