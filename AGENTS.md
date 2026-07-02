@@ -47,7 +47,7 @@ allonet2 is a Swift Package (macOS/iOS/visionOS), WebRTC-based — Alloverse's r
 
 ## Project info
 
-Read `README.md` and `MEMORY.md` first — they carry the architecture and the non-obvious pitfalls you'd otherwise rediscover the hard way. Keep `MEMORY.md` updated (under 100 lines) as you learn things: architecture, build quirks, gotchas — not settled features you can read from the code.
+Read `README.md` and the notes under `docs/` (start at `docs/index.md`) first — they carry the architecture and the non-obvious pitfalls you'd otherwise rediscover the hard way. Capture new learnings under `docs/` (a note plus a one-line pointer in `docs/index.md`), keeping each tight — architecture, build quirks, gotchas, not settled features you can read from the code.
 
 **Backlog.** Development is planned in Patch — the **Allonet2** project in the shared roadmap. Loop workers claim cards there. Refer to a card in prose as `~<ID>` (e.g. `~610`), never `#` (that's a GitHub PR).
 
