@@ -28,12 +28,12 @@ public struct Allonet
 
 public extension PackageBuild
 {
-    public var version: Version
+    var version: Version
     {
         return Version(tolerant: tag!)!
     }
-    
-    public var describe: String
+
+    var describe: String
     {
         if tag == nil,
            digest.isEmpty {
