@@ -1,0 +1,21 @@
+# Makes allonet2 LoopWorker-compatible. In host mode the Manager reads the backlog
+# connection from the host's ~/.loopworker/config.toml; the [backlog] block below only
+# matters for a single-project `loopworker --project` run.
+
+[project]
+name           = "allonet2"
+worker_manager = "miquon"   # informational in host mode (host config is the source of truth)
+
+[backlog]
+adapter = "patch"  # host mode supplies the connection (api_base/anon_key) from ~/.loopworker/config.toml
+
+[brief]
+source = "repo-file"
+ref    = "BRIEF.md"
+
+[worker]
+mcp                   = ["patch"]
+wallclock_cap_minutes = 90
+
+[slots]
+count = 1
