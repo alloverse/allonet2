@@ -54,6 +54,23 @@ schema, and publishes that back to agents as the authoritative.
 
 ## Development
 
+### macOS
+
+```sh
+git submodule update --init --recursive   # AlloDataChannel etc; required
+swift build                               # first build downloads a large webrtc xcframework
+swift run AlloPlace -n "Local Place"
+```
+
+`AlloPlace` is the place server. Useful flags: `-p` HTTP signalling port (default
+9080), `-t` token that AlloApps must present (omit to allow any app), `-u` UDP port
+range for WebRTC, `--app-name`/`--app-url-protocol` to brand the landing page for a
+custom client. Clients connect with an `alloplace2://host:port` URL; signalling is a
+single HTTPS POST, then everything runs over WebRTC data channels (CBOR-encoded).
+
+Also runnable from Xcode: open the package, pick the AlloPlace scheme, set the same
+flags as Run arguments.
+
 ### Windows
 
 1. Install [Swift 5.9](https://www.swift.org/download/)
