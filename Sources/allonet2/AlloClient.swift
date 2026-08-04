@@ -392,7 +392,9 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
                 do { try await Task.sleep(for: .milliseconds(50)) }
                 catch { break }
                 guard let self else { break }
-                idleRepeats = self.currentIntent.moveDirection == .zero ? idleRepeats + 1 : 0
+                // Same dead zone the simulation uses, or drift below it would repeat forever.
+                let moving = simd_length(self.currentIntent.moveDirection) >= MovementSimulation.inputDeadZone
+                idleRepeats = moving ? 0 : idleRepeats + 1
                 self.sendIntent()
             }
             self?.movementIntentRepeat = nil
