@@ -214,8 +214,8 @@ struct JitterBufferTests
         }
 
         let snapshot = counters.snapshot
-        let accounted = snapshot.decoded + snapshot.duplicate + snapshot.late
-        #expect(accounted == inserted, "every inserted frame is decoded, dropped as duplicate, or dropped as late: \(snapshot)")
+        let accounted = snapshot.decoded + snapshot.duplicate + snapshot.late + snapshot.overflowed + buffer.depth
+        #expect(accounted == inserted, "every inserted frame is decoded, dropped, or still buffered: \(snapshot), depth \(buffer.depth)")
         #expect(snapshot.decoded > 0)
     }
 }

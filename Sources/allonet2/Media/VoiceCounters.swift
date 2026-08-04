@@ -9,8 +9,10 @@ import Foundation
 /// them, and the server exposes them over its status endpoint.
 ///
 /// Every frame that leaves a hop must be accounted for at the next one. On the receiving
-/// side `received == decoded + late + duplicate + malformed`, and every 20 ms of playout is
-/// one of `decoded`, `fecRecovered` or `concealed`.
+/// side, once playout has started, every received frame is eventually `decoded`, or
+/// dropped as `late`, `duplicate`, `malformed` or `overflowed` - anything unaccounted for is
+/// still sitting in the jitter buffer. Every 20 ms of playout is exactly one of `decoded`,
+/// `fecRecovered` or `concealed`.
 public struct VoiceCounters: Equatable, Sendable, Codable, CustomStringConvertible
 {
     // Sender
@@ -28,6 +30,9 @@ public struct VoiceCounters: Equatable, Sendable, Codable, CustomStringConvertib
     public var received = 0
     public var malformed = 0
     public var late = 0
+    /// Dropped because the buffer was full - the consumer is not draining, which is a
+    /// different fault from a frame arriving after its slot played.
+    public var overflowed = 0
     public var duplicate = 0
     public var reordered = 0
     public var decoded = 0
@@ -44,6 +49,7 @@ public struct VoiceCounters: Equatable, Sendable, Codable, CustomStringConvertib
         add("captured", captured); add("encoded", encoded); add("sent", sent); add("sendFailed", sendFailed)
         add("in", forwardedIn); add("out", forwardedOut); add("fwdDropped", forwardDropped)
         add("received", received); add("malformed", malformed); add("late", late)
+        add("overflowed", overflowed)
         add("dup", duplicate); add("reordered", reordered); add("decoded", decoded)
         add("fec", fecRecovered); add("concealed", concealed); add("played", played)
         return parts.isEmpty ? "(none)" : parts.joined(separator: " ")

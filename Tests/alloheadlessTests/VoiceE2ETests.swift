@@ -119,6 +119,56 @@ final class VoiceE2ETests: XCTestCase
         }
     }
 
+    /// Closes the loop: samples handed to the sender come back out of `render()` on the
+    /// receiver, through the jitter buffer, decoder and ring buffer. Every other test here
+    /// stops at the wire.
+    func testDecodedAudioComesOutOfTheRenderSeam() async throws
+    {
+        try await withPlace { place in
+        VoiceCodecs.makeDecoder = { RawPCMVoiceCodec() }
+
+        let speaker = try await place.connectClient(named: "speaker")
+        let listener = try await place.connectClient(named: "listener")
+
+        let outgoing = try speaker.startSpeaking(mediaId: "voice-mic")
+        let placeStreamId = try await speaker.advertise(mediaId: "voice-mic")
+        try await listener.listen(to: [placeStreamId])
+        let incoming = try await listener.awaitStream(placeStreamId)
+
+        // Starts the decode pump. This is the same call SpatialAudioPlayer makes.
+        let ring = incoming.render()
+
+        for frame in 0..<60
+        {
+            var samples = Self.markerSamples(frame: frame)
+            samples.withUnsafeBufferPointer { buffer in
+                outgoing.send(samples: buffer.baseAddress!, frameCount: buffer.count)
+            }
+            try await Task.sleep(nanoseconds: 2_000_000)
+        }
+
+        let frameSize = DataChannelMediaStream.frameDuration
+        try await waitUntil(timeout: 10) { ring.availableToRead() >= frameSize }
+
+        var decoded = [Float](repeating: -1, count: frameSize)
+        let read = decoded.withUnsafeMutableBufferPointer { buffer -> Int in
+            ring.read(into: [buffer.baseAddress!], frames: buffer.count)
+        }
+        XCTAssertEqual(read, frameSize)
+
+        // Marker audio: every sample of a frame carries that frame's index, so a whole frame
+        // of a single value means nothing was torn, shifted or interleaved on the way.
+        XCTAssertEqual(Set(decoded).count, 1, "a decoded frame must hold one marker value, got \(Set(decoded).sorted().prefix(4))")
+        XCTAssertGreaterThanOrEqual(decoded[0], 0, "decoded silence rather than audio")
+        XCTAssertLessThan(decoded[0], 60)
+
+        let counters = incoming.counters.snapshot
+        XCTAssertGreaterThan(counters.decoded, 0, "counters: \(counters)")
+        XCTAssertEqual(counters.malformed, 0, "counters: \(counters)")
+        print("PLAYOUT COUNTERS \(counters); ring underruns \(ring.underruns)")
+        }
+    }
+
     /// Listeners joining and leaving is the churn that used to trigger a renegotiation per
     /// stream per receiver. It must now cost none, and the speaker must survive it.
     func testJoinLeaveChurnCostsNoRenegotiation() async throws

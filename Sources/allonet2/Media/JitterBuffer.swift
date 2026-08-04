@@ -130,7 +130,7 @@ public final class JitterBuffer: @unchecked Sendable
         while frames.count > configuration.maximumDepth * 2, let oldest = frames.keys.min(by: { $1.isNewerSequence(than: $0) })
         {
             frames.removeValue(forKey: oldest)
-            counters.update { $0.late += 1 }
+            counters.update { $0.overflowed += 1 }
         }
     }
 

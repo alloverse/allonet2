@@ -85,9 +85,14 @@ fills it in on clients.
 ## Counters
 
 `VoiceCounters` are data, not log lines: tests assert on them. Every frame that leaves a hop
-is accounted for at the next one — on a receiver,
-`received == decoded + late + duplicate + malformed`, and every 20 ms of playout is exactly
-one of `decoded`, `fecRecovered` or `concealed`.
+is accounted for at the next one — on a receiver, every `received` frame is eventually
+`decoded`, or dropped as `late`, `duplicate`, `malformed` or `overflowed`, or still sitting
+in the jitter buffer. Every 20 ms of playout is exactly one of `decoded`, `fecRecovered` or
+`concealed`.
+
+`late` and `overflowed` are deliberately separate: a late frame means the network was
+slower than the buffer depth, an overflowed one means *nothing is draining playout*. They
+call for opposite fixes.
 
 ## Running it
 
