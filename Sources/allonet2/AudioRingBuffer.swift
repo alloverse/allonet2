@@ -156,6 +156,14 @@ open class AudioRingBuffer: Cancellable, CustomStringConvertible
     }
 
     
+    private let underrunFrames = ManagedAtomic(0)
+
+    /// Frames the consumer asked for that were not there. Nonzero while a stream primes;
+    /// growing during steady playout means the producer is not keeping up.
+    public var underruns: Int { underrunFrames.load(ordering: .relaxed) }
+
+    public func noteUnderrun(frames: Int) { underrunFrames.wrappingIncrement(by: frames, ordering: .relaxed) }
+
     var canceller: () -> ()
     public func cancel() { canceller() }
 }
