@@ -63,60 +63,72 @@ public class HeadlessWebRTCTransport: Transport
         peer.$state.sink { [weak self] state in
             guard let self = self else { return }
             logger.info("peer state changed to \(state)")
-            if state == .connected
-            {
-                // @Published emits on willSet: inside this sink, peer.state (and channels'
-                // isOpen) still hold their old values. Defer so maybeConnected reads
-                // committed state; otherwise the last-arriving event reads itself as stale
-                // and the transport never reports connected.
-                DispatchQueue.main.async { self.maybeConnected() }
-            }
-            else if state == .closed || state == .failed
-            {
-                let didTransition = self.connectionState.transitionIf(to: .disconnected) { $0 != .disconnected }
-                if didTransition
+            // Hop before touching any of this class's state. libdatachannel signals from its
+            // own threads, and `@Published` also emits on willSet - so reading peer.state or
+            // a channel's isOpen from inside the sink sees the *old* value. Deferring fixes
+            // both: committed values, and every mutation serialised on the main actor.
+            //
+            // Not deferring raced `disconnect()`: both callers passed the "not already
+            // disconnected" check, both transitioned, and the second one tripped the state
+            // machine's precondition and killed the process.
+            Self.onMain {
+                if state == .connected
                 {
-                    self.delegate?.transport(didDisconnect: self)
+                    self.maybeConnected()
+                }
+                else if state == .closed || state == .failed
+                {
+                    let didTransition = self.connectionState.transitionIf(to: .disconnected) { $0 != .disconnected }
+                    if didTransition
+                    {
+                        self.delegate?.transport(didDisconnect: self)
+                    }
                 }
             }
         }.store(in: &cancellables)
         peer.$signalingState.sink { [weak self] state in
             guard let self = self else { return }
             logger.info("signalling state changed to \(state)")
-            self.delegate?.transport(self, didChangeSignallingState: TransportSignallingState(rawValue: state.rawValue)!)
+            Self.onMain { self.delegate?.transport(self, didChangeSignallingState: TransportSignallingState(rawValue: state.rawValue)!) }
         }.store(in: &cancellables)
         
         peer.$gatheringState.sink { [weak self] gathering in
             guard let self else { return }
-            self.connectionStatus.iceGathering = switch gathering
-            {
-                case .new: .idle
-                case .inProgress: .connecting
-                case .complete: .connected
+            Self.onMain {
+                self.connectionStatus.iceGathering = switch gathering
+                {
+                    case .new: .idle
+                    case .inProgress: .connecting
+                    case .complete: .connected
+                }
             }
         }.store(in: &cancellables)
         peer.$iceState.sink { [weak self] ice in
             guard let self else { return }
-            self.connectionStatus.iceConnection = switch ice
-            {
-                case .closed, .new, .disconnected: .idle
-                case .checking, .connected: .connecting
-                case .completed: .connected
-                case .failed: .failed
+            Self.onMain {
+                self.connectionStatus.iceConnection = switch ice
+                {
+                    case .closed, .new, .disconnected: .idle
+                    case .checking, .connected: .connecting
+                    case .completed: .connected
+                    case .failed: .failed
+                }
             }
         }.store(in: &cancellables)
         
         
         peer.$tracks.sinkChanges(added: { track in
-            self.delegate?.transport(self, didReceiveMediaStream: track)
+            Self.onMain { self.delegate?.transport(self, didReceiveMediaStream: track) }
         }, removed: { track in
-            self.delegate?.transport(self, didRemoveMediaStream: track)
+            Self.onMain { self.delegate?.transport(self, didRemoveMediaStream: track) }
         }).store(in: &cancellables)
 
         peer.$dataChannels.sinkChanges(added: { [weak self] channel in
+            // Subscribed on this thread on purpose - see `adopt`.
             self?.adopt(remote: channel)
         }, removed: { [weak self] channel in
-            self?.forget(remote: channel)
+            guard let self else { return }
+            Self.onMain { self.forget(remote: channel) }
         }).store(in: &cancellables)
     }
 
@@ -127,6 +139,13 @@ public class HeadlessWebRTCTransport: Transport
         channels[channel.label] = nil
         logger.info("Lost media stream \(mediaId)")
         delegate?.transport(self, didRemoveMediaStream: stream)
+    }
+
+    /// libdatachannel calls back on its own threads; this class is @MainActor. Hop once at
+    /// that boundary rather than sprinkling dispatches through the handlers.
+    private nonisolated static func onMain(_ body: @escaping @MainActor () -> Void)
+    {
+        if Thread.isMainThread { MainActor.assumeIsolated(body) } else { DispatchQueue.main.async { MainActor.assumeIsolated(body) } }
     }
 
     /// Check if both ICE and data channels are ready; transition to .connected if so.
@@ -293,29 +312,34 @@ public class HeadlessWebRTCTransport: Transport
         return stream
     }
 
-    /// Adopt a media channel the far side opened. Runs on libdatachannel's thread, which is
-    /// also the thread that will deliver this channel's messages - so the message handler is
-    /// attached before any frame can race it.
-    private func adopt(remote channel: AlloWebRTCPeer.DataChannel)
+    /// Adopt a media channel the far side opened in-band.
+    ///
+    /// Runs on libdatachannel's thread. The message subscription is attached *here* rather
+    /// than after hopping, because that thread starts delivering frames immediately and a
+    /// hop would drop the first ones. Only the bookkeeping goes to the main actor.
+    private nonisolated func adopt(remote channel: AlloWebRTCPeer.DataChannel)
     {
         guard let label = DataChannelLabel(rawValue: channel.label), case .media(let mediaId) = label else { return }
-        guard mediaStreams[mediaId] == nil else { return }
 
         let stream = DataChannelMediaStream(mediaId: mediaId, direction: .recvonly) { [weak channel] data in
             guard let channel, channel.isOpen else { return false }
             do { try channel.send(data: data); return true }
             catch { return false }
         }
-        mediaStreams[mediaId] = stream
-        channels[channel.label] = channel
-
-        channel.$lastMessage.sink { [weak stream] message in
+        let subscription = channel.$lastMessage.sink { [weak stream] message in
             guard let stream, let message else { return }
             stream.deliver(message)
-        }.store(in: &cancellables)
+        }
 
-        logger.info("Adopted incoming media stream \(mediaId)")
-        delegate?.transport(self, didReceiveMediaStream: stream)
+        Self.onMain { [weak self] in
+            guard let self else { return subscription.cancel() }
+            guard mediaStreams[mediaId] == nil else { return subscription.cancel() }
+            mediaStreams[mediaId] = stream
+            channels[channel.label] = channel
+            cancellables.insert(subscription)
+            logger.info("Adopted incoming media stream \(mediaId)")
+            delegate?.transport(self, didReceiveMediaStream: stream)
+        }
     }
     
     public func send(data: Data, on channelLabel: DataChannelLabel)
