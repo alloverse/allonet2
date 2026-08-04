@@ -28,6 +28,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     public var clientId: ClientId?
     private var peer: LKRTCPeerConnection! = nil
     private var channels: [DataChannelLabel: LKRTCDataChannel] = [:]
+    private var mediaStreams: [MediaStreamId: DataChannelMediaStream] = [:]
 
     public weak var delegate: TransportDelegate?
 
@@ -207,18 +208,61 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
     {
         dispatchPrecondition(condition: .onQueue(.main))
         let config = LKRTCDataChannelConfiguration()
-        config.isNegotiated = true
-        config.isOrdered = reliable
-        config.maxRetransmits = reliable ? -1 : 0
-        config.channelId = label.channelId
-        
+        if let channelId = label.channelId
+        {
+            config.isNegotiated = true
+            config.isOrdered = reliable
+            config.maxRetransmits = reliable ? -1 : 0
+            config.channelId = channelId
+        }
+        else
+        {
+            // Media: in-band so the far side discovers it without an offer/answer, and
+            // unreliable because a retransmitted voice frame arrives too late to play.
+            config.isNegotiated = false
+            config.isOrdered = false
+            config.maxRetransmits = 0
+        }
+
         guard let channel = peer.dataChannel(forLabel: label.rawValue, configuration: config) else {
             return nil
         }
-        
+
         channel.delegate = self
         self.channels[label] = channel
         return channel.wrapper
+    }
+
+    /// Open an outgoing voice stream on its own channel.
+    public func createOutgoingMediaStream(mediaId: MediaStreamId) throws -> DataChannelMediaStream
+    {
+        let label = DataChannelLabel.media(mediaId)
+        guard createDataChannel(label: label, reliable: false) != nil, let channel = channels[label] else
+        {
+            throw AlloverseError(code: AlloverseErrorCode.internalServerError, description: "Could not open media channel for \(mediaId)")
+        }
+        let stream = DataChannelMediaStream(mediaId: mediaId, direction: .sendonly) { [weak channel] data in
+            guard let channel, channel.readyState == .open else { return false }
+            return channel.sendData(LKRTCDataBuffer(data: data, isBinary: true))
+        }
+        mediaStreams[mediaId] = stream
+        return stream
+    }
+
+    /// Adopt a media channel the far side opened in-band.
+    private func adopt(remote channel: LKRTCDataChannel)
+    {
+        guard let label = DataChannelLabel(rawValue: channel.label), case .media(let mediaId) = label else { return }
+        guard mediaStreams[mediaId] == nil else { return }
+
+        let stream = DataChannelMediaStream(mediaId: mediaId, direction: .recvonly) { [weak channel] data in
+            guard let channel, channel.readyState == .open else { return false }
+            return channel.sendData(LKRTCDataBuffer(data: data, isBinary: true))
+        }
+        mediaStreams[mediaId] = stream
+        channels[label] = channel
+        logger.info("Adopted incoming media stream \(mediaId)")
+        delegate?.transport(self, didReceiveMediaStream: stream)
     }
     
     public func send(data: Data, on channelLabel: DataChannelLabel)
@@ -470,6 +514,7 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
             guard let self else { return }
             self.logger.info("Data channel \(dataChannel.label) is now open")
             dataChannel.delegate = self
+            self.adopt(remote: dataChannel)
             self.maybeConnected()
         }
     }
@@ -497,6 +542,11 @@ class UIWebRTCTransport: NSObject, Transport, LKRTCPeerConnectionDelegate, LKRTC
         dispatchToMain { [weak self] in
             guard let self else { return }
             self.logger.trace("Message on data channel \(dataChannel.label): \(buffer.data.count) bytes")
+            if let label = DataChannelLabel(rawValue: dataChannel.label), case .media(let mediaId) = label
+            {
+                self.mediaStreams[mediaId]?.deliver(buffer.data)
+                return
+            }
             self.delegate?.transport(self, didReceiveData: buffer.data, on: dataChannel.wrapper)
         }
     }

@@ -3,6 +3,22 @@
 
 import PackageDescription
 
+#if canImport(Darwin)
+// AVFoundation capture/playout and the demo that uses it. Declared only on Apple hosts so
+// the Linux server build never sees them.
+let applePlatformTargets: [Target] = [
+    .target(name: "AlloAudio", dependencies: ["allonet2"]),
+    .executableTarget(name: "voicedemo", dependencies: ["alloheadless", "AlloAudio", "AlloOpus"]),
+]
+let applePlatformProducts: [Product] = [
+    .library(name: "AlloAudio", targets: ["AlloAudio"]),
+    .executable(name: "voicedemo", targets: ["voicedemo"]),
+]
+#else
+let applePlatformTargets: [Target] = []
+let applePlatformProducts: [Product] = []
+#endif
+
 let package = Package(
     name: "allonet2",
     platforms: [
@@ -28,13 +44,17 @@ let package = Package(
             name: "AlloReality",
             targets: ["AlloReality"]
         ),
+        .library(
+            name: "AlloOpus",
+            targets: ["AlloOpus"]
+        ),
         .executable(name: "AlloPlace",
             targets: ["AlloPlace"]
         ),
         .executable(name: "demoapp",
             targets: ["demoapp"]
         )
-    ],
+    ] + applePlatformProducts,
     dependencies: [
           .package(url: "https://github.com/outfoxx/PotentCodables.git", from: "3.5.3"),
 
@@ -73,7 +93,8 @@ let package = Package(
             dependencies: [
                 .product(name: "LiveKitWebRTC", package: "webrtc-xcframework"),
                 .product(name: "OpenCombineShim", package: "opencombine"),
-                "allonet2"
+                "allonet2",
+                "AlloAudio"
             ]
         ),
         .target(
@@ -89,11 +110,66 @@ let package = Package(
             dependencies: [
                 .product(name: "OpenCombineShim", package: "opencombine"),
                 "alloclient",
+                "AlloAudio",
             ]
         ),
+        // Vendored libopus (BSD-3). Built from source rather than linked from the system so
+        // macOS, visionOS and Linux all get the same codec with no per-machine setup.
+        // Architecture-specific kernels are excluded; the generic C path is far more than
+        // fast enough for one 32 kbit/s mono stream.
+        .target(
+            name: "COpus",
+            path: "Packages/opus",
+            exclude: [
+                "celt/arm", "celt/dump_modes", "celt/mips", "celt/tests", "celt/x86",
+                "silk/arm", "silk/fixed", "silk/mips", "silk/tests", "silk/x86",
+                // Demos carry their own main() and need CUSTOM_MODES, which we do not build.
+                "src/opus_demo.c", "src/repacketizer_demo.c", "src/opus_compare.c",
+                "celt/opus_custom_demo.c",
+                "doc", "tests", "training", "win32", "cmake", "m4", "meson", "scripts",
+                "include/meson.build", "celt/meson.build", "silk/meson.build", "src/meson.build",
+                "CMakeLists.txt", "Makefile.am", "Makefile.mips", "Makefile.unix", "configure.ac",
+                "meson.build", "meson_options.txt", "autogen.sh", "opus.m4", "opus.pc.in",
+                "opus-uninstalled.pc.in", "update_version", "releases.sha2",
+                "celt_headers.mk", "celt_sources.mk", "opus_headers.mk", "opus_sources.mk",
+                "silk_headers.mk", "silk_sources.mk",
+                "AUTHORS", "COPYING", "ChangeLog", "NEWS", "README", "README.draft",
+                "LICENSE_PLEASE_READ.txt",
+            ],
+            sources: ["celt", "silk", "silk/float", "src"],
+            publicHeadersPath: "include",
+            cSettings: [
+                .headerSearchPath("."),
+                .headerSearchPath("celt"),
+                .headerSearchPath("silk"),
+                .headerSearchPath("silk/float"),
+                .headerSearchPath("include"),
+                .define("OPUS_BUILD", to: "1"),
+                .define("USE_ALLOCA", to: "1"),
+                .define("HAVE_LRINT", to: "1"),
+                .define("HAVE_LRINTF", to: "1"),
+                .define("FLOATING_POINT", to: "1"),
+                .define("PACKAGE_VERSION", to: "\"1.4\""),
+            ]
+        ),
+        // opus_encoder_ctl is a C variadic, which Swift cannot call.
+        .target(name: "COpusShim", dependencies: ["COpus"]),
+        .target(name: "AlloOpus", dependencies: ["COpus", "COpusShim", "allonet2"]),
+        // CoreAudio capture and playout. Apple platforms only, so it is declared only when
+        // building on one - the Linux server has no use for a microphone.
+    ] + applePlatformTargets + [
         .testTarget(
             name: "allonet2Tests",
             dependencies: ["allonet2"]
+        ),
+        .testTarget(
+            name: "AlloOpusTests",
+            dependencies: ["AlloOpus", "allonet2"]
+        ),
+        // End-to-end: a real PlaceServer and real clients over real libdatachannel loopback.
+        .testTarget(
+            name: "alloheadlessTests",
+            dependencies: ["alloheadless", "allonet2"]
         ),
         .executableTarget(
             name: "AlloPlace",
