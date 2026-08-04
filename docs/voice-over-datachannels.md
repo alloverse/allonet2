@@ -94,6 +94,21 @@ in the jitter buffer. Every 20 ms of playout is exactly one of `decoded`, `fecRe
 slower than the buffer depth, an overflowed one means *nothing is draining playout*. They
 call for opposite fixes.
 
+## Removing googlewebrtc
+
+Done on the branch (`ed9dc4a`) and it works on macOS — all tests green, KojaApp needs no
+source changes, debug bundle 112 MB → 90 MB — but it **cannot ship until AlloDataChannel
+gains platform slices**. `Binaries/datachannel.xcframework` contains only `macos-arm64` and
+`linux-x86_64`, which was fine while libdatachannel was server-side only and is a hard
+blocker once the client uses it:
+
+    datachannel.xcframework: While building for visionOS Simulator, no library for this
+    platform was found
+
+`Scripts/build-libdatachannel.sh` builds those same two slices, so adding visionOS (device +
+simulator, and iOS later) is real work there first. That is the single prerequisite for
+deleting googlewebrtc.
+
 ## Running it
 
     swift test --filter VoiceE2ETests     # real server + real clients over loopback
