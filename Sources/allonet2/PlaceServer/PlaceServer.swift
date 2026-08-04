@@ -99,6 +99,10 @@ public class PlaceServer : AlloSessionDelegate
         var clogger = logger.forClient(cid)
         clogger.info("Lost session for client \(cid), removing entities...")
         Task { @MainActor in
+            // The client stays in `clients` until the next sync below, so stop simulating it first:
+            // a movement update queued alongside its avatar's removal makes the whole changeset
+            // inapplicable, which trips the assert in applyAndBroadcastState.
+            self.clients[cid]?.stopMoving()
             await self.removeEntites(ownedBy: cid)
             await self.heartbeat.awaitNextSync() // trigger callbacks for disappearing entities and their components before removing client
             if let client = self.clients.removeValue(forKey: cid) ?? self.unannouncedClients.removeValue(forKey: cid)
