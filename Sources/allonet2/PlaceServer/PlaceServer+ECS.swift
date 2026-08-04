@@ -12,12 +12,26 @@ extension PlaceServer
 {
     internal func appendChanges(_ changes: [PlaceChange]) async
     {
-        // Someone other than the movement sim moving an avatar (a teleport, a correction) wins:
-        // drop the cached simulated position, or the next tick would undo their change.
-        for case .componentUpdated(let eid, let component) in changes
-            where component.componentTypeId == Transform.componentTypeId
+        // Someone other than the movement sim touching an avatar wins over the simulation:
+        // a teleport becomes the new base to move from (not just invalidation - a sim tick can
+        // run before the heartbeat commits the queued teleport, and must not resurrect the old
+        // position), and a removed avatar stops moving, or the next tick would queue an update
+        // for a nonexistent component and make the whole changeset inapplicable.
+        for change in changes
         {
-            for client in clients.values where client.avatar == eid { client.simulatedTransform = nil }
+            switch change
+            {
+            case .componentUpdated(let eid, let component) where component.componentTypeId == Transform.componentTypeId:
+                for client in clients.values where client.avatar == eid
+                {
+                    client.simulatedTransform = component.decoded() as? Transform
+                }
+            case .entityRemoved(let edata):
+                for client in clients.values where client.avatar == edata.id { client.stopMoving() }
+            case .componentRemoved(let edata, let component) where component.componentTypeId == Transform.componentTypeId:
+                for client in clients.values where client.avatar == edata.id { client.stopMoving() }
+            default: break
+            }
         }
         outstandingPlaceChanges.append(contentsOf: changes)
         await heartbeat.markChanged()

@@ -12,6 +12,8 @@ import simd
 /// The direction is in **place space**, not avatar-local: x is +X and y is -Z regardless of how the
 /// avatar is rotated. Clients decide what "forward" means (Koja rotates by its camera before sending),
 /// which is what lets a camera-relative UI work without the server knowing about cameras.
+/// Assumes the avatar is a root entity: a Relationships parent would make the integrated
+/// translation parent-relative, rotating and scaling the movement.
 public enum MovementSimulation
 {
     /// Movement speed in meters per second. 2.0 (the old alloplace2 VR convention) reads as crawling in the top-down diorama.
