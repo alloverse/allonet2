@@ -61,6 +61,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
             Task { await heartbeat.markChanged() }
         }
     }
+    private var movementIntentRepeat: Task<Void, Never>? = nil
     lazy var heartbeat: HeartbeatTimer = {
         /// Keep a shorter coalesce than server so we ack before the next change; longer keepalive so we don't send an unnecessary keepalive juust before the server's keepalive.
         return HeartbeatTimer(coalesceDelay: 5_000_000, keepaliveDelay: 1_100_000_000) {
@@ -363,9 +364,9 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     
     // MARK: - Movement
 
-    /// Set the desired movement direction. Normalized -1..1 per axis.
-    /// x = strafe right, y = forward. Set to .zero to stop.
-    /// The server applies speed and delta time.
+    /// Set the desired movement direction in place space. Normalized -1..1 per axis;
+    /// x is +X and y is -Z, so a camera-relative UI rotates the vector before setting it.
+    /// Set to .zero to stop. The server applies speed and delta time.
     public var moveDirection: SIMD2<Float>
     {
         get { currentIntent.moveDirection }
@@ -373,6 +374,28 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
             // Key-repeat and rollover resend the same vector; only a change is worth an intent.
             guard newValue != currentIntent.moveDirection else { return }
             currentIntent.moveDirection = newValue
+            startMovementIntentRepeatIfNeeded()
+        }
+    }
+
+    /// Intents ride an unreliable channel, and the idle keepalive is ~1.1s: losing the packet that
+    /// stops movement would let the server keep going for that long. So while moving - and briefly
+    /// after stopping, since the final zero is the packet that must not be lost - repeat the intent
+    /// at a fixed rate, as allonet1 did unconditionally.
+    private func startMovementIntentRepeatIfNeeded()
+    {
+        guard movementIntentRepeat == nil else { return }
+        movementIntentRepeat = Task { [weak self] in
+            var idleRepeats = 0
+            while !Task.isCancelled, idleRepeats < 10
+            {
+                do { try await Task.sleep(for: .milliseconds(50)) }
+                catch { break }
+                guard let self else { break }
+                idleRepeats = self.currentIntent.moveDirection == .zero ? idleRepeats + 1 : 0
+                self.sendIntent()
+            }
+            self?.movementIntentRepeat = nil
         }
     }
 
