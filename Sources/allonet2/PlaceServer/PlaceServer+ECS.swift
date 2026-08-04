@@ -6,15 +6,37 @@
 //
 
 import Foundation
+import simd
 
 extension PlaceServer
 {
     internal func appendChanges(_ changes: [PlaceChange]) async
     {
+        // Someone other than the movement sim touching an avatar wins over the simulation:
+        // a teleport becomes the new base to move from (not just invalidation - a sim tick can
+        // run before the heartbeat commits the queued teleport, and must not resurrect the old
+        // position), and a removed avatar stops moving, or the next tick would queue an update
+        // for a nonexistent component and make the whole changeset inapplicable.
+        for change in changes
+        {
+            switch change
+            {
+            case .componentUpdated(let eid, let component) where component.componentTypeId == Transform.componentTypeId:
+                for client in clients.values where client.avatar == eid
+                {
+                    client.simulatedTransform = component.decoded() as? Transform
+                }
+            case .entityRemoved(let edata):
+                for client in clients.values where client.avatar == edata.id { client.stopMoving() }
+            case .componentRemoved(let edata, let component) where component.componentTypeId == Transform.componentTypeId:
+                for client in clients.values where client.avatar == edata.id { client.stopMoving() }
+            default: break
+            }
+        }
         outstandingPlaceChanges.append(contentsOf: changes)
         await heartbeat.markChanged()
     }
-    
+
     func applyAndBroadcastState()
     {
         let success = place.applyChangeSet(PlaceChangeSet(changes: outstandingPlaceChanges, fromRevision: place.current.revision, toRevision: place.current.revision + 1))
@@ -23,9 +45,65 @@ extension PlaceServer
         for client in clients.values {
             let lastContents = client.ackdRevision.flatMap { place.getHistory(at: $0) } ?? PlaceContents(logger: logger)
             let changeSet = place.current.changeSet(from: lastContents)
-            
+
             client.session.send(placeChangeSet: changeSet)
         }
+    }
+
+    /// Steps avatar movement at a fixed cadence while any client is moving; the heartbeat broadcasts the resulting changes.
+    /// Started from the intent handler on nonzero moveDirection; ends itself once every avatar is at rest.
+    internal func startMovementLoopIfNeeded()
+    {
+        guard movementLoop == nil else { return }
+        movementLoop = Task {
+            var lastTick = ContinuousClock.now
+            while !Task.isCancelled
+            {
+                do { try await Task.sleep(for: .milliseconds(20)) }
+                catch { break } // cancelled: stop without simulating another step
+                let now = ContinuousClock.now
+                let elapsed = now - lastTick
+                lastTick = now
+                let measured = Float(Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) * 1e-18)
+                // A stalled main actor or a sleeping host would otherwise integrate the whole
+                // pause in one step and teleport the avatar; better to lose that time than to jump.
+                guard await stepMovement(dt: min(measured, 0.1)) else { break }
+            }
+            movementLoop = nil
+        }
+    }
+
+    private func stepMovement(dt: Float) async -> Bool
+    {
+        let transforms = place.current.components[Transform.self]
+        var changes: [PlaceChange] = []
+        for client in clients.values
+        {
+            let direction = client.latestIntent?.moveDirection ?? .zero
+            guard direction != .zero || client.velocity != .zero,
+                  let avatarId = client.avatar,
+                  // Integrate from our own last simulated transform: several ticks can run before the
+                  // heartbeat commits them, and re-reading committed state would make each of those
+                  // ticks start from the same base, so all but the last displacement is overwritten.
+                  let transform = client.simulatedTransform ?? transforms[avatarId]
+            else { continue }
+
+            guard let moved = MovementSimulation.step(transform: transform, velocity: &client.velocity, direction: direction, dt: dt)
+            else
+            {
+                // At rest: drop the cache so a teleport or other external transform change is picked up.
+                client.simulatedTransform = nil
+                continue
+            }
+
+            client.simulatedTransform = moved
+            changes.append(.componentUpdated(avatarId, AnyComponent(moved)))
+        }
+        guard !changes.isEmpty else { return false }
+        // Deliberately not appendChanges: that invalidates the cache these changes just filled.
+        outstandingPlaceChanges.append(contentsOf: changes)
+        await heartbeat.markChanged()
+        return true
     }
     
     func createEntity(from description:EntityDescription, for client: ConnectedClient) async -> EntityData

@@ -72,9 +72,10 @@ actor HeartbeatTimer
 
     private func timerFired() async
     {
-        await syncAction()
+        // Clear before syncAction so a markChanged arriving mid-sync schedules the next beat instead of being swallowed.
         pendingChanges = false
-        setupTimer(delay: keepaliveDelay)
+        await syncAction()
+        setupTimer(delay: pendingChanges ? coalesceDelay : keepaliveDelay)
         syncContinuation?.yield(())
     }
 }

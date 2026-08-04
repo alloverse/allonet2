@@ -11,6 +11,7 @@ import FoundationNetworking
 #endif
 import OpenCombineShim
 import Logging
+import simd
 
 /// A persistent connection as a client to an AlloPlace. If disconnected by temporary network issues, it will try to reconnect automatically.
 @MainActor
@@ -60,6 +61,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
             Task { await heartbeat.markChanged() }
         }
     }
+    private var movementIntentRepeat: Task<Void, Never>? = nil
     lazy var heartbeat: HeartbeatTimer = {
         /// Keep a shorter coalesce than server so we ack before the next change; longer keepalive so we don't send an unnecessary keepalive juust before the server's keepalive.
         return HeartbeatTimer(coalesceDelay: 5_000_000, keepaliveDelay: 1_100_000_000) {
@@ -334,13 +336,15 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     public func session(_: AlloSession, didReceivePlaceChangeSet changeset: PlaceChangeSet)
     {
         //logger.trace("Received place change for revision \(changeset.fromRevision) -> \(changeset.toRevision)")
+        // The ack path owns only ackStateRev; other intent fields (movement etc) belong to app
+        // code and must survive, or e.g. held-key movement halts. Cf. allonet1 _alloclient_set_intent.
         guard placeState.applyChangeSet(changeset) else
         {
             logger.warning("Failed to apply change set, asking for a full diff")
-            currentIntent = Intent(ackStateRev: 0)
+            currentIntent.ackStateRev = 0
             return
         }
-        currentIntent = Intent(ackStateRev: changeset.toRevision)
+        currentIntent.ackStateRev = changeset.toRevision
     }
     
     public func session(_: AlloSession, didReceiveIntent intent: Intent)
@@ -358,6 +362,45 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         session.send(currentIntent)
     }
     
+    // MARK: - Movement
+
+    /// Set the desired movement direction in place space. Normalized -1..1 per axis;
+    /// x is +X and y is -Z, so a camera-relative UI rotates the vector before setting it.
+    /// Set to .zero to stop. The server applies speed and delta time.
+    public var moveDirection: SIMD2<Float>
+    {
+        get { currentIntent.moveDirection }
+        set {
+            // Key-repeat and rollover resend the same vector; only a change is worth an intent.
+            guard newValue != currentIntent.moveDirection else { return }
+            currentIntent.moveDirection = newValue
+            startMovementIntentRepeatIfNeeded()
+        }
+    }
+
+    /// Intents ride an unreliable channel, and the idle keepalive is ~1.1s: losing the packet that
+    /// stops movement would let the server keep going for that long. So while moving - and briefly
+    /// after stopping, since the final zero is the packet that must not be lost - repeat the intent
+    /// at a fixed rate, as allonet1 did unconditionally.
+    private func startMovementIntentRepeatIfNeeded()
+    {
+        guard movementIntentRepeat == nil else { return }
+        movementIntentRepeat = Task { [weak self] in
+            var idleRepeats = 0
+            while !Task.isCancelled, idleRepeats < 10
+            {
+                do { try await Task.sleep(for: .milliseconds(50)) }
+                catch { break }
+                guard let self else { break }
+                // Same dead zone the simulation uses, or drift below it would repeat forever.
+                let moving = simd_length(self.currentIntent.moveDirection) >= MovementSimulation.inputDeadZone
+                idleRepeats = moving ? 0 : idleRepeats + 1
+                self.sendIntent()
+            }
+            self?.movementIntentRepeat = nil
+        }
+    }
+
     // MARK: - Convenience API
     
     public func request(receiverEntityId: EntityID, body: InteractionBody) async -> Interaction
