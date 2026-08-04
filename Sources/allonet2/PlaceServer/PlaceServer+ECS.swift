@@ -38,7 +38,8 @@ extension PlaceServer
             var lastTick = ContinuousClock.now
             while !Task.isCancelled
             {
-                try? await Task.sleep(for: .milliseconds(20))
+                do { try await Task.sleep(for: .milliseconds(20)) }
+                catch { break } // cancelled: stop without simulating another step
                 let now = ContinuousClock.now
                 let elapsed = now - lastTick
                 lastTick = now
@@ -58,10 +59,21 @@ extension PlaceServer
             let direction = client.latestIntent?.moveDirection ?? .zero
             guard direction != .zero || client.velocity != .zero,
                   let avatarId = client.avatar,
-                  let transform = transforms[avatarId],
-                  let moved = MovementSimulation.step(transform: transform, velocity: &client.velocity, direction: direction, dt: dt)
+                  // Integrate from our own last simulated transform: several ticks can run before the
+                  // heartbeat commits them, and re-reading committed state would make each of those
+                  // ticks start from the same base, so all but the last displacement is overwritten.
+                  let transform = client.simulatedTransform ?? transforms[avatarId]
             else { continue }
 
+            guard let moved = MovementSimulation.step(transform: transform, velocity: &client.velocity, direction: direction, dt: dt)
+            else
+            {
+                // At rest: drop the cache so a teleport or other external transform change is picked up.
+                client.simulatedTransform = nil
+                continue
+            }
+
+            client.simulatedTransform = moved
             changes.append(.componentUpdated(avatarId, AnyComponent(moved)))
         }
         guard !changes.isEmpty else { return false }

@@ -17,6 +17,7 @@ internal class ConnectedClient
     var ackdRevision : StateRevision? // Last ack'd place contents revision, or nil if none
     var latestIntent: Intent? // Latest intent received from this client
     var velocity: SIMD2<Float> = .zero // Current movement velocity, simulated from latestIntent.moveDirection
+    var simulatedTransform: Transform? // Avatar transform the movement sim owns while moving; nil at rest
     var cid: ClientId = UUID()
     var avatar: EntityID? // Assigned in the place server upon successful client announce
     var logger: Logger
