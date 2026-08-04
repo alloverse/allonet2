@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import simd
 
 extension PlaceServer
 {
@@ -14,7 +15,7 @@ extension PlaceServer
         outstandingPlaceChanges.append(contentsOf: changes)
         await heartbeat.markChanged()
     }
-    
+
     func applyAndBroadcastState()
     {
         let success = place.applyChangeSet(PlaceChangeSet(changes: outstandingPlaceChanges, fromRevision: place.current.revision, toRevision: place.current.revision + 1))
@@ -23,9 +24,49 @@ extension PlaceServer
         for client in clients.values {
             let lastContents = client.ackdRevision.flatMap { place.getHistory(at: $0) } ?? PlaceContents(logger: logger)
             let changeSet = place.current.changeSet(from: lastContents)
-            
+
             client.session.send(placeChangeSet: changeSet)
         }
+    }
+
+    /// Steps avatar movement at a fixed cadence while any client is moving; the heartbeat broadcasts the resulting changes.
+    /// Started from the intent handler on nonzero moveDirection; ends itself once every avatar is at rest.
+    internal func startMovementLoopIfNeeded()
+    {
+        guard movementLoop == nil else { return }
+        movementLoop = Task {
+            var lastTick = ContinuousClock.now
+            while !Task.isCancelled
+            {
+                try? await Task.sleep(for: .milliseconds(20))
+                let now = ContinuousClock.now
+                let elapsed = now - lastTick
+                lastTick = now
+                let dt = Float(Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) * 1e-18)
+                guard await stepMovement(dt: dt) else { break }
+            }
+            movementLoop = nil
+        }
+    }
+
+    private func stepMovement(dt: Float) async -> Bool
+    {
+        let transforms = place.current.components[Transform.self]
+        var changes: [PlaceChange] = []
+        for client in clients.values
+        {
+            let direction = client.latestIntent?.moveDirection ?? .zero
+            guard direction != .zero || client.velocity != .zero,
+                  let avatarId = client.avatar,
+                  let transform = transforms[avatarId],
+                  let moved = MovementSimulation.step(transform: transform, velocity: &client.velocity, direction: direction, dt: dt)
+            else { continue }
+
+            changes.append(.componentUpdated(avatarId, AnyComponent(moved)))
+        }
+        guard !changes.isEmpty else { return false }
+        await appendChanges(changes)
+        return true
     }
     
     func createEntity(from description:EntityDescription, for client: ConnectedClient) async -> EntityData

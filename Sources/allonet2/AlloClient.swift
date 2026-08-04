@@ -11,6 +11,7 @@ import FoundationNetworking
 #endif
 import OpenCombineShim
 import Logging
+import simd
 
 /// A persistent connection as a client to an AlloPlace. If disconnected by temporary network issues, it will try to reconnect automatically.
 @MainActor
@@ -334,13 +335,15 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     public func session(_: AlloSession, didReceivePlaceChangeSet changeset: PlaceChangeSet)
     {
         //logger.trace("Received place change for revision \(changeset.fromRevision) -> \(changeset.toRevision)")
+        // The ack path owns only ackStateRev; other intent fields (movement etc) belong to app
+        // code and must survive, or e.g. held-key movement halts. Cf. allonet1 _alloclient_set_intent.
         guard placeState.applyChangeSet(changeset) else
         {
             logger.warning("Failed to apply change set, asking for a full diff")
-            currentIntent = Intent(ackStateRev: 0)
+            currentIntent.ackStateRev = 0
             return
         }
-        currentIntent = Intent(ackStateRev: changeset.toRevision)
+        currentIntent.ackStateRev = changeset.toRevision
     }
     
     public func session(_: AlloSession, didReceiveIntent intent: Intent)
@@ -358,6 +361,21 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         session.send(currentIntent)
     }
     
+    // MARK: - Movement
+
+    /// Set the desired movement direction. Normalized -1..1 per axis.
+    /// x = strafe right, y = forward. Set to .zero to stop.
+    /// The server applies speed and delta time.
+    public var moveDirection: SIMD2<Float>
+    {
+        get { currentIntent.moveDirection }
+        set {
+            // Key-repeat and rollover resend the same vector; only a change is worth an intent.
+            guard newValue != currentIntent.moveDirection else { return }
+            currentIntent.moveDirection = newValue
+        }
+    }
+
     // MARK: - Convenience API
     
     public func request(receiverEntityId: EntityID, body: InteractionBody) async -> Interaction
