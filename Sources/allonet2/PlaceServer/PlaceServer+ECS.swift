@@ -12,6 +12,13 @@ extension PlaceServer
 {
     internal func appendChanges(_ changes: [PlaceChange]) async
     {
+        // Someone other than the movement sim moving an avatar (a teleport, a correction) wins:
+        // drop the cached simulated position, or the next tick would undo their change.
+        for case .componentUpdated(let eid, let component) in changes
+            where component.componentTypeId == Transform.componentTypeId
+        {
+            for client in clients.values where client.avatar == eid { client.simulatedTransform = nil }
+        }
         outstandingPlaceChanges.append(contentsOf: changes)
         await heartbeat.markChanged()
     }
@@ -43,8 +50,10 @@ extension PlaceServer
                 let now = ContinuousClock.now
                 let elapsed = now - lastTick
                 lastTick = now
-                let dt = Float(Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) * 1e-18)
-                guard await stepMovement(dt: dt) else { break }
+                let measured = Float(Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) * 1e-18)
+                // A stalled main actor or a sleeping host would otherwise integrate the whole
+                // pause in one step and teleport the avatar; better to lose that time than to jump.
+                guard await stepMovement(dt: min(measured, 0.1)) else { break }
             }
             movementLoop = nil
         }
@@ -77,7 +86,9 @@ extension PlaceServer
             changes.append(.componentUpdated(avatarId, AnyComponent(moved)))
         }
         guard !changes.isEmpty else { return false }
-        await appendChanges(changes)
+        // Deliberately not appendChanges: that invalidates the cache these changes just filled.
+        outstandingPlaceChanges.append(contentsOf: changes)
+        await heartbeat.markChanged()
         return true
     }
     
