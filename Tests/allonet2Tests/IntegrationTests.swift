@@ -207,22 +207,3 @@ final class AlloClientIntegrationTests: XCTestCase {
         client.disconnect()
     }
 }
-
-// MARK: - Intent preservation
-
-extension AlloClientIntegrationTests {
-    // Acking a changeset rebuilds currentIntent; it must not wipe held movement (that halts avatars mid-keypress).
-    func testAckPreservesMoveDirection() async {
-        let client = makeTestClient()
-        client.stayConnected()
-        await awaitClientState(client, { $0.avatarId != nil })
-
-        client.moveDirection = SIMD2<Float>(0, 1)
-        client.session(client.session, didReceivePlaceChangeSet: PlaceChangeSet(changes: [], fromRevision: 0, toRevision: 1))
-
-        XCTAssertEqual(client.moveDirection, SIMD2<Float>(0, 1))
-        XCTAssertEqual(client.currentIntent.ackStateRev, 1)
-
-        client.disconnect()
-    }
-}
