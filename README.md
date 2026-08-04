@@ -65,8 +65,9 @@ swift run AlloPlace -n "Local Place"
 `AlloPlace` is the place server. Useful flags: `-p` HTTP signalling port (default
 9080), `-t` token that AlloApps must present (omit to allow any app), `-u` UDP port
 range for WebRTC, `--app-name`/`--app-url-protocol` to brand the landing page for a
-custom client. Clients connect with an `alloplace2://host:port` URL; signalling is a
-single HTTPS POST, then everything runs over WebRTC data channels (CBOR-encoded).
+custom client. Clients connect with an `alloplace2://host:port` URL; signalling is a single POST, over
+HTTP for localhost and HTTPS when a TLS proxy fronts the place. Everything after that runs
+over WebRTC data channels (CBOR-encoded).
 
 Also runnable from Xcode: open the package, pick the AlloPlace scheme, set the same
 flags as Run arguments.
