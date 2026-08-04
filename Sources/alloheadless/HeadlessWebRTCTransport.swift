@@ -64,7 +64,11 @@ public class HeadlessWebRTCTransport: Transport
             logger.info("peer state changed to \(state)")
             if state == .connected
             {
-                self.maybeConnected()
+                // @Published emits on willSet: inside this sink, peer.state (and channels'
+                // isOpen) still hold their old values. Defer so maybeConnected reads
+                // committed state; otherwise the last-arriving event reads itself as stale
+                // and the transport never reports connected.
+                DispatchQueue.main.async { self.maybeConnected() }
             }
             else if state == .closed || state == .failed
             {
@@ -227,9 +231,10 @@ public class HeadlessWebRTCTransport: Transport
         channel.$isOpen.sink { [weak self, weak channel] isOpen in
             guard let self, let channel else { return }
             self.connectionStatus.data = isOpen ? .connected : (channel.lastError != nil) ? .failed : .idle
-            if isOpen { self.maybeConnected() }
+            // Deferred for the same willSet reason as the peer-state sink above.
+            if isOpen { DispatchQueue.main.async { self.maybeConnected() } }
         }.store(in: &cancellables)
-        
+
         return channel
     }
     
