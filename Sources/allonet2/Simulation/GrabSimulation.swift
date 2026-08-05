@@ -12,28 +12,38 @@ import simd
 public enum GrabSimulation
 {
     /// The actuated entity's new local transform, or nil when the input is unusable
-    /// (non-finite matrix — client input is untrusted) and nothing must move.
+    /// (non-finite or degenerate matrix — client input is untrusted) and nothing must move.
     ///
     /// `base` is the actuated entity's local transform at grab start: constraints measure
     /// the *movement* from there, so a fraction limits displacement, not convergence rate.
+    /// `actuatedFromEntity` maps the grabbed entity's space into the actuated entity's:
+    /// identity when they're the same; otherwise the ancestor follows the handle at its offset.
     @MainActor
     public static func step(grab: GrabIntent, grabbable: Grabbable, base: Transform,
-                            grabberToWorld: simd_float4x4, parentToWorld: simd_float4x4) -> Transform?
+                            grabberToWorld: simd_float4x4, parentToWorld: simd_float4x4,
+                            actuatedFromEntity: simd_float4x4 = .identity) -> Transform?
     {
         guard grab.grabberFromEntity.isFinite else { return nil }
-        let targetWorld = grabberToWorld * grab.grabberFromEntity
-        let targetLocal = parentToWorld.inverse * targetWorld
+        let entityToWorld = grabberToWorld * grab.grabberFromEntity
+        let targetLocal = parentToWorld.inverse * entityToWorld * actuatedFromEntity.inverse
 
         let t = clamp(grabbable.translationConstraint, min: 0, max: 1)
         let r = clamp(grabbable.rotationConstraint, min: 0, max: 1)
 
-        var constrained = targetLocal
-        constrained.translation = base.matrix.translation + (targetLocal.translation - base.matrix.translation) * t
+        // Constraints act per axis in the actuated entity's grab-start local frame, and the
+        // output is rebuilt from the base scale plus constrained rotation and translation,
+        // so a client-supplied matrix can't inject scale or shear.
+        let baseRotation = base.matrix.rotation
+        let deltaLocal = baseRotation.inverse.act(targetLocal.translation - base.matrix.translation)
         // Euler-lerp is exact for the common all-0/all-1 fractions; approximate between.
-        let baseEuler = base.matrix.rotation.eulerAngles
-        let targetEuler = targetLocal.rotation.eulerAngles
-        constrained.rotation = simd_quatf(eulerAngles: baseEuler + (targetEuler - baseEuler) * r)
+        let relativeEuler = (baseRotation.inverse * targetLocal.rotation).eulerAngles
 
+        var constrained = simd_float4x4.identity
+        constrained.rotation = baseRotation * simd_quatf(eulerAngles: relativeEuler * r)
+        constrained.scale = base.matrix.scale
+        constrained.translation = base.matrix.translation + baseRotation.act(deltaLocal * t)
+        // Rotation extraction from a degenerate (non-rotation) input can go non-finite.
+        guard constrained.isFinite else { return nil }
         return Transform(matrix: constrained)
     }
 }

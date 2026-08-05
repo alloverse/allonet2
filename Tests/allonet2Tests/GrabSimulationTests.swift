@@ -80,4 +80,62 @@ struct GrabSimulationTests
         let back = simd_quatf(eulerAngles: q.eulerAngles)
         #expect(abs(simd_dot(q, back)) > 0.9999)
     }
+
+    @Test func actuatedAncestorFollowsTheHandleAtItsOffset() throws
+    {
+        // A handle at local (0,0,-1) on a widget at (5,0,0): grabbing must not move the
+        // widget until the grabber does, and then by the grabber's displacement.
+        let handleOffset = translation([0, 0, -1])
+        let base = Transform(translation: [5, 0, 0])
+        let grabberFromEntity = translation([5, 0, -1]) // handle's world pose, grabber at identity
+        let still = try #require(GrabSimulation.step(
+            grab: grab(offset: grabberFromEntity), grabbable: Grabbable(actuateOn: .parent), base: base,
+            grabberToWorld: .identity, parentToWorld: .identity, actuatedFromEntity: handleOffset))
+        #expect(simd_distance(still.matrix.translation, [5, 0, 0]) < 1e-5)
+        let carried = try #require(GrabSimulation.step(
+            grab: grab(offset: grabberFromEntity), grabbable: Grabbable(actuateOn: .parent), base: base,
+            grabberToWorld: translation([1, 0, 0]), parentToWorld: .identity, actuatedFromEntity: handleOffset))
+        #expect(simd_distance(carried.matrix.translation, [6, 0, 0]) < 1e-5)
+    }
+
+    @Test func clientSuppliedScaleIsDiscarded() throws
+    {
+        // The offset matrix is untrusted; only the base's scale may survive.
+        var scaled = translation([1, 0, 0])
+        scaled.columns.0.x = 3; scaled.columns.1.y = 3; scaled.columns.2.z = 3
+        let moved = try #require(GrabSimulation.step(
+            grab: grab(offset: scaled), grabbable: Grabbable(), base: Transform(),
+            grabberToWorld: .identity, parentToWorld: .identity))
+        #expect(simd_distance(moved.matrix.scale, [1, 1, 1]) < 1e-4)
+        #expect(simd_distance(moved.matrix.translation, [1, 0, 0]) < 1e-5)
+    }
+
+    @Test func translationConstraintActsInTheGrabStartLocalFrame() throws
+    {
+        // Entity yawed 90°: its local x is world -z. [1,0,0] must follow world -z and pin world x.
+        let base = Transform(rotation: simd_quatf(angle: .pi / 2, axis: [0, 1, 0]))
+        let grabbable = Grabbable(translationConstraint: [1, 0, 0], rotationConstraint: [0, 0, 0])
+        let pinned = try #require(GrabSimulation.step(
+            grab: grab(offset: base.matrix), grabbable: grabbable, base: base,
+            grabberToWorld: translation([1, 0, 0]), parentToWorld: .identity))
+        #expect(simd_distance(pinned.matrix.translation, [0, 0, 0]) < 1e-5)
+        let slid = try #require(GrabSimulation.step(
+            grab: grab(offset: base.matrix), grabbable: grabbable, base: base,
+            grabberToWorld: translation([0, 0, -1]), parentToWorld: .identity))
+        #expect(simd_distance(slid.matrix.translation, [0, 0, -1]) < 1e-5)
+    }
+
+    @Test func degenerateClientInputStaysRigidOrMovesNothing()
+    {
+        // An all-zero matrix is finite but not a pose. Whatever the sim makes of it
+        // must still be finite and unscaled — or nothing must move.
+        let moved = GrabSimulation.step(
+            grab: grab(offset: simd_float4x4()), grabbable: Grabbable(), base: Transform(),
+            grabberToWorld: .identity, parentToWorld: .identity)
+        if let moved
+        {
+            #expect(moved.matrix.isFinite)
+            #expect(simd_distance(moved.matrix.scale, [1, 1, 1]) < 1e-4)
+        }
+    }
 }
