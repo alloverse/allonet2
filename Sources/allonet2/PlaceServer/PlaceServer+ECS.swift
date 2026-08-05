@@ -28,6 +28,7 @@ extension PlaceServer
                     client.simulatedTransform = component.decoded() as? Transform
                 }
             case .entityRemoved(let edata):
+                pendingRemovals.insert(edata.id)
                 for client in clients.values
                 {
                     if client.avatar == edata.id { client.stopMoving() }
@@ -35,6 +36,7 @@ extension PlaceServer
                     if grab?.entity == edata.id || grab?.grabber == edata.id || client.grabBase?.actuated == edata.id { client.stopGrabbing() }
                 }
             case .componentRemoved(let edata, let component) where component.componentTypeId == Transform.componentTypeId:
+                pendingRemovals.insert(edata.id)
                 for client in clients.values
                 {
                     if client.avatar == edata.id { client.stopMoving() }
@@ -52,6 +54,7 @@ extension PlaceServer
         let success = place.applyChangeSet(PlaceChangeSet(changes: outstandingPlaceChanges, fromRevision: place.current.revision, toRevision: place.current.revision + 1))
         assert(success) // bug if this doesn't succeed
         outstandingPlaceChanges.removeAll()
+        pendingRemovals.removeAll()
         for client in clients.values {
             let lastContents = client.ackdRevision.flatMap { place.getHistory(at: $0) } ?? PlaceContents(logger: logger)
             let changeSet = place.current.changeSet(from: lastContents)
@@ -92,6 +95,9 @@ extension PlaceServer
             let direction = client.latestIntent?.moveDirection ?? .zero
             guard direction != .zero || client.velocity != .zero,
                   let avatarId = client.avatar,
+                  // A fresh intent can re-arm movement between a queued removal and its apply;
+                  // the queue-time stopMoving hook alone can't prevent the poisoned update.
+                  !pendingRemovals.contains(avatarId),
                   // Integrate from our own last simulated transform: several ticks can run before the
                   // heartbeat commits them, and re-reading committed state would make each of those
                   // ticks start from the same base, so all but the last displacement is overwritten.
@@ -154,8 +160,11 @@ extension PlaceServer
             client.logger.warning("Ignoring grab of \(grab.entity): actuation target \(grabbable.actuateOn) is not among its ancestors")
             return nil
         }
-        // Revalidated every tick: the actuated entity can lose its Transform mid-grab.
-        guard let actuatedTransform = contents.components[Transform.self][actuated] else {
+        // Revalidated every tick: the actuated entity can lose its Transform mid-grab, and a
+        // fresh intent can re-arm the grab between a queued removal and its apply — the
+        // queue-time stopGrabbing hook alone can't prevent the poisoned update.
+        guard !pendingRemovals.contains(actuated),
+              let actuatedTransform = contents.components[Transform.self][actuated] else {
             client.grabBase = nil
             client.grabSimulated = nil
             return nil
