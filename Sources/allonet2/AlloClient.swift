@@ -145,9 +145,25 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         session.delegate = self
         avatarId = nil
         isAnnounced = false
+        // Anyone awaiting an entity was waiting on the connection we just threw away.
+        placeState.failOutstandingEntityWaits()
     }
 
     
+    /// Drop the current connection and connect again *immediately*, staying connected afterwards.
+    /// For when the connection came up but is unusable — an app that couldn't finish its setup
+    /// against a place that's still restarting, say. There is no backoff here, because only the
+    /// caller knows whether its reason to give up recurs; pace the calls if it can.
+    ///
+    /// Only meaningful once announced: any earlier and the reconnection machinery already owns
+    /// the connection, and dropping it under itself is an invalid state transition.
+    public func reconnect()
+    {
+        guard case .announced = state.current else { return }
+        logger.info("Reconnecting on request")
+        session.disconnect()
+    }
+
     /// Disconnect from peers and remain disconnected until asked to connect again by user
     public func disconnect()
     {
@@ -200,16 +216,41 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
             guard case .connecting = state.current else { return }
             logger.info("AlloClient RTC initial signalling complete")
         } catch {
-            // If we were cancelled/disconnected during the awaits, don't touch state
-            guard case .connecting = state.current else { return }
-            logger.error("Failed to connect: \(error)")
-            connectionStatus.signalling = .failed
-            connectionStatus.lastError = error
-            state.transition(to: .failed(error: error))
-            disconnect()
+            failConnectionAttempt(error)
         }
     }
-    
+
+    /// End a failed connection attempt. A place that is restarting refuses signalling, and admits
+    /// nobody until its authentication provider is back; both clear up on their own, so only a
+    /// fatal error — rejected credentials, incompatible protocol — ends the stay-connected loop.
+    /// Anything else re-arms the backoff, or a single blip would leave us disconnected for good.
+    private func failConnectionAttempt(_ error: Error)
+    {
+        // Cancelled or disconnected during the awaits that led here: not ours to fail.
+        guard case .connecting(let attempt) = state.current else { return }
+        connectionStatus.signalling = .failed
+        connectionStatus.lastError = error
+        state.transition(to: .failed(error: error))
+
+        guard (error as? AlloverseError)?.isFatal != true else
+        {
+            logger.error("Permanent connection failure, giving up: \(error)")
+            disconnect()
+            return
+        }
+
+        logger.error("Connection attempt \(attempt) failed, will retry: \(error)")
+        // Detach before tearing the half-open session down: the transport calls session(didDisconnect:)
+        // synchronously from disconnect(), which would schedule a second, competing attempt.
+        session.delegate = nil
+        session.disconnect()
+        reset()
+        let next = attempt + 1
+        state.transition(to: .waitingToRetry(attempt: next))
+        connectionStatus.reconnection = .waitingForReconnect
+        scheduleConnect(attempt: next)
+    }
+
     nonisolated public func session(didConnect sess: AlloSession)
     {
         Task
@@ -232,9 +273,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
             guard case .announceResponse(let avatarId, let placeName) = response.body else
             {
                 logger.error("Announce failed: \(response)")
-                self.connectionStatus.lastError = AlloverseError(with: response.body)
-                state.transition(to: .failed(error: AlloverseError(with: response.body)))
-                self.disconnect()
+                failConnectionAttempt(AlloverseError(with: response.body))
                 return
             }
             logger.info("Received announce response: \(response.body)")
@@ -437,8 +476,16 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     
     public func request(receiverEntityId: EntityID, body: InteractionBody) async -> Interaction
     {
-        precondition(avatarId != nil, "Must be connected and announced to send a request")
-        return await session.request(interaction: Interaction(type: .request, senderEntityId: avatarId!, receiverEntityId: receiverEntityId, body: body))
+        let interaction = Interaction(type: .request, senderEntityId: avatarId ?? "", receiverEntityId: receiverEntityId, body: body)
+        // Losing the connection between two of a caller's requests is ordinary, not a bug on its
+        // part, so answer with the same error a request in flight would get rather than trapping.
+        guard avatarId != nil else
+        {
+            return interaction.makeResponse(with: AlloverseError(
+                code: AlloverseErrorCode.disconnected,
+                description: "Not announced to a place; can't send \(body.caseName)").asBody)
+        }
+        return await session.request(interaction: interaction)
     }
     
     public func createEntity(from description: EntityDescription) async throws(AlloverseError) -> EntityID

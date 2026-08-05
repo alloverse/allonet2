@@ -29,6 +29,10 @@
 - Component types must be registered with `MyComponent.register()` before `decoded()` will work (returns nil → crash otherwise)
 - HeadlessWebRTCTransport implements media forwarding; UIWebRTCTransport throws fatalError (client doesn't forward)
 - ConnectionStatus is @MainActor ObservableObject used for UI binding — don't confuse with transport-level state
+- AlloPlace logs to OSLog on macOS and only to stdout on Linux (`PlaceServerApp.configureLogging`), so running it locally with its output redirected to a file gives you an empty file, not a dead server
+- A place can't tell a dead client from a live one until ICE gives up (tens of seconds). Anything keyed on "is that client still there?" — the authentication provider slot especially — has to tolerate the stale answer rather than wait for it
+- `client.identity` on the place is whatever the client *said* in its announce, and it is stored before anything checks it. Authorization reads `client.authenticatedAsApp`, which is the place's own verdict; never `identity.expectation`
+- Known and deliberately unfixed, all pre-existing: a drop from `.announced` retries with no delay and no escalation, because `ClientConnectionState.attempt` is 0 for `.announced` — harmless for one client per place, but two live backends sharing an app token will trade the provider role back and forth at handshake speed; the place's authentication request to the provider has no timeout, so a provider that is connected but silent hangs the announcing visor (a provider that *disconnects* is covered, since its outstanding requests are failed); and whether libdatachannel's callbacks really arrive on the main actor is still the open question at the top of `HeadlessWebRTCTransport.swift`, which every delegate call out of that sink depends on
 
 ## Recent Work (2026-03-04)
 - UIWebRTCTransport: Added @MainActor, nonisolated delegates, dispatchToMain, dispatchPrecondition

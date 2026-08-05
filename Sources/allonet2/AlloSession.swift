@@ -199,6 +199,24 @@ public class AlloSession : NSObject, TransportDelegate
             self.delegate?.session(self, didRemoveMediaStream: stream)
         }
         incomingStreams.removeAll()
+
+        // The response these are waiting for is never coming. Left suspended they hang their
+        // caller for the lifetime of the process — an app awaiting one mid-setup never returns,
+        // so it never notices the reconnection it is being told about right now.
+        let abandoned = outstandingInteractions
+        outstandingInteractions.removeAll()
+        for (requestId, continuation) in abandoned
+        {
+            continuation.resume(returning: Interaction(
+                type: .response,
+                senderEntityId: "",
+                receiverEntityId: "",
+                requestId: requestId,
+                body: AlloverseError(code: AlloverseErrorCode.disconnected,
+                                     description: "Disconnected before the response arrived").asBody
+            ))
+        }
+
         self.delegate?.session(didDisconnect: self)
     }
     
@@ -224,7 +242,9 @@ public class AlloSession : NSObject, TransportDelegate
             Task { @MainActor in
                 if case .internal_renegotiate(.offer, let payload) = inter.body {
                     await respondToRenegotiation(offer: payload, request: inter)
-                } else if let continuation = outstandingInteractions[inter.requestId] {
+                } else if let continuation = outstandingInteractions.removeValue(forKey: inter.requestId) {
+                    // Removed, not read: resuming a continuation twice traps, so a duplicated or
+                    // replayed response must not find it still here.
                     continuation.resume(with: .success(inter))
                 } else {
                     self.delegate?.session(self, didReceiveInteraction: inter)
