@@ -145,6 +145,8 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         session.delegate = self
         avatarId = nil
         isAnnounced = false
+        // Anyone awaiting an entity was waiting on the connection we just threw away.
+        placeState.failOutstandingEntityWaits()
     }
 
     
@@ -474,8 +476,16 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     
     public func request(receiverEntityId: EntityID, body: InteractionBody) async -> Interaction
     {
-        precondition(avatarId != nil, "Must be connected and announced to send a request")
-        return await session.request(interaction: Interaction(type: .request, senderEntityId: avatarId!, receiverEntityId: receiverEntityId, body: body))
+        let interaction = Interaction(type: .request, senderEntityId: avatarId ?? "", receiverEntityId: receiverEntityId, body: body)
+        // Losing the connection between two of a caller's requests is ordinary, not a bug on its
+        // part, so answer with the same error a request in flight would get rather than trapping.
+        guard avatarId != nil else
+        {
+            return interaction.makeResponse(with: AlloverseError(
+                code: AlloverseErrorCode.disconnected,
+                description: "Not announced to a place; can't send \(body.caseName)").asBody)
+        }
+        return await session.request(interaction: interaction)
     }
     
     public func createEntity(from description: EntityDescription) async throws(AlloverseError) -> EntityID

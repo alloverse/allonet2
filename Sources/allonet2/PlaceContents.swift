@@ -47,6 +47,16 @@ public class PlaceState
         throw CancellationError()
     }
     
+    /// The place these are waiting on is gone, so nothing will ever deliver them. `findEntity`
+    /// reads a finished subject as a thrown CancellationError, so its callers unwind instead of
+    /// waiting out the lifetime of the process for an entity that is never coming.
+    internal func failOutstandingEntityWaits()
+    {
+        let waiting = observers.waitingForEntitySubjects
+        observers.waitingForEntitySubjects.removeAll()
+        for subject in waiting.values { subject.send(completion: .finished) }
+    }
+
     internal func callChangeObservers()
     {
         for event in changeSet?.changes ?? []

@@ -71,8 +71,16 @@ extension PlaceServer
     func handle(announce: Interaction, from client: ConnectedClient, ilogger: Logger) async throws(AlloverseError)
     {
         guard case .announce(let version, let identity, let avatarDescription) = announce.body else { fatalError() }
+
+        // Announcing twice used to force-unwrap its way out of unannouncedClients and take the
+        // whole place down with it — a crash any client could ask for. It's a malformed request,
+        // not a place bug.
+        guard !client.announced, unannouncedClients[client.cid] != nil else
+        {
+            throw AlloverseError(code: PlaceErrorCode.invalidRequest, description: "Already announced")
+        }
         client.identity = identity
-        
+
         guard
             let semantic = Version(version),
             Allonet.version().serverIsCompatibleWith(clientVersion: semantic)

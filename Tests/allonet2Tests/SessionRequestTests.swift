@@ -26,4 +26,39 @@ final class SessionRequestTests: XCTestCase
         }
         XCTAssertEqual(code, AlloverseErrorCode.disconnected.rawValue)
     }
+
+    /// Waiting on an entity that the place was going to send is the other way an app could hang
+    /// forever: no request is outstanding, so failing those isn't enough.
+    func testFindEntityFailsWhenTheConnectionResets() async
+    {
+        let client = makeTestClient()
+        client.stayConnected()
+        await awaitClientState(client, { $0.avatarId != nil })
+
+        let lookup = Task { try await client.place.findEntity(id: "never-arrives") }
+        await Task.yield()
+        client.mockTransport.simulateDisconnect()
+
+        do
+        {
+            _ = try await lookup.value
+            XCTFail("findEntity should not resolve after the connection went away")
+        }
+        catch {}
+
+        client.disconnect()
+    }
+
+    /// A caller whose connection died between two of its requests is ordinary, not a programmer
+    /// error — this used to abort the process on a precondition.
+    func testRequestWhileUnannouncedAnswersInsteadOfTrapping() async
+    {
+        let client = makeTestClient()
+        let response = await client.request(receiverEntityId: Interaction.PlaceEntity,
+                                            body: .registerAsAuthenticationProvider)
+        guard case .error(_, let code, _) = response.body else {
+            return XCTFail("Expected an error body, got \(response.body)")
+        }
+        XCTAssertEqual(code, AlloverseErrorCode.disconnected.rawValue)
+    }
 }

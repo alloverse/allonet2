@@ -88,6 +88,28 @@ final class AuthenticationProviderTests: XCTestCase
         XCTAssertEqual(firstTransport.disconnectCallCount, 0, "The real backend must stay connected")
     }
 
+    /// Announcing twice took the whole place down on a force-unwrap — a crash any client could ask
+    /// for. It's a malformed request.
+    func testSecondAnnounceIsRejectedRatherThanCrashingThePlace() async
+    {
+        let server = makeServer()
+        let (client, _) = makeClient(.app)
+        client.announced = true
+        let announce = Interaction(type: .request, senderEntityId: "", receiverEntityId: Interaction.PlaceEntity,
+                                   body: .announce(version: Allonet.version().description,
+                                                   identity: client.identity!,
+                                                   avatar: EntityDescription()))
+        do
+        {
+            try await server.handle(placeInteraction: announce, from: client)
+            XCTFail("A second announce must be refused")
+        }
+        catch
+        {
+            XCTAssertEqual(error.code, PlaceErrorCode.invalidRequest.rawValue)
+        }
+    }
+
     /// Re-registering from the session that already holds the role is a no-op, not a self-eviction.
     func testReregisteringTheSameClientKeepsItConnected() async throws
     {
