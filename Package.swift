@@ -98,7 +98,12 @@ let package = Package(
         ),
         .testTarget(
             name: "allonet2Tests",
-            dependencies: ["allonet2", "alloheadless"]
+            dependencies: [
+                "allonet2",
+                "alloheadless",
+                "FlyingFox",
+                .product(name: "FlyingSocks", package: "FlyingFox") // reading back an ephemeral port
+            ]
         ),
         .executableTarget(
             name: "AlloPlace",
