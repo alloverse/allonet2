@@ -148,12 +148,16 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     }
 
     
-    /// Drop the current connection and connect again with the usual backoff, staying connected
-    /// afterwards. For when the connection came up but is unusable — an app that couldn't finish
-    /// its setup against a place that's still restarting, say.
+    /// Drop the current connection and connect again *immediately*, staying connected afterwards.
+    /// For when the connection came up but is unusable — an app that couldn't finish its setup
+    /// against a place that's still restarting, say. There is no backoff here, because only the
+    /// caller knows whether its reason to give up recurs; pace the calls if it can.
+    ///
+    /// Only meaningful once announced: any earlier and the reconnection machinery already owns
+    /// the connection, and dropping it under itself is an invalid state transition.
     public func reconnect()
     {
-        guard state.current.isStayingConnected else { return }
+        guard case .announced = state.current else { return }
         logger.info("Reconnecting on request")
         session.disconnect()
     }

@@ -202,6 +202,59 @@ final class AlloClientIntegrationTests: XCTestCase {
         XCTAssertFalse(client.state.current.isStayingConnected)
     }
 
+    // 7b. An app whose own setup failed drops the connection and comes straight back.
+    func testReconnectReannounces() async {
+        let client = makeTestClient()
+        client.stayConnected()
+        await awaitClientState(client, { $0.avatarId != nil })
+        let first = client.avatarId
+
+        client.reconnect()
+        await awaitClientState(client, { $0.avatarId != nil }, timeout: 10)
+
+        XCTAssertTrue(client.isAnnounced)
+        XCTAssertEqual(client.mockTransport.generateOfferCallCount, 1, "Should have built a fresh transport")
+        XCTAssertNotNil(first)
+
+        client.disconnect()
+    }
+
+    // 7c. reconnect() before we're announced belongs to the reconnection machinery, not the app;
+    //     acting on it would be an invalid state transition, i.e. a crash.
+    func testReconnectIsANoOpWhenNotAnnounced() async {
+        let client = makeTestClient()
+        client.reconnect() // disconnected
+        XCTAssertFalse(client.state.current.isStayingConnected)
+
+        client.signallingError = URLError(.timedOut)
+        client.stayConnected()
+        await awaitClientState(client, { $0.attempt > 0 })
+        client.reconnect() // waitingToRetry
+        if case .waitingToRetry = client.state.current {} else {
+            XCTFail("reconnect() should have left the pending retry alone, got \(client.state.current)")
+        }
+
+        client.disconnect()
+    }
+
+    // 7d. An error code we don't know is a peer we don't fully understand, not a reason to trap
+    //     on an enum unwrap — and not a reason to give up connecting either.
+    func testUnknownErrorCodeFromPlaceIsNotFatal() async {
+        let client = makeTestClient()
+        client.mockTransport.announceResponse = .error(AlloverseError(
+            domain: AlloverseErrorCode.domain,
+            code: 4242,
+            description: "A code from a newer place"
+        ))
+
+        client.stayConnected()
+
+        await awaitClientState(client, { $0.attempt > 0 })
+        XCTAssertTrue(client.state.current.isStayingConnected)
+
+        client.disconnect()
+    }
+
     // 8. Multiple stayConnected calls are idempotent
     func testStayConnectedIdempotent() async {
         let client = makeTestClient()

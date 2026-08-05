@@ -20,8 +20,7 @@ extension PlaceServer
             // Reasons this is bad:
             // - Only one provider per place server
             // - A client could authenticate itself
-            // Announcing as an app is what authorizes this: with an app token set, only its holder
-            // gets that far, and that token already grants full management of the place.
+            // Announcing as an app is what authorizes this.
             guard client.identity?.expectation == .app else
             {
                 throw AlloverseError(code: PlaceErrorCode.unauthorized, description: "Only an app may be a place's authentication provider")
@@ -30,16 +29,25 @@ extension PlaceServer
             // dead session. The place can't tell a dead provider from a live one — a killed peer
             // looks connected until ICE gives up — and refusing until then shuts the place to
             // everyone for as long as that takes.
-            let previous = authenticationProvider
-            authenticationProvider = client
-            requiresAuthenticationProvider = true
-            client.session.send(interaction: inter.makeResponse(with: .success))
-            if let previous, previous.cid != client.cid
+            //
+            // What makes handing the role over safe is the app token: only its holder announces
+            // as an app at all, and it already grants full management of the place. Without one
+            // every client is an app, so anyone could take the gate away from the real backend
+            // and see every user's credentials. Then, and only then, first writer wins.
+            if let previous = authenticationProvider, previous.cid != client.cid
             {
-                // After reassigning: losing this session must not clear the new provider.
+                guard !alloAppAuthToken.isEmpty else
+                {
+                    throw AlloverseError(code: PlaceErrorCode.invalidRequest, description: "Place server already has an authentication provider, and has no app token to tell another one apart from an impostor")
+                }
+                // Reassign before disconnecting: losing that session must not clear the new provider.
+                authenticationProvider = client
                 ilogger.warning("Replacing authentication provider \(previous.cid), disconnecting it")
                 previous.session.disconnect()
             }
+            authenticationProvider = client
+            requiresAuthenticationProvider = true
+            client.session.send(interaction: inter.makeResponse(with: .success))
 
         case .announce(let version, let identity, let avatarDescription):
             try await handle(announce: inter, from: client, ilogger: ilogger)

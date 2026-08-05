@@ -89,7 +89,14 @@ final class MockTransport: Transport {
 
     func disconnect() {
         disconnectCallCount += 1
+        // The real transport calls the delegate back synchronously from here (see
+        // HeadlessWebRTCTransport.disconnect), which is what makes reentrancy during teardown
+        // possible at all. A mock that stays quiet can't catch a regression in that.
+        guard !isDisconnected else { return }
+        isDisconnected = true
+        delegate?.transport(didDisconnect: self)
     }
+    private var isDisconnected = false
 
     func createDataChannel(label: DataChannelLabel, reliable: Bool) -> DataChannel? {
         let ch = MockDataChannel(label: label, isOpen: true)

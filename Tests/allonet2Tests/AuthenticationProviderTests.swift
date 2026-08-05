@@ -9,14 +9,14 @@ final class AuthenticationProviderTests: XCTestCase
                     body: .registerAsAuthenticationProvider)
     }
 
-    private func makeServer() -> PlaceServer
+    private func makeServer(appToken: String = "apptoken") -> PlaceServer
     {
         PlaceServer(
             name: "Test Place",
             transportClass: MockTransport.self,
             options: TransportConnectionOptions(routing: .direct),
-            alloAppAuthToken: "apptoken",
-            requiresAuthentication: true
+            alloAppAuthToken: appToken,
+            requiresAuthentication: !appToken.isEmpty
         )
     }
 
@@ -62,5 +62,40 @@ final class AuthenticationProviderTests: XCTestCase
             XCTAssertEqual(error.code, PlaceErrorCode.unauthorized.rawValue)
         }
         XCTAssertNil(server.authenticationProvider)
+    }
+
+    /// Without an app token every client is an app, so a takeover would let anyone lift the gate
+    /// off the real backend and be handed every user's credentials to approve. Nothing tells the
+    /// two apart there, so nobody gets to replace anybody.
+    func testTakeoverNeedsAnAppTokenToTellAppsApart()
+    async {
+        let server = makeServer(appToken: "")
+        let (first, firstTransport) = makeClient(.app)
+        do { try await server.handle(placeInteraction: registration, from: first) }
+        catch { return XCTFail("First app should still become the provider: \(error)") }
+
+        let (impostor, _) = makeClient(.app)
+        do
+        {
+            try await server.handle(placeInteraction: registration, from: impostor)
+            XCTFail("A token-less place must not hand the provider role to a second app")
+        }
+        catch
+        {
+            XCTAssertEqual(error.code, PlaceErrorCode.invalidRequest.rawValue)
+        }
+        XCTAssertTrue(server.authenticationProvider === first)
+        XCTAssertEqual(firstTransport.disconnectCallCount, 0, "The real backend must stay connected")
+    }
+
+    /// Re-registering from the session that already holds the role is a no-op, not a self-eviction.
+    func testReregisteringTheSameClientKeepsItConnected() async throws
+    {
+        let server = makeServer()
+        let (app, transport) = makeClient(.app)
+        try await server.handle(placeInteraction: registration, from: app)
+        try await server.handle(placeInteraction: registration, from: app)
+        XCTAssertTrue(server.authenticationProvider === app)
+        XCTAssertEqual(transport.disconnectCallCount, 0)
     }
 }
