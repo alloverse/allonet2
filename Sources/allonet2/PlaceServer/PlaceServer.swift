@@ -132,6 +132,14 @@ public class PlaceServer : AlloSessionDelegate
             {
                 client.ackdRevision = intent.ackStateRev
                 client.latestIntent = intent
+                if intent.grab == nil
+                {
+                    // The movement loop may have gone idle mid-grab and won't tick to clear these;
+                    // stale, they'd make the next grab of the same entity measure constraints
+                    // from this grab's start.
+                    client.grabBase = nil
+                    client.grabSimulated = nil
+                }
                 if intent.moveDirection != .zero || intent.grab != nil
                 {
                     self.startMovementLoopIfNeeded()

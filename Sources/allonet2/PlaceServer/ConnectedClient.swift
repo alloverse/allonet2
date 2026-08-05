@@ -21,12 +21,21 @@ internal class ConnectedClient
     var grabBase: (actuated: EntityID, transform: Transform)? // The actuated entity's transform at grab start; constraints measure from it
     var grabSimulated: Transform? // Last transform the grab sim queued, to skip no-op ticks
 
-    /// Take this client out of the movement simulation, so nothing more is queued for its avatar.
+    /// Take this client out of the movement and grab simulations, so nothing more is queued for its entities.
     func stopMoving()
     {
         latestIntent?.moveDirection = .zero
         velocity = .zero
         simulatedTransform = nil
+        stopGrabbing()
+    }
+
+    /// Forget an in-progress grab, so nothing more is queued for the grabbed entity.
+    func stopGrabbing()
+    {
+        latestIntent?.grab = nil
+        grabBase = nil
+        grabSimulated = nil
     }
     var cid: ClientId = UUID()
     var avatar: EntityID? // Assigned in the place server upon successful client announce
