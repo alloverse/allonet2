@@ -36,6 +36,17 @@ struct PlaceServerApp: AsyncParsableCommand
     @Option(help: "Together with client-name, use this to specify the URL protocol to use to launch the custom client.")
     var appURLProtocol: String = "alloplace2"
     
+    mutating func validate() throws
+    {
+        // An empty app token authenticates every app that asks, and the first app to ask becomes
+        // the place's authentication provider — so requiring authentication without a token just
+        // hands the gate to whoever connects first.
+        if requireAuth && alloAppAuthToken.isEmpty
+        {
+            throw ValidationError("--require-auth needs an app token (-t) as well: without one, any app that connects can become this place's authentication provider.")
+        }
+    }
+
     mutating func run() async throws
     {
         configurePrintBuffering()
