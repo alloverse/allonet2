@@ -28,7 +28,10 @@ public class PlaceServer : AlloSessionDelegate
     
     var outstandingClientToClientInteractions: [Interaction.RequestID: ClientId] = [:]
     internal var authenticationProvider: ConnectedClient?
-    internal var requiresAuthenticationProvider = false
+    /// Latched by configuration or by the first provider to register. Once true, a place with no
+    /// provider connected rejects users instead of admitting them, so a restart or a crashed
+    /// provider can't reopen the place to anyone who knows its address.
+    internal var requiresAuthenticationProvider: Bool
 
     // The scenegraph state of the Place
     let place: PlaceState
@@ -50,10 +53,19 @@ public class PlaceServer : AlloSessionDelegate
         customApp: AppDescription = .alloverse,
         transportClass: Transport.Type,
         options: TransportConnectionOptions,
-        alloAppAuthToken: String
+        alloAppAuthToken: String,
+        requiresAuthentication: Bool = false
     )
     {
+        // An empty token lets every app that announces authenticate, and the first app to ask
+        // becomes this place's authentication provider, so the combination would leave a place
+        // configured as closed open to whoever connects first. The CLI reports this as a usage
+        // error; an embedder gets it as the configuration bug it is.
+        precondition(!requiresAuthentication || !alloAppAuthToken.isEmpty,
+                     "A place that requires authentication needs a non-empty alloAppAuthToken")
+
         Allonet.Initialize()
+        self.requiresAuthenticationProvider = requiresAuthentication
         self.place = PlaceState(logger: logger)
         self.placeHelper = Place(state: self.place, client: nil)
         

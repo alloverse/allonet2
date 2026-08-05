@@ -100,12 +100,13 @@ public struct Identity: Equatable, Hashable, Codable, Sendable
         case app // This is an app that will connect using a per-place shared secret token
     }
 
-    public init(expectation: Identity.Expectation, displayName: String, emailAddress: String, authenticationToken: String, color: Color = .white)
+    public init(expectation: Identity.Expectation, displayName: String, emailAddress: String, authenticationToken: String, invitation: String? = nil, color: Color = .white)
     {
         self.expectation = expectation
         self.displayName = displayName
         self.emailAddress = emailAddress
         self.authenticationToken = authenticationToken
+        self.invitation = invitation
         self.color = color
     }
 
@@ -113,6 +114,9 @@ public struct Identity: Equatable, Hashable, Codable, Sendable
     public let displayName: String
     public let emailAddress: String
     public let authenticationToken: String // Could be a password, a passkey token, etc.
+    /// Proof that the user is allowed to register at all, for places that don't accept
+    /// open signups. Only meaningful for `.newUser`. Nil from clients that predate it.
+    public let invitation: String?
     /// How this user wants to be recognized, on their avatar and wherever else they appear.
     public let color: Color
 }
