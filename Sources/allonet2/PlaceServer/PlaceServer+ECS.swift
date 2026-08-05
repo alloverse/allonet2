@@ -99,6 +99,12 @@ extension PlaceServer
             client.simulatedTransform = moved
             changes.append(.componentUpdated(avatarId, AnyComponent(moved)))
         }
+        // Grabs run after movement, so a carried entity follows this tick's avatar transform.
+        for client in clients.values
+        {
+            guard let change = stepGrab(for: client) else { continue }
+            changes.append(change)
+        }
         guard !changes.isEmpty else { return false }
         // Deliberately not appendChanges: that invalidates the cache these changes just filled.
         outstandingPlaceChanges.append(contentsOf: changes)
@@ -106,6 +112,80 @@ extension PlaceServer
         return true
     }
     
+    /// One grab tick for one client. Everything in the intent is untrusted: the grabbed
+    /// entity must be Grabbable, the grabber must be the client's own, an actuation
+    /// target must really be an ancestor. Returns nil when nothing (new) should move.
+    private func stepGrab(for client: ConnectedClient) -> PlaceChange?
+    {
+        guard let grab = client.latestIntent?.grab else {
+            client.grabBase = nil
+            client.grabSimulated = nil
+            return nil
+        }
+        let contents = place.current
+        guard let grabbable = contents.components[Grabbable.self][grab.entity] else {
+            client.logger.warning("Ignoring grab of \(grab.entity): not Grabbable")
+            return nil
+        }
+        guard contents.entities[grab.grabber]?.ownerClientId == client.cid else {
+            client.logger.warning("Ignoring grab by \(grab.grabber): not the grabbing client's entity")
+            return nil
+        }
+        guard let actuated = resolveActuation(of: grab.entity, as: grabbable.actuateOn, in: contents) else {
+            client.logger.warning("Ignoring grab of \(grab.entity): actuation target \(grabbable.actuateOn) is not among its ancestors")
+            return nil
+        }
+
+        if client.grabBase?.actuated != actuated
+        {
+            guard let transform = contents.components[Transform.self][actuated] else { return nil }
+            client.grabBase = (actuated, transform)
+            client.grabSimulated = nil
+        }
+
+        // The grabber may hang off the client's avatar; feed the sim this tick's
+        // uncommitted avatar transform so carrying doesn't lag a walking avatar.
+        var overrides: [EntityID: Transform] = [:]
+        if let avatarId = client.avatar, let simulated = client.simulatedTransform
+        {
+            overrides[avatarId] = simulated
+        }
+        let parentToWorld: simd_float4x4
+        if let parent = contents.components[Relationships.self][actuated]?.parent
+        {
+            guard let composed = contents.transformToWorld(of: parent, overrides: overrides) else { return nil }
+            parentToWorld = composed
+        }
+        else { parentToWorld = .identity }
+        guard
+            let grabberToWorld = contents.transformToWorld(of: grab.grabber, overrides: overrides),
+            let moved = GrabSimulation.step(grab: grab, grabbable: grabbable, base: client.grabBase!.transform,
+                                            grabberToWorld: grabberToWorld, parentToWorld: parentToWorld),
+            moved != client.grabSimulated
+        else { return nil }
+
+        client.grabSimulated = moved
+        return .componentUpdated(actuated, AnyComponent(moved))
+    }
+
+    private func resolveActuation(of eid: EntityID, as actuateOn: Grabbable.ActuateOn, in contents: PlaceContents) -> EntityID?
+    {
+        switch actuateOn
+        {
+        case .entity: return eid
+        case .parent: return contents.components[Relationships.self][eid]?.parent
+        case .ancestor(let ancestor):
+            var current = contents.components[Relationships.self][eid]?.parent
+            var visited = Set<EntityID>()
+            while let id = current, visited.insert(id).inserted
+            {
+                if id == ancestor { return ancestor }
+                current = contents.components[Relationships.self][id]?.parent
+            }
+            return nil
+        }
+    }
+
     func createEntity(from description:EntityDescription, for client: ConnectedClient) async -> EntityData
     {
         let (ent, changes) = description.changes(for: client.cid)

@@ -379,9 +379,9 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     }
 
     /// Intents ride an unreliable channel, and the idle keepalive is ~1.1s: losing the packet that
-    /// stops movement would let the server keep going for that long. So while moving - and briefly
-    /// after stopping, since the final zero is the packet that must not be lost - repeat the intent
-    /// at a fixed rate, as allonet1 did unconditionally.
+    /// stops movement (or releases a grab) would let the server keep going for that long. So while
+    /// active - and briefly after stopping, since the final zero/release is the packet that must not
+    /// be lost - repeat the intent at a fixed rate, as allonet1 did unconditionally.
     private func startMovementIntentRepeatIfNeeded()
     {
         guard movementIntentRepeat == nil else { return }
@@ -393,12 +393,44 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
                 catch { break }
                 guard let self else { break }
                 // Same dead zone the simulation uses, or drift below it would repeat forever.
-                let moving = simd_length(self.currentIntent.moveDirection) >= MovementSimulation.inputDeadZone
-                idleRepeats = moving ? 0 : idleRepeats + 1
+                let active = simd_length(self.currentIntent.moveDirection) >= MovementSimulation.inputDeadZone
+                    || self.currentIntent.grab != nil
+                idleRepeats = active ? 0 : idleRepeats + 1
                 self.sendIntent()
             }
             self?.movementIntentRepeat = nil
         }
+    }
+
+    // MARK: - Grabbing
+
+    /// Grab a Grabbable entity with your avatar, keeping its current pose relative to you:
+    /// it follows as you move, until releaseGrab(). For pointer-style dragging, follow up
+    /// with moveGrabbed(toWorldTransform:) instead.
+    public func grab(entityId: EntityID)
+    {
+        guard let avatarId, let avatar = place.entities[avatarId], let target = place.entities[entityId] else {
+            logger.warning("Can't grab \(entityId): not announced, or no such entity")
+            return
+        }
+        let offset = avatar.transformToWorld.inverse * target.transformToWorld
+        currentIntent.grab = GrabIntent(entity: entityId, grabber: avatarId, grabberFromEntity: offset)
+        startMovementIntentRepeatIfNeeded()
+    }
+
+    /// While grabbing, steer the grabbed entity toward this world transform. The place
+    /// server still applies the entity's Grabbable constraints.
+    public func moveGrabbed(toWorldTransform target: simd_float4x4)
+    {
+        guard var grab = currentIntent.grab, let grabber = place.entities[grab.grabber] else { return }
+        grab.grabberFromEntity = grabber.transformToWorld.inverse * target
+        currentIntent.grab = grab
+    }
+
+    public func releaseGrab()
+    {
+        // The repeat task keeps sending briefly, so the release survives packet loss.
+        currentIntent.grab = nil
     }
 
     // MARK: - Convenience API

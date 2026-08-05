@@ -108,6 +108,39 @@ public struct InputTarget: Component
     public init() {}
 }
 
+/// This entity may be grabbed and moved by any user, via `Intent.grab` (ported from
+/// allonet1's `grabbable`; there is no per-user authorization). The place server applies
+/// the grab within these constraints. Requires `Collision` (+ usually `InputTarget`) for
+/// the client to have something to hit-test the grab against.
+public struct Grabbable: Component
+{
+    /// Which entity a grab of this entity actually moves: itself, or an ancestor —
+    /// for a grab handle that moves the widget it sits on.
+    @MainActor
+    public enum ActuateOn: Codable, Equatable
+    {
+        case entity
+        case parent
+        case ancestor(EntityID)
+    }
+    public var actuateOn: ActuateOn
+    /// Fraction of translation allowed per axis of the actuated entity's local space,
+    /// measured from where the grab started. [1,1,0] pins z: a wall sign slides in its
+    /// wall plane. 0...1.
+    public var translationConstraint: SIMD3<Float>
+    /// Fraction of rotation allowed per euler axis, likewise. [0,0,0] = never rotates.
+    public var rotationConstraint: SIMD3<Float>
+
+    public init(actuateOn: ActuateOn = .entity,
+                translationConstraint: SIMD3<Float> = [1,1,1],
+                rotationConstraint: SIMD3<Float> = [1,1,1])
+    {
+        self.actuateOn = actuateOn
+        self.translationConstraint = translationConstraint
+        self.rotationConstraint = rotationConstraint
+    }
+}
+
 /// A client-side effect highlighting an Entity and its children whenever the user's cursor is over it.
 public struct HoverEffect: Component
 {
@@ -249,6 +282,7 @@ func RegisterStandardComponents()
     VisorInfo.register()
     Collision.register()
     InputTarget.register()
+    Grabbable.register()
     HoverEffect.register()
     Opacity.register()
     Billboard.register()

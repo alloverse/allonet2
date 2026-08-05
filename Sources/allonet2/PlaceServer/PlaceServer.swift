@@ -132,7 +132,7 @@ public class PlaceServer : AlloSessionDelegate
             {
                 client.ackdRevision = intent.ackStateRev
                 client.latestIntent = intent
-                if intent.moveDirection != .zero
+                if intent.moveDirection != .zero || intent.grab != nil
                 {
                     self.startMovementLoopIfNeeded()
                 }
