@@ -13,6 +13,9 @@ internal class ConnectedClient
     let session: AlloSession
     let status: ConnectionStatus
     var identity: Identity? = nil
+    /// Set by the place when it accepted this client *as an app*, unlike `identity`, which is
+    /// whatever the client claimed to be. Anything granting app privileges reads this one.
+    var authenticatedAsApp = false
     var announced = false
     var ackdRevision : StateRevision? // Last ack'd place contents revision, or nil if none
     var latestIntent: Intent? // Latest intent received from this client

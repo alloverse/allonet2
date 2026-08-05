@@ -20,13 +20,22 @@ final class AuthenticationProviderTests: XCTestCase
         )
     }
 
-    private func makeClient(_ expectation: Identity.Expectation) -> (ConnectedClient, MockTransport)
+    /// Announces through the place's own authentication, rather than setting `authenticatedAsApp`
+    /// by hand: the point of these tests is the trust boundary, and a helper that grants app
+    /// standing itself would pass whatever the boundary did. `token` is what the client claims.
+    private func makeClient(_ expectation: Identity.Expectation, on server: PlaceServer,
+                            token: String = "apptoken") async -> (ConnectedClient, MockTransport)
     {
         let status = ConnectionStatus()
         let transport = MockTransport(with: TransportConnectionOptions(routing: .direct), status: status)
         let client = ConnectedClient(session: AlloSession(side: .server, transport: transport), status: status)
         client.identity = Identity(expectation: expectation, displayName: "KojaServ",
-                                   emailAddress: "", authenticationToken: "apptoken")
+                                   emailAddress: "", authenticationToken: token)
+        // Mirrors handle(announce:): apps always go through it, users need a provider we don't have.
+        if expectation == .app
+        {
+            try? await server.authenticate(identity: client.identity!, from: client, in: client.logger)
+        }
         return (client, transport)
     }
 
@@ -36,11 +45,11 @@ final class AuthenticationProviderTests: XCTestCase
     func testRestartedAppReplacesStaleProvider() async throws
     {
         let server = makeServer()
-        let (old, oldTransport) = makeClient(.app)
+        let (old, oldTransport) = await makeClient(.app, on: server)
         try await server.handle(placeInteraction: registration, from: old)
         XCTAssertTrue(server.authenticationProvider === old)
 
-        let (new, _) = makeClient(.app)
+        let (new, _) = await makeClient(.app, on: server)
         try await server.handle(placeInteraction: registration, from: new)
         XCTAssertTrue(server.authenticationProvider === new)
         XCTAssertEqual(oldTransport.disconnectCallCount, 1, "Replaced provider should be dropped")
@@ -51,11 +60,31 @@ final class AuthenticationProviderTests: XCTestCase
     func testOnlyAppsMayBeAuthenticationProvider() async
     {
         let server = makeServer()
-        let (visor, _) = makeClient(.existingUser)
+        let (visor, _) = await makeClient(.existingUser, on: server)
         do
         {
             try await server.handle(placeInteraction: registration, from: visor)
             XCTFail("A visor must not be able to become the place's authentication provider")
+        }
+        catch
+        {
+            XCTAssertEqual(error.code, PlaceErrorCode.unauthorized.rawValue)
+        }
+        XCTAssertNil(server.authenticationProvider)
+    }
+
+    /// Claiming to be an app is free — `identity` is written from the announce before anything
+    /// checks it. Only the place's own verdict on the token may open this door.
+    func testClaimingToBeAnAppWithoutTheTokenIsNotEnough() async
+    {
+        let server = makeServer(appToken: "apptoken")
+        let (impostor, _) = await makeClient(.app, on: server, token: "not-the-token")
+        XCTAssertEqual(impostor.identity?.expectation, .app, "It claims to be an app...")
+        XCTAssertFalse(impostor.authenticatedAsApp, "...but the place didn't accept it as one")
+        do
+        {
+            try await server.handle(placeInteraction: registration, from: impostor)
+            XCTFail("A client that failed the token check must not become the provider")
         }
         catch
         {
@@ -70,11 +99,11 @@ final class AuthenticationProviderTests: XCTestCase
     func testTakeoverNeedsAnAppTokenToTellAppsApart()
     async {
         let server = makeServer(appToken: "")
-        let (first, firstTransport) = makeClient(.app)
+        let (first, firstTransport) = await makeClient(.app, on: server)
         do { try await server.handle(placeInteraction: registration, from: first) }
         catch { return XCTFail("First app should still become the provider: \(error)") }
 
-        let (impostor, _) = makeClient(.app)
+        let (impostor, _) = await makeClient(.app, on: server)
         do
         {
             try await server.handle(placeInteraction: registration, from: impostor)
@@ -93,7 +122,7 @@ final class AuthenticationProviderTests: XCTestCase
     func testSecondAnnounceIsRejectedRatherThanCrashingThePlace() async
     {
         let server = makeServer()
-        let (client, _) = makeClient(.app)
+        let (client, _) = await makeClient(.app, on: server)
         client.announced = true
         let announce = Interaction(type: .request, senderEntityId: "", receiverEntityId: Interaction.PlaceEntity,
                                    body: .announce(version: Allonet.version().description,
@@ -114,7 +143,7 @@ final class AuthenticationProviderTests: XCTestCase
     func testReregisteringTheSameClientKeepsItConnected() async throws
     {
         let server = makeServer()
-        let (app, transport) = makeClient(.app)
+        let (app, transport) = await makeClient(.app, on: server)
         try await server.handle(placeInteraction: registration, from: app)
         try await server.handle(placeInteraction: registration, from: app)
         XCTAssertTrue(server.authenticationProvider === app)

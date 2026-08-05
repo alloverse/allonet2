@@ -20,8 +20,9 @@ extension PlaceServer
             // Reasons this is bad:
             // - Only one provider per place server
             // - A client could authenticate itself
-            // Announcing as an app is what authorizes this.
-            guard client.identity?.expectation == .app else
+            // Being *accepted* as an app is what authorizes this — not `identity`, which carries
+            // only what the client said about itself and is set before it is checked.
+            guard client.authenticatedAsApp else
             {
                 throw AlloverseError(code: PlaceErrorCode.unauthorized, description: "Only an app may be a place's authentication provider")
             }
@@ -92,9 +93,12 @@ extension PlaceServer
                 description: "Please update your app.\n\nClient version \(version) is incompatible with server version \(Allonet.version())."
             )
         }
-        if requiresAuthenticationProvider || (identity.expectation == .app && !alloAppAuthToken.isEmpty)
+        // Apps always go through authenticate(), even on a place with no token to check them
+        // against (where it passes them): it is the only place that decides an app is an app, and
+        // whatever it decides is what app privileges are granted on later.
+        if requiresAuthenticationProvider || identity.expectation == .app
         {
-            try await authenticate(identity: identity, from: client.cid, in: ilogger)
+            try await authenticate(identity: identity, from: client, in: ilogger)
         }
 
         client.announced = true
@@ -125,18 +129,20 @@ extension PlaceServer
         client.session.send(interaction: announce.makeResponse(with: .announceResponse(avatarId: avatar.id, placeName: name)))
     }
     
-    func authenticate(identity: Identity, from cid: ClientId, in ilogger: Logger) async throws(AlloverseError)
+    func authenticate(identity: Identity, from client: ConnectedClient, in ilogger: Logger) async throws(AlloverseError)
     {
+        let cid = client.cid
         if identity.expectation == .app
         {
             if alloAppAuthToken.isEmpty || identity.authenticationToken == alloAppAuthToken {
                 ilogger.info("Successfully authenticated app using shared secret.")
+                client.authenticatedAsApp = true
                 return
             } else {
                 throw AlloverseError(code: PlaceErrorCode.unauthorized, description: "Authentication failed", overrideIsFatal: true)
             }
         }
-        
+
         // Deliberately not fatal: a place whose provider is restarting is closed for a few seconds,
         // not permanently, and a visor that gives up here needs a human to reconnect it.
         guard let authenticationProvider, let authenticationId = authenticationProvider.avatar else {
