@@ -28,6 +28,14 @@ extension PlaceServer
                 {
                     client.simulatedTransform = component.decoded() as? Transform
                 }
+                for client in clients.values where client.grabBase?.actuated == eid
+                {
+                    // The teleport becomes the new base grab constraints measure from,
+                    // or the next tick would overwrite it from the old one.
+                    if let transform = component.decoded() as? Transform { client.grabBase = (eid, transform) }
+                    else { client.stopGrabbing() }
+                    client.grabSimulated = nil
+                }
             case .entityRemoved(let edata):
                 pendingRemovals.insert(edata.id)
                 for client in clients.values
