@@ -57,7 +57,8 @@ public class PlaceServer : AlloSessionDelegate
         transportClass: Transport.Type,
         options: TransportConnectionOptions,
         alloAppAuthToken: String,
-        requiresAuthentication: Bool = false
+        requiresAuthentication: Bool = false,
+        assetsDirectory: URL = PlaceServer.defaultAssetsDirectory
     )
     {
         // An empty token lets every app that announces authenticate, and the first app to ask
@@ -77,8 +78,17 @@ public class PlaceServer : AlloSessionDelegate
         self.transportClass = transportClass
         self.options = options
         self.alloAppAuthToken = alloAppAuthToken
-        self.web = PlaceServerHTTP(server: self, port: httpPort, appDescription: customApp)
+        self.web = PlaceServerHTTP(server: self, port: httpPort, appDescription: customApp, assetsDirectory: assetsDirectory)
         self.sfu = PlaceServerSFU(server: self)
+    }
+
+    /// Assets published to this place are kept here until told otherwise. Under the temp directory
+    /// rather than a caches directory because on Linux the latter resolves out of
+    /// /etc/default/useradd to `/home/.cache`, which in a container is nobody's home. A place that
+    /// should keep its assets across restarts gets pointed at a volume instead.
+    public nonisolated static var defaultAssetsDirectory: URL
+    {
+        FileManager.default.temporaryDirectory.appendingPathComponent("alloplace-assets", isDirectory: true)
     }
     
     public func start() async throws

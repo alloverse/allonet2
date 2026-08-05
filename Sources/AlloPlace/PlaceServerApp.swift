@@ -35,7 +35,10 @@ struct PlaceServerApp: AsyncParsableCommand
     
     @Option(help: "Together with client-name, use this to specify the URL protocol to use to launch the custom client.")
     var appURLProtocol: String = "alloplace2"
-    
+
+    @Option(help: "Directory to keep published assets in. Point this at a volume to keep them across restarts; the default is under the temp directory, so they're re-uploaded after a restart.")
+    var assetsDir: String?
+
     mutating func validate() throws
     {
         // An empty app token authenticates every app that asks, and the first app to ask becomes
@@ -62,7 +65,8 @@ struct PlaceServerApp: AsyncParsableCommand
             transportClass: HeadlessWebRTCTransport.self,
             options: TransportConnectionOptions(routing: .direct, ipOverride: ipOverride, portRange: webrtcPortRange),
             alloAppAuthToken: alloAppAuthToken,
-            requiresAuthentication: requireAuth
+            requiresAuthentication: requireAuth,
+            assetsDirectory: assetsDir.map { URL(fileURLWithPath: $0) } ?? PlaceServer.defaultAssetsDirectory
         )
         
         signal(SIGINT, SIG_IGN)

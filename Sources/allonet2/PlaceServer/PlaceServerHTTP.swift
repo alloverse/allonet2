@@ -20,32 +20,39 @@ public struct AppDescription
 @MainActor
 class PlaceServerHTTP
 {
+    /// Generous compared to FlyingFox's 15s default, which bounds the *whole* request including an
+    /// asset upload's body: a multi-megabyte mesh over a slow link would otherwise die as a 500.
+    nonisolated static let requestTimeout: TimeInterval = 120
+
     private var http: HTTPServer! = nil
     private let appDescription: AppDescription
     private var status: PlaceServerStatus!
+    private let assets: PlaceServerAssets
     private unowned let server: PlaceServer
     private let port: UInt16
-    
-    init(server: PlaceServer, port: UInt16, appDescription: AppDescription)
+
+    init(server: PlaceServer, port: UInt16, appDescription: AppDescription, assetsDirectory: URL)
     {
         self.server = server
         self.status = PlaceServerStatus(server: server)
         self.port = port
         self.appDescription = appDescription
+        self.assets = PlaceServerAssets(directory: assetsDirectory)
     }
     func start() async throws
     {
-        self.http = HTTPServer(port: port)
+        self.http = HTTPServer(port: port, timeout: Self.requestTimeout)
         await self.http.appendRoute("GET /") { return try await self.landingPage($0) }
         await self.http.appendRoute("POST /") { return try await self.handleIncomingClient($0) }
         try await self.status.start(on: http)
-        
+        await self.assets.register(on: http)
+
         try await http.start()
     }
-    
+
     func stop() async
     {
-        await http.stop()
+        await http?.stop()
     }
     
     func landingPage(_ request: HTTPRequest) async -> HTTPResponse
