@@ -43,6 +43,7 @@ public enum AlloverseErrorCode: Int, ErrorDomainProviding
     case failedSignalling = 100 // Failed to establish signalling
     case failedRenegotiation = 101 // Connection environment changed, but underlying connection failed to adapt
     case discardedRenegotiation = 102 // Renegotiation request is politely declined. Please roll back your offer and wait for other side to send _its_ offer.
+    case disconnected = 103 // The session went away before the response to your request arrived. Raised locally; never sent.
     
     // Internal errors
     case internalServerError = 500
@@ -90,12 +91,14 @@ public struct AlloverseError: LocalizedError, Codable
     
     public var asBody: InteractionBody { .error(domain: domain, code: code, description: description) }
     
-    // If true, the client should be disconnected immediately after response is sent
+    // If true, the client should be disconnected immediately after response is sent.
+    // Codes arrive off the wire, so an unknown one is a peer we don't fully understand rather
+    // than a programmer error: treat it as non-fatal instead of trapping on the unwrap.
     public var isFatal: Bool {
         if overrideIsFatal { return true }
         return switch domain {
-            case AlloverseErrorCode.domain: AlloverseErrorCode(rawValue: code)!.isFatal
-            case PlaceErrorCode.domain: PlaceErrorCode(rawValue: code)!.isFatal
+            case AlloverseErrorCode.domain: AlloverseErrorCode(rawValue: code)?.isFatal ?? false
+            case PlaceErrorCode.domain: PlaceErrorCode(rawValue: code)?.isFatal ?? false
             default: false
         }
     }
