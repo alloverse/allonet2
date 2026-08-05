@@ -15,6 +15,9 @@ struct PlaceServerApp: AsyncParsableCommand
     @Option(name: [.customShort("t"), .long], help: "Authentication token which lets an AlloApp connect without a registered user. Not providing it allows any app to connect unauthenticated.")
     var alloAppAuthToken: String = ""
     
+    @Flag(help: "Refuse users until an app has registered as authentication provider. Without it, a place admits anyone during the window between starting up and its provider connecting.")
+    var requireAuth: Bool = false
+
     @Option(name: [.customShort("l"), .long], help: "WebRTC IP override, e g for replacing a Docker internal IP with the host's public IP in WebRTC's published SDP candidates. Format: from_ip-to_ip. Example: 172.0.0.3-35.34.72.23")
     var ipOverride: IPOverride? = nil
     
@@ -47,7 +50,8 @@ struct PlaceServerApp: AsyncParsableCommand
             customApp: app,
             transportClass: HeadlessWebRTCTransport.self,
             options: TransportConnectionOptions(routing: .direct, ipOverride: ipOverride, portRange: webrtcPortRange),
-            alloAppAuthToken: alloAppAuthToken
+            alloAppAuthToken: alloAppAuthToken,
+            requiresAuthentication: requireAuth
         )
         
         signal(SIGINT, SIG_IGN)
