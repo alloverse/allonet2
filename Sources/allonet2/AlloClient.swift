@@ -76,7 +76,16 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     }
     
     public var logger = Logger(labelSuffix: "client")
-    
+
+    // MARK: - Assets
+
+    /// Where assets fetched from the place are kept. Keyed by content address, so an entry can
+    /// never go stale and nothing ever needs invalidating. Replace it before connecting to put the
+    /// cache somewhere else.
+    public var assetCache = AssetStore(directory: AssetStore.defaultCacheDirectory)
+    /// Fetches in flight, so a room referencing one mesh from five entities does one GET.
+    var assetFetches: [AssetID: Task<AssetStore.Entry, any Error>] = [:]
+
     // MARK: - Connection state related
 
     public private(set) var connectionStatus = ConnectionStatus()
@@ -185,16 +194,24 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         reset()
     }
     
+    /// The place's own HTTP(S) URL. The original schema is alloplace2://; signalling and asset
+    /// transfer both speak to it over http(s), so the schema is rewritten here once. Throws rather
+    /// than trapping because the URL comes from the user, not from us.
+    public var httpURL: URL
+    {
+        get throws
+        {
+            guard var httpcomps = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw URLError(.badURL) }
+            guard let scheme = url.scheme else { throw URLError(.badURL) }
+            httpcomps.scheme = scheme.last == "s" ? "https" : "http"
+            guard let httpUrl = httpcomps.url else { throw URLError(.badURL) }
+            return httpUrl
+        }
+    }
+
     open func performHTTPSignalling(offer: SignallingPayload) async throws -> SignallingPayload
     {
-        // Original schema is alloplace2://. We call this with HTTP(S) to establish a WebRTC connection,
-        // which means we need to rewrite the schema to be http(s).
-        guard var httpcomps = URLComponents(url: url, resolvingAgainstBaseURL: false) else { throw URLError(.badURL) }
-        guard let scheme = url.scheme else { throw URLError(.badURL) }
-        httpcomps.scheme = scheme.last == "s" ? "https" : "http"
-        guard let httpUrl = httpcomps.url else { throw URLError(.badURL) }
-
-        var request = URLRequest(url: httpUrl)
+        var request = URLRequest(url: try httpURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(offer)
