@@ -72,8 +72,16 @@ public class SpatialAudioPlayer
     public func useAsListener(_ listenerEid: EntityID)
     {
         listenerCancellables.forEach { $0.cancel() }; listenerCancellables.removeAll()
-        // TODO: In case we change listener for some other reason than a new avatar from reconnection, we should remove listening requests from the old listener.
-        
+        // Withdraw the old listener's forward requests, or the SFU keeps streaming to it.
+        // (After a reconnect the old entity is already gone, and there's nothing to clear.)
+        if let old = self.listener, old.id != listenerEid, client.place.entities[old.id] != nil
+        {
+            Task { @MainActor in
+                do { try await old.components.set(LiveMediaListener(mediaIds: [])) }
+                catch { logger.error("Couldn't clear old listener \(old.id): \(error)") }
+            }
+        }
+
         let listener = client.place.entities[listenerEid]!
         let guient = self.mapper.guiForEid(listenerEid)!
         logger.info("Using \(listenerEid) as RealityKit listener")
