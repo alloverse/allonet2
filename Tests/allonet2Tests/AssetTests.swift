@@ -148,6 +148,16 @@ struct AssetRangeTests
         #expect(PlaceServerAssets.parseRange("bytes=-0", size: 100) == .unsatisfiable)
         #expect(PlaceServerAssets.parseRange("bytes=0-0", size: 0) == .unsatisfiable)
     }
+
+    /// An unauthenticated GET is enough to reach this, so an overflow here traps the whole place.
+    @Test func survivesExtremeBounds()
+    {
+        #expect(PlaceServerAssets.parseRange("bytes=0-\(Int.max)", size: 100) == .partial(0..<100))
+        #expect(PlaceServerAssets.parseRange("bytes=-\(Int.max)", size: 100) == .partial(0..<100))
+        #expect(PlaceServerAssets.parseRange("bytes=\(Int.max)-", size: 100) == .unsatisfiable)
+        #expect(PlaceServerAssets.parseRange("bytes=\(Int.min)-5", size: 100) == .unsatisfiable)
+        #expect(PlaceServerAssets.parseRange("bytes=-\(Int.min)", size: 100) == .unsatisfiable)
+    }
 }
 
 // MARK: - Over a real socket

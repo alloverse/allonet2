@@ -169,11 +169,13 @@ public final class PlaceServerAssets: Sendable
             guard suffix > 0, size > 0 else { return .unsatisfiable }
             return .partial(max(0, size - suffix) ..< size)
         case (let start?, nil): // bytes=N-, from N to the end
-            guard start < size else { return .unsatisfiable }
+            guard start >= 0, start < size else { return .unsatisfiable }
             return .partial(start ..< size)
         case (let start?, let end?): // bytes=N-M, clamped to what we actually have
-            guard start <= end, start < size else { return .unsatisfiable }
-            return .partial(start ..< min(end + 1, size))
+            guard start >= 0, start <= end, start < size else { return .unsatisfiable }
+            // Clamp before incrementing: `min(end + 1, size)` traps on `bytes=0-<Int.max>`, which is
+            // a one-line remote crash of the place.
+            return .partial(start ..< (end < size ? end + 1 : size))
         case (nil, nil):
             return .unsatisfiable
         }
