@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-INTERNAL_IP="$(getent hosts "$(hostname)" | awk '{print $1}')"
+# A container on several networks resolves to several IPs, but -l takes one
+# mapping. One rewritten public candidate is enough for ICE, so use the first.
+INTERNAL_IP="$(getent hosts "$(hostname)" | awk 'NR==1 {print $1}')"
 PUBLIC_ADDR="${PUBLIC_ADDR:?set PUBLIC_ADDR env var (DNS name or IP)}"
 
 echo "Launching AlloPlace replacing IP ${INTERNAL_IP} with ${PUBLIC_ADDR}"
