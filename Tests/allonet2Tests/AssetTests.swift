@@ -107,6 +107,29 @@ struct AssetStoreTests
         #expect(try Data(contentsOf: entry.url) == bytes)
     }
 
+    /// Whoever publishes bytes first may not have said what they are, and the extension - hence
+    /// whether a loader can open the file at all - follows the type. So a publisher that knows gets
+    /// to correct one that didn't.
+    @Test func namingATypeCorrectsAnUnlabelledAsset() async throws
+    {
+        let store = makeStore()
+        let bytes = Data("a room".utf8)
+
+        let id = try await store.store(bytes, contentType: AssetStore.defaultContentType)
+        #expect(try #require(try await store.entry(for: id)).url.pathExtension == "")
+
+        #expect(try await store.store(bytes, contentType: "model/vnd.usdz+zip") == id)
+        let relabelled = try #require(try await store.entry(for: id))
+        #expect(relabelled.contentType == "model/vnd.usdz+zip")
+        #expect(relabelled.url.pathExtension == "usdz")
+        #expect(try Data(contentsOf: relabelled.url) == bytes)
+
+        // But a second specific claim doesn't get to overwrite the first: identical bytes, and
+        // nothing here can say which publisher is right.
+        #expect(try await store.store(bytes, contentType: "image/png") == id)
+        #expect(try #require(try await store.entry(for: id)).contentType == "model/vnd.usdz+zip")
+    }
+
     /// A missing asset is a value, not an error: the whole publish flow is "ask, then upload on nil".
     @Test func absenceIsNilNotAThrow() async throws
     {
@@ -269,7 +292,7 @@ struct AssetHTTPTests
             let (got, fetched) = try await get(id.description, from: base)
             #expect(got.statusCode == 200)
             #expect(fetched == bytes)
-            #expect(got.value(forHTTPHeaderField: "ETag") == id.description)
+            #expect(got.value(forHTTPHeaderField: "ETag") == "\"\(id)\"") // RFC 9110: quoted, or caches ignore it
             #expect(got.value(forHTTPHeaderField: "Cache-Control") == "public, max-age=31536000, immutable")
             #expect(got.value(forHTTPHeaderField: "Content-Type") == "model/vnd.usdz+zip")
         }

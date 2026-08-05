@@ -179,7 +179,11 @@ public actor AssetStore
     public func store(_ data: Data, contentType: String) throws -> AssetID
     {
         let id = AssetID(hashing: data)
-        guard try entry(for: id) == nil else { return id }
+        if let existing = try entry(for: id)
+        {
+            try relabelIfBetterKnown(id, existing: existing, contentType: contentType)
+            return id
+        }
 
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try data.write(to: blobURL(for: id, contentType: contentType), options: .atomic)
@@ -224,8 +228,9 @@ public actor AssetStore
         }
 
         let id = AssetID(digest: hasher.finalize())
-        guard try entry(for: id) == nil else
+        if let existing = try entry(for: id)
         {
+            try relabelIfBetterKnown(id, existing: existing, contentType: contentType)
             try FileManager.default.removeItem(at: incoming)
             return id
         }
@@ -270,6 +275,25 @@ public actor AssetStore
 
         guard let stored = try entry(for: id) else { throw AssetError.damagedStore(id: id, path: blob.path) }
         return stored
+    }
+
+    /// Content addressing means a second publisher of the same bytes is turned away — but the media
+    /// type is a claim *about* the bytes, and the file's name, hence what a loader can open, follows
+    /// it. `application/octet-stream` is the default for "I didn't say", so a publisher that names a
+    /// type gets to correct one that didn't; otherwise the first claim stands, since two specific
+    /// and different claims about identical bytes aren't resolvable from here.
+    private func relabelIfBetterKnown(_ id: AssetID, existing: Entry, contentType: String) throws
+    {
+        guard existing.contentType == AssetStore.defaultContentType,
+              contentType != AssetStore.defaultContentType else { return }
+
+        let renamed = blobURL(for: id, contentType: contentType)
+        if renamed != existing.url
+        {
+            if FileManager.default.fileExists(atPath: renamed.path) { try FileManager.default.removeItem(at: renamed) }
+            try FileManager.default.moveItem(at: existing.url, to: renamed)
+        }
+        try finish(id: id, contentType: contentType)
     }
 
     /// The sidecar goes last: it is what `entry(for:)` treats as the promise that the bytes landed.

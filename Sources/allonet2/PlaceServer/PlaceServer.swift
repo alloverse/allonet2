@@ -124,6 +124,13 @@ public class PlaceServer : AlloSessionDelegate
         var clogger = logger.forClient(cid)
         clogger.info("Lost session for client \(cid), removing entities...")
         Task { @MainActor in
+            // Publishing rights end with the session, so revoke before any of the awaits below —
+            // entity removal and the next sync would otherwise leave a window in which a client
+            // that is already gone can still POST an asset.
+            if let token = (self.clients[cid] ?? self.unannouncedClients[cid])?.assetToken
+            {
+                await self.web.assets.publishers.revoke(token)
+            }
             // The client stays in `clients` until the next sync below, so stop simulating it first:
             // a movement update queued alongside its avatar's removal makes the whole changeset
             // inapplicable, which trips the assert in applyAndBroadcastState.
@@ -132,8 +139,6 @@ public class PlaceServer : AlloSessionDelegate
             await self.heartbeat.awaitNextSync() // trigger callbacks for disappearing entities and their components before removing client
             if let client = self.clients.removeValue(forKey: cid) ?? self.unannouncedClients.removeValue(forKey: cid)
             {
-                // The right to publish lasts exactly as long as the session does.
-                await self.web.assets.publishers.revoke(client.assetToken)
                 clogger.info("Lost session for client \(cid) (\(client.announced ? "announced" : "unannounced")) was named \(client.identity?.displayName ?? "--")/\(client.identity?.emailAddress ?? "--"), and is now removed.")
             }
             if authenticationProvider?.cid == cid

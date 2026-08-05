@@ -8,7 +8,9 @@ announcements: worldstate sync *is* the announcement.
 
 Reads are open; writes are not. `POST /assets` needs a bearer token the place mints at announce and
 revokes on disconnect, so publishing is a privilege of having a session — the HTTP request carrying
-the bytes has no other way to say who it is. Visors get one too, since avatars are client-published.
+the bytes has no other way to say who it is. It is a live credential, so never log an
+`InteractionBody` whole: `announceResponse` carries the token, and a visor streams its logs back to
+the place. Visors get one too, since avatars are client-published.
 GET and HEAD stay unauthenticated on purpose: assets are immutable and cacheable by any
 intermediary, and you need the content hash to ask for one at all.
 
@@ -26,8 +28,12 @@ needs this token on the POST that follows.
 <hex>.type    the media type, written last — its presence is the promise the bytes landed
 ```
 
-The extension is a convenience; the id stays derived from content alone. Two publishers uploading
-identical bytes under different media types collide on the sidecar, last writer wins.
+The extension is a convenience; the id stays derived from content alone. When two publishers upload
+identical bytes under different media types, a publisher that names a type corrects one that left it
+at `application/octet-stream` (the default for "I didn't say"), and the blob is renamed to match —
+otherwise the first claim stands, since nothing here can adjudicate two specific claims about
+identical bytes. This matters because the extension is what decides whether a loader can open the
+file at all, so one lazy publisher would otherwise poison an id for everybody.
 
 ## FlyingFox pitfalls
 

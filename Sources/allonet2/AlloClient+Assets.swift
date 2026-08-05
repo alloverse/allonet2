@@ -29,7 +29,7 @@ public extension AlloClient
         // Hashed inside the store's actor, which both keeps SHA-256 over a whole mesh off the main
         // actor and means the bytes are addressed once rather than here and again on the way in.
         let id = try await assetCache.store(data, contentType: contentType)
-        if try await placeHasAsset(id) { return id }
+        if try await placeAlreadyKnows(id, as: contentType) { return id }
 
         let request = try assetUploadRequest(contentType: contentType)
         let response = try await retryingIfDropped { try await URLSession.shared.upload(for: request, from: data) }
@@ -48,7 +48,7 @@ public extension AlloClient
             ?? AssetStore.contentType(forExtension: fileURL.pathExtension)
             ?? AssetStore.defaultContentType
         let id = try await assetCache.address(ofFileAt: fileURL)
-        if try await placeHasAsset(id) { return id }
+        if try await placeAlreadyKnows(id, as: type) { return id }
 
         let request = try assetUploadRequest(contentType: type)
         let response = try await retryingIfDropped { try await URLSession.shared.upload(for: request, fromFile: fileURL) }
@@ -77,8 +77,8 @@ public extension AlloClient
         return try await fetch.value.url
     }
 
-    /// Whether the place already holds these bytes, so we can skip uploading them.
-    func placeHasAsset(_ id: AssetID) async throws -> Bool
+    /// The media type the place already holds these bytes under, or nil if it doesn't hold them.
+    func placeAssetType(_ id: AssetID) async throws -> String?
     {
         var request = URLRequest(url: try assetsURL(for: id))
         request.httpMethod = "HEAD"
@@ -86,8 +86,8 @@ public extension AlloClient
         let http = response as! HTTPURLResponse
         switch http.statusCode
         {
-        case 200: return true
-        case 404: return false
+        case 200: return http.value(forHTTPHeaderField: "Content-Type") ?? AssetStore.defaultContentType
+        case 404: return nil
         default: throw AssetError.transferFailed(id: id, status: http.statusCode, body: "")
         }
     }
@@ -95,6 +95,17 @@ public extension AlloClient
 
 private extension AlloClient
 {
+    /// Whether uploading would tell the place nothing it doesn't already have. Bytes alone aren't
+    /// enough: if it holds them under `application/octet-stream` because whoever got there first
+    /// didn't say, and we do know, the upload is worth making so the type - and with it the
+    /// extension a loader needs - gets corrected.
+    func placeAlreadyKnows(_ id: AssetID, as contentType: String) async throws -> Bool
+    {
+        guard let stored = try await placeAssetType(id) else { return false }
+        let ours = AssetStore.bareType(of: contentType)
+        return ours == AssetStore.bareType(of: stored) || ours == AssetStore.defaultContentType
+    }
+
     /// URLSession keeps connections pooled, so the first request after a place restarts is answered
     /// by a socket that is already dead — and it will not retry a POST on its own. Every asset
     /// request here is idempotent (that is what content addressing buys), so retrying a dropped one

@@ -327,7 +327,9 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
                 failConnectionAttempt(AlloverseError(with: response.body))
                 return
             }
-            logger.info("Received announce response: \(response.body)")
+            // Named fields, not the whole body: it carries the asset token, and this client streams
+            // its logs back to the place, so interpolating the body would publish a live credential.
+            logger.info("Received announce response: avatar \(avatarId) in '\(placeName)'")
             state.transition(to: .announced(avatarId: avatarId, placeName: placeName))
             announcedAt = Date()
             self.avatarId = avatarId

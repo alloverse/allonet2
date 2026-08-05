@@ -1,4 +1,6 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.1
+// 6.1 rather than 6.0 because swift-crypto 4.5's own manifest is 6.1: a 6.0 toolchain fails to
+// resolve it, so declaring 6.0 here would promise support we don't have.
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription

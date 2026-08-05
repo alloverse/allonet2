@@ -79,7 +79,7 @@ public final class PlaceServerAssets: Sendable
         // Content-addressed, so the bytes behind an id can never change: cache them forever.
         var headers: HTTPHeaders = [
             .contentType: entry.contentType,
-            .eTag: entry.id.description,
+            .eTag: "\"\(entry.id)\"", // RFC 9110 8.8.3: an entity tag is a quoted string, or caches ignore it
             .acceptRanges: "bytes",
             HTTPHeader("Cache-Control"): "public, max-age=31536000, immutable",
         ]
@@ -123,16 +123,21 @@ public final class PlaceServerAssets: Sendable
 
     func upload(_ request: HTTPRequest) async -> HTTPResponse
     {
-        // Checked before anything else, and deliberately without draining the body: an authorized
-        // client gets clean errors, but a stranger doesn't get to keep the connection alive.
+        let length = request.headers[.contentLength].flatMap(Int.init)
+
+        // Checked before any work is done. A token can go stale mid-upload when a publish races a
+        // disconnect, and that client keeps its connection, so a body we would have accepted anyway
+        // is drained to keep the socket parseable. An oversized one is not: a stranger doesn't get
+        // to make us read gigabytes, and a dead connection is the right answer for them.
         guard let token = Self.bearerToken(request.headers[.authorization]), await publishers.allows(token) else
         {
+            if let length, length <= maxUploadBytes { await drain(request) }
             return Self.problem(.unauthorized, "Publishing assets requires the token from your announce response")
         }
 
         // FlyingFox decodes a missing Content-Length as an empty body and has no chunked request
         // decoder at all, so without this we would cheerfully store the hash of nothing.
-        guard let declared = request.headers[.contentLength].flatMap(Int.init) else
+        guard let declared = length else
         {
             return Self.problem(.lengthRequired, "Content-Length is required; chunked uploads are not supported")
         }
