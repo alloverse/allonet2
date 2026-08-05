@@ -126,7 +126,14 @@ extension PlaceServer
         ilogger.info("Accepted client with email \(identity.emailAddress), display name \(identity.displayName), assigned avatar id \(avatar.id)")
         await heartbeat.awaitNextSync() // make it exist before we tell client about it
         
-        client.session.send(interaction: announce.makeResponse(with: .announceResponse(avatarId: avatar.id, placeName: name)))
+        // Announced means authenticated, which is exactly the point where publishing becomes allowed.
+        await web.assets.publishers.admit(client.assetToken)
+
+        client.session.send(interaction: announce.makeResponse(with: .announceResponse(
+            avatarId: avatar.id,
+            placeName: name,
+            assetToken: client.assetToken
+        )))
     }
     
     func authenticate(identity: Identity, from client: ConnectedClient, in ilogger: Logger) async throws(AlloverseError)

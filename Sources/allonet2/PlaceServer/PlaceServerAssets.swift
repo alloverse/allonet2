@@ -21,12 +21,28 @@ public final class PlaceServerAssets: Sendable
 
     let store: AssetStore
     let maxUploadBytes: Int
+    let publishers = PublishTokens()
     private let logger = Logger(labelSuffix: "place.assets")
 
     public init(directory: URL, maxUploadBytes: Int = defaultMaxUploadBytes)
     {
         self.store = AssetStore(directory: directory)
         self.maxUploadBytes = maxUploadBytes
+    }
+
+    /// Who may write to the store. Reading assets is open — they are immutable, cacheable by any
+    /// intermediary, and you need the content hash to ask for one at all — but writing is what
+    /// fills a disk, so it is restricted to agents that have announced themselves over a session.
+    /// An actor because the place admits and revokes from the main actor while uploads check from
+    /// FlyingFox's own task tree.
+    public actor PublishTokens
+    {
+        private var tokens: Set<String> = []
+
+        func admit(_ token: String) { tokens.insert(token) }
+        func revoke(_ token: String) { tokens.remove(token) }
+        func allows(_ token: String) -> Bool { tokens.contains(token) }
+        var count: Int { tokens.count }
     }
 
     public func register(on http: HTTPServer) async
@@ -38,6 +54,17 @@ public final class PlaceServerAssets: Sendable
     // MARK: - Fetching
 
     func fetch(_ request: HTTPRequest) async -> HTTPResponse
+    {
+        let response = await resolve(request)
+        guard request.method == .HEAD else { return response }
+        // RFC 9110 9.3.2: a HEAD response carries no content, and FlyingFox's encoder writes
+        // whatever body it is handed. URLSession answers a body on a HEAD by destroying the
+        // connection - and a HEAD 404 is the normal path for the first publish of any asset, so
+        // leaving the body on costs a TCP (and behind a TLS proxy, a TLS) handshake every time.
+        return HTTPResponse(version: response.version, statusCode: response.statusCode, headers: response.headers)
+    }
+
+    private func resolve(_ request: HTTPRequest) async -> HTTPResponse
     {
         guard let raw = request.routeParameters["id"], let id = AssetID(raw) else
         {
@@ -57,8 +84,7 @@ public final class PlaceServerAssets: Sendable
             HTTPHeader("Cache-Control"): "public, max-age=31536000, immutable",
         ]
 
-        // FlyingFox's encoder writes whatever body it is given, HEAD or not, so HEAD gets its
-        // Content-Length by hand and no body at all.
+        // HEAD reports the size it would have sent; fetch() is what guarantees no body follows.
         if request.method == .HEAD
         {
             headers[.contentLength] = String(entry.size)
@@ -97,6 +123,13 @@ public final class PlaceServerAssets: Sendable
 
     func upload(_ request: HTTPRequest) async -> HTTPResponse
     {
+        // Checked before anything else, and deliberately without draining the body: an authorized
+        // client gets clean errors, but a stranger doesn't get to keep the connection alive.
+        guard let token = Self.bearerToken(request.headers[.authorization]), await publishers.allows(token) else
+        {
+            return Self.problem(.unauthorized, "Publishing assets requires the token from your announce response")
+        }
+
         // FlyingFox decodes a missing Content-Length as an empty body and has no chunked request
         // decoder at all, so without this we would cheerfully store the hash of nothing.
         guard let declared = request.headers[.contentLength].flatMap(Int.init) else
@@ -132,6 +165,13 @@ public final class PlaceServerAssets: Sendable
             logger.error("Failed to store asset: \(error)")
             return Self.problem(.internalServerError, "\(error)")
         }
+    }
+
+    static func bearerToken(_ header: String?) -> String?
+    {
+        guard let header, header.lowercased().hasPrefix("bearer ") else { return nil }
+        let token = header.dropFirst("bearer ".count).trimmingCharacters(in: .whitespaces)
+        return token.isEmpty ? nil : token
     }
 
     private func drain(_ request: HTTPRequest) async

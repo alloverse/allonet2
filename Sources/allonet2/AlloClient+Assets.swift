@@ -26,8 +26,9 @@ public extension AlloClient
     @discardableResult
     func publish(asset data: Data, contentType: String = AssetStore.defaultContentType) async throws -> AssetID
     {
-        let id = AssetID(hashing: data)
-        try await assetCache.store(data, contentType: contentType)
+        // Hashed inside the store's actor, which both keeps SHA-256 over a whole mesh off the main
+        // actor and means the bytes are addressed once rather than here and again on the way in.
+        let id = try await assetCache.store(data, contentType: contentType)
         if try await placeHasAsset(id) { return id }
 
         let request = try assetUploadRequest(contentType: contentType)
@@ -46,7 +47,7 @@ public extension AlloClient
         let type = contentType
             ?? AssetStore.contentType(forExtension: fileURL.pathExtension)
             ?? AssetStore.defaultContentType
-        let id = try AssetID(hashingContentsOf: fileURL)
+        let id = try await assetCache.address(ofFileAt: fileURL)
         if try await placeHasAsset(id) { return id }
 
         let request = try assetUploadRequest(contentType: type)
@@ -57,7 +58,9 @@ public extension AlloClient
     /// The bytes for `id`, from the local cache if we have them, else from the place.
     func fetchAsset(_ id: AssetID) async throws -> Data
     {
-        try Data(contentsOf: try await assetURL(id))
+        _ = try await assetURL(id) // ensure it's cached
+        guard let data = try await assetCache.data(for: id) else { throw AssetError.notFound(id) }
+        return data
     }
 
     /// A local file holding `id`'s bytes, fetched first if we don't have them. Named with an
@@ -119,9 +122,13 @@ private extension AlloClient
 
     func assetUploadRequest(contentType: String) throws -> URLRequest
     {
+        // The upload is a bare HTTP request with no session behind it, so the token from our
+        // announce response is the only thing telling the place we belong here.
+        guard let assetToken else { throw AssetError.notAllowedToPublish }
         var request = URLRequest(url: try assetsURL(for: nil))
         request.httpMethod = "POST"
         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(assetToken)", forHTTPHeaderField: "Authorization")
         return request
     }
 

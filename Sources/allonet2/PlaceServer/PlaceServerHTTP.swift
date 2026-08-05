@@ -27,7 +27,7 @@ class PlaceServerHTTP
     private var http: HTTPServer! = nil
     private let appDescription: AppDescription
     private var status: PlaceServerStatus!
-    private let assets: PlaceServerAssets
+    let assets: PlaceServerAssets
     private unowned let server: PlaceServer
     private let port: UInt16
 

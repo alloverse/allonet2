@@ -75,6 +75,8 @@ public enum AssetError: Error, CustomStringConvertible, Equatable
 {
     case malformedID(String)
     case notFound(AssetID)
+    /// Publishing needs the token from the announce response, so it needs a live session.
+    case notAllowedToPublish
     case tooLarge(bytes: Int, max: Int)
     /// The bytes we got don't hash to the id we asked for: the place is buggy or lying.
     case hashMismatch(expected: AssetID, actual: AssetID)
@@ -89,6 +91,7 @@ public enum AssetError: Error, CustomStringConvertible, Equatable
         {
         case .malformedID(let string): return "Not an asset id: '\(string)'"
         case .notFound(let id): return "The place has no asset \(id)"
+        case .notAllowedToPublish: return "Not allowed to publish assets; the place issues that right when you announce"
         case .tooLarge(let bytes, let max): return "Asset is \(bytes) bytes, which is over the \(max) byte limit"
         case .hashMismatch(let expected, let actual): return "Asked for \(expected) but the bytes hash to \(actual)"
         case .transferFailed(let id, let status, let body): return "Transfer of \(id?.description ?? "asset") failed with HTTP \(status): \(body)"
@@ -155,6 +158,20 @@ public actor AssetStore
     public func contains(_ id: AssetID) throws -> Bool
     {
         try entry(for: id) != nil
+    }
+
+    /// The bytes we hold for `id`, or nil if we don't hold them.
+    public func data(for id: AssetID) throws -> Data?
+    {
+        guard let entry = try entry(for: id) else { return nil }
+        return try Data(contentsOf: entry.url)
+    }
+
+    /// Address a file we are not storing. Lives on the actor so callers on the main actor - every
+    /// `AlloClient` - don't hash a mesh on the thread that draws.
+    public func address(ofFileAt fileURL: URL) throws -> AssetID
+    {
+        try AssetID(hashingContentsOf: fileURL)
     }
 
     /// Store `data` under its own content address. Identical bytes are a no-op.

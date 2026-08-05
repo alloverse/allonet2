@@ -2,6 +2,7 @@ import Testing
 import Foundation
 import FlyingFox
 import FlyingSocks
+import PotentCBOR
 @testable import allonet2
 
 // MARK: - Content addressing
@@ -46,6 +47,39 @@ struct AssetIDTests
         let encoded = try JSONEncoder().encode(AssetUploadResponse(id: id))
         #expect(String(data: encoded, encoding: .utf8) == "{\"id\":\"\(id)\"}")
         #expect(try JSONDecoder().decode(AssetUploadResponse.self, from: encoded).id == id)
+    }
+}
+
+// MARK: - Announce compatibility
+// The asset token rides in announceResponse, and KojaServ/KojaApp sit on older allonet2 pins, so
+// both directions across the version gap have to keep working.
+
+struct AnnounceTokenTests
+{
+    @Test func carriesTheTokenBothWays() throws
+    {
+        let body = InteractionBody.announceResponse(avatarId: "abc", placeName: "Home", assetToken: "s3cret")
+        let decoded = try CBORDecoder().decode(InteractionBody.self, from: try CBOREncoder().encode(body))
+        guard case .announceResponse(let avatarId, let placeName, let token) = decoded else {
+            Issue.record("decoded to \(decoded)"); return
+        }
+        #expect(avatarId == "abc")
+        #expect(placeName == "Home")
+        #expect(token == "s3cret")
+    }
+
+    /// A place from before this change sends no assetToken key at all. If that failed to decode,
+    /// upgrading a client against an old place would break connecting outright, not just publishing.
+    @Test func decodesAnAnnounceFromAPlaceThatIssuesNoToken() throws
+    {
+        let old = try CBOREncoder().encode(["announceResponse": ["avatarId": "abc", "placeName": "Home"]])
+        let decoded = try CBORDecoder().decode(InteractionBody.self, from: old)
+        guard case .announceResponse(let avatarId, let placeName, let token) = decoded else {
+            Issue.record("decoded to \(decoded)"); return
+        }
+        #expect(avatarId == "abc")
+        #expect(placeName == "Home")
+        #expect(token == nil) // no token means no publishing, which is exactly right
     }
 }
 
@@ -175,6 +209,7 @@ struct AssetHTTPTests
     {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let assets = PlaceServerAssets(directory: directory, maxUploadBytes: maxUploadBytes)
+        await assets.publishers.admit(Self.token)
         let http = HTTPServer(port: 0, timeout: PlaceServerHTTP.requestTimeout)
         await assets.register(on: http)
 
@@ -192,11 +227,15 @@ struct AssetHTTPTests
         await http.stop()
     }
 
-    private func post(_ bytes: Data, contentType: String, to base: URL) async throws -> (HTTPURLResponse, Data)
+    /// Every server made by `withAssetServer` admits this one; publishing needs a session token.
+    static let token = "test-publisher-token"
+
+    private func post(_ bytes: Data, contentType: String, to base: URL, token: String? = AssetHTTPTests.token) async throws -> (HTTPURLResponse, Data)
     {
         var request = URLRequest(url: base.appendingPathComponent("assets"))
         request.httpMethod = "POST"
         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
+        if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         let (data, response) = try await URLSession.shared.upload(for: request, from: bytes)
         return (response as! HTTPURLResponse, data)
     }
@@ -317,6 +356,61 @@ struct AssetHTTPTests
         }
     }
 
+    /// Writing is what fills a disk, so it takes a token the place only hands out at announce.
+    @Test func refusesToPublishWithoutASessionToken() async throws
+    {
+        try await withAssetServer { base, assets in
+            let bytes = Data("uninvited".utf8)
+
+            let (anonymous, _) = try await post(bytes, contentType: "application/octet-stream", to: base, token: nil)
+            #expect(anonymous.statusCode == 401)
+
+            let (wrong, _) = try await post(bytes, contentType: "application/octet-stream", to: base, token: "not-the-token")
+            #expect(wrong.statusCode == 401)
+            #expect(try await assets.store.contains(AssetID(hashing: bytes)) == false)
+
+            // Revoking, as a disconnect does, takes the right away again.
+            await assets.publishers.revoke(Self.token)
+            let (revoked, _) = try await post(bytes, contentType: "application/octet-stream", to: base)
+            #expect(revoked.statusCode == 401)
+
+            await assets.publishers.admit(Self.token)
+            let (allowed, _) = try await post(bytes, contentType: "application/octet-stream", to: base)
+            #expect(allowed.statusCode == 201)
+        }
+    }
+
+    /// Reading stays open: assets are immutable and cacheable by any intermediary, and you need the
+    /// content hash to ask for one at all.
+    @Test func servesReadsWithoutAToken() async throws
+    {
+        try await withAssetServer { base, _ in
+            let bytes = Data("public knowledge".utf8)
+            let (_, body) = try await post(bytes, contentType: "application/octet-stream", to: base)
+            let id = try JSONDecoder().decode(AssetUploadResponse.self, from: body).id.description
+
+            let (got, fetched) = try await get(id, from: base)
+            #expect(got.statusCode == 200)
+            #expect(fetched == bytes)
+        }
+    }
+
+    /// URLSession destroys the connection when a HEAD comes back with content, and a HEAD 404 is
+    /// the normal path for a first publish - so the error paths must not carry one either.
+    @Test func headCarriesNoBodyEvenOnErrors() async throws
+    {
+        try await withAssetServer { base, _ in
+            for path in [AssetID(hashing: Data("absent".utf8)).description, "not-a-hash"]
+            {
+                let (response, _) = try await get(path, from: base, method: "HEAD")
+                #expect(response.statusCode == (path.hasPrefix("sha256:") ? 404 : 400))
+                // URLSession hides a HEAD body, so assert on what the server said it sent.
+                let declared = response.value(forHTTPHeaderField: "Content-Length")
+                #expect(declared == nil || declared == "0", "HEAD \(path) declared a \(declared ?? "?") byte body")
+            }
+        }
+    }
+
     /// The client API end to end against a real place endpoint: publish, skip the second upload,
     /// fetch back byte-identical data. Needs no WebRTC session — assets ride HTTP, which is the
     /// whole point of the design.
@@ -330,6 +424,7 @@ struct AssetHTTPTests
                 avatarDescription: EntityDescription()
             )
             client.assetCache = AssetStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+            client.assetToken = Self.token // what announcing would have given it
 
             let bytes = Data((0..<20_000).map { UInt8($0 % 256) })
             let id = try await client.publish(asset: bytes, contentType: "model/vnd.usdz+zip")

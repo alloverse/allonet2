@@ -132,6 +132,8 @@ public class PlaceServer : AlloSessionDelegate
             await self.heartbeat.awaitNextSync() // trigger callbacks for disappearing entities and their components before removing client
             if let client = self.clients.removeValue(forKey: cid) ?? self.unannouncedClients.removeValue(forKey: cid)
             {
+                // The right to publish lasts exactly as long as the session does.
+                await self.web.assets.publishers.revoke(client.assetToken)
                 clogger.info("Lost session for client \(cid) (\(client.announced ? "announced" : "unannounced")) was named \(client.identity?.displayName ?? "--")/\(client.identity?.emailAddress ?? "--"), and is now removed.")
             }
             if authenticationProvider?.cid == cid

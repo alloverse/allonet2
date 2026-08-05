@@ -83,6 +83,10 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     /// never go stale and nothing ever needs invalidating. Replace it before connecting to put the
     /// cache somewhere else.
     public var assetCache = AssetStore(directory: AssetStore.defaultCacheDirectory)
+    /// Authorizes us to publish assets, handed over in the announce response. Nil until announced,
+    /// and again after disconnecting: publishing is a privilege of having a session, since the
+    /// HTTP request carrying the bytes has no other way to say who we are.
+    public internal(set) var assetToken: String?
     /// Fetches in flight, so a room referencing one mesh from five entities does one GET.
     var assetFetches: [AssetID: Task<AssetStore.Entry, any Error>] = [:]
 
@@ -153,6 +157,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         session = AlloSession(side: .client, transport: transport)
         session.delegate = self
         avatarId = nil
+        assetToken = nil
         isAnnounced = false
         // Anyone awaiting an entity was waiting on the connection we just threw away.
         placeState.failOutstandingEntityWaits()
@@ -190,6 +195,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         announcedAt = nil
         shortLivedConnections = 0
         reconnectWasRequested = false
+        assetToken = nil
         session.disconnect()
         reset()
     }
@@ -315,7 +321,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
                                                      description: "Place didn't answer our announce"))
                 return
             }
-            guard case .announceResponse(let avatarId, let placeName) = response.body else
+            guard case .announceResponse(let avatarId, let placeName, let assetToken) = response.body else
             {
                 logger.error("Announce failed: \(response)")
                 failConnectionAttempt(AlloverseError(with: response.body))
@@ -326,6 +332,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
             announcedAt = Date()
             self.avatarId = avatarId
             self.placeName = placeName
+            self.assetToken = assetToken
             self.connectionStatus.hasReceivedAnnounceResponse = true
             await heartbeat.markChanged()
         }
@@ -335,6 +342,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     {
         logger.info("Disconnected")
         avatarId = nil
+        assetToken = nil
         connectionStatus.signalling = .failed
 
         // If already disconnected (user-initiated via disconnect()), nothing more to do

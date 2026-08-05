@@ -6,6 +6,18 @@ existing, so `GET place/assets/{id}` is never less reachable than a data channel
 then POST on miss; consumers GET on first sight of an unknown id in worldstate. No availability
 announcements: worldstate sync *is* the announcement.
 
+Reads are open; writes are not. `POST /assets` needs a bearer token the place mints at announce and
+revokes on disconnect, so publishing is a privilege of having a session — the HTTP request carrying
+the bytes has no other way to say who it is. Visors get one too, since avatars are client-published.
+GET and HEAD stay unauthenticated on purpose: assets are immutable and cacheable by any
+intermediary, and you need the content hash to ask for one at all.
+
+Turning the flow around — the place fetching from the publisher instead — doesn't work: alloapps and
+visors have no inbound reachability, which is why signalling is a POST *to* the place. A
+place-initiated fetch would have to ride the data channel and rebuild allonet1's chunking and
+back-pressure protocol. Lazy pull, if it ever lands, moves only the *trigger* in-band and still
+needs this token on the POST that follows.
+
 `AssetStore` is both the place's origin and each client's cache — same layout on both sides:
 
 ```
@@ -32,7 +44,12 @@ Version 0.26.2. Each of these ships as a bug if you don't handle it:
   nothing; rejecting without draining the body desyncs the connection, because keep-alive is decided
   by the *request* (`HTTPConnection`), so a `Connection: close` on the response won't save you.
 - **HEAD is never derived from a GET route** and the encoder writes whatever body it is handed, so
-  HEAD needs its own route (`"GET,HEAD /assets/:id"`), a manual `Content-Length`, and no body.
+  HEAD needs its own route (`"GET,HEAD /assets/:id"`), a manual `Content-Length`, and no body — on
+  *every* path including errors. URLSession answers a HEAD carrying content by destroying the
+  connection, and a HEAD 404 is the normal path for the first publish of any asset, so a body on the
+  error path costs a TCP (and behind a TLS proxy, a TLS) handshake per publish.
+- **Range bounds are attacker-supplied integers.** `min(end + 1, size)` traps on
+  `bytes=0-<Int.max>`, and an arithmetic trap kills the whole place. Clamp before incrementing.
 - **`FileHTTPHandler` looks like it does Range for you, and half does.** It streams and emits
   206/`Content-Range`, but an unsatisfiable range surfaces as **404** rather than 416 — telling a
   client "no such asset" about an asset that is right there — it ignores suffix ranges
@@ -58,5 +75,7 @@ Version 0.26.2. Each of these ships as a bug if you don't handle it:
 ## Not done yet
 
 `Model.mesh == .asset(id:)` still traps in `RealityViewMapper`; nothing renders a fetched asset.
-`Model.Mesh.asset` carries a `String`, not an `AssetID`. There is no GC, no quota, and `POST /assets`
-is unauthenticated — a public place accepts blobs from anyone who can reach the port.
+`Model.Mesh.asset` carries a `String`, not an `AssetID`. There is no GC and no quota, so a connected
+agent can still fill the place's disk — the token bounds *who* can write, not how much. A consumer
+download is likewise uncapped: a malicious place can hand a client more bytes than it asked for, and
+the hash is only checked once the file has landed.
