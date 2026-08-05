@@ -50,6 +50,10 @@ let package = Package(
         .package(url: "https://github.com/mxcl/Version.git", from: "2.0.0"),
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.2.0"),
         .package(url: "https://github.com/apple/swift-log", from: "1.6.0"),
+        // SHA-256 for content-addressed assets. On Apple platforms `Crypto` is a CryptoKit
+        // re-export, so the BoringSSL build cost is Linux-only. Pinned to the minor: the Docker
+        // image is Swift 6.1.2 and swift-crypto 4.5 is already tools-version 6.1.
+        .package(url: "https://github.com/apple/swift-crypto.git", .upToNextMinor(from: "4.5.1")),
     ],
     targets: [
         .target(
@@ -62,7 +66,8 @@ let package = Package(
                 .product(name: "SIMDTools", package:"simd-tools"),
                 .product(name: "OpenCombineShim", package: "opencombine"),
                 .product(name: "Atomics", package: "swift-atomics"),
-                .product(name: "Logging", package: "swift-log")
+                .product(name: "Logging", package: "swift-log"),
+                .product(name: "Crypto", package: "swift-crypto")
             ],
             plugins: [
                 .plugin(name: "PackageBuildInfoPlugin", package: "PackageBuildInfo")
