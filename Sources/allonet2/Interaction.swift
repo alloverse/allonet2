@@ -103,7 +103,7 @@ public struct Identity: Equatable, Hashable, Codable, Sendable
         case app // This is an app that will connect using a per-place shared secret token
     }
 
-    public init(expectation: Identity.Expectation, displayName: String, emailAddress: String, authenticationToken: String, invitation: String? = nil, color: Color = .white)
+    public init(expectation: Identity.Expectation, displayName: String, emailAddress: String, authenticationToken: String, invitation: String? = nil, color: Color = .white, profileImage: String? = nil)
     {
         self.expectation = expectation
         self.displayName = displayName
@@ -111,6 +111,7 @@ public struct Identity: Equatable, Hashable, Codable, Sendable
         self.authenticationToken = authenticationToken
         self.invitation = invitation
         self.color = color
+        self.profileImage = profileImage
     }
 
     public let expectation: Expectation
@@ -122,6 +123,12 @@ public struct Identity: Equatable, Hashable, Codable, Sendable
     public let invitation: String?
     /// How this user wants to be recognized, on their avatar and wherever else they appear.
     public let color: Color
+    /// Asset id of the picture this user goes by, or nil for none. Unlike `color`, this is a
+    /// reference rather than a value: the bytes have to reach the place before anyone can resolve
+    /// it, and the place only lets an agent publish once it has announced. So this is the user's
+    /// standing choice, carried across sessions — it is *not* what a visor copies onto its avatar
+    /// at announce time. Publish first, then set `VisorInfo.profileImage`.
+    public let profileImage: String?
 }
 
 @MainActor
