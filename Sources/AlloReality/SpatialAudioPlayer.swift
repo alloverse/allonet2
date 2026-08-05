@@ -49,13 +49,39 @@ public class SpatialAudioPlayer
         }, removed: { (key, value) in
             self.stop(streamId: key)
         }).store(in: &streamCancellables)
+        client.$speakerEnabled.sink { [weak self] enabled in
+            self?.updateListener(speakerEnabled: enabled)
+        }.store(in: &streamCancellables)
+    }
+
+    private var listener: allonet2.Entity? = nil
+    private var streamIds = Set<String>()
+    /// Ask the place to forward the streams we want to hear — none while deafened.
+    /// `speakerEnabled` is passed in because a $speakerEnabled sink fires on willSet.
+    private func updateListener(speakerEnabled: Bool)
+    {
+        guard let listener else { return }
+        let mediaIds = speakerEnabled ? streamIds : []
+        Task { @MainActor in
+            logger.info("Updating listener to forward \(mediaIds)")
+            do { try await listener.components.set(LiveMediaListener(mediaIds: mediaIds)) }
+            catch { logger.error("Couldn't update listener \(listener.id): \(error)") }
+        }
     }
     
     public func useAsListener(_ listenerEid: EntityID)
     {
         listenerCancellables.forEach { $0.cancel() }; listenerCancellables.removeAll()
-        // TODO: In case we change listener for some other reason than a new avatar from reconnection, we should remove listening requests from the old listener.
-        
+        // Withdraw the old listener's forward requests, or the SFU keeps streaming to it.
+        // (After a reconnect the old entity is already gone, and there's nothing to clear.)
+        if let old = self.listener, old.id != listenerEid, client.place.entities[old.id] != nil
+        {
+            Task { @MainActor in
+                do { try await old.components.set(LiveMediaListener(mediaIds: [])) }
+                catch { logger.error("Couldn't clear old listener \(old.id): \(error)") }
+            }
+        }
+
         let listener = client.place.entities[listenerEid]!
         let guient = self.mapper.guiForEid(listenerEid)!
         logger.info("Using \(listenerEid) as RealityKit listener")
@@ -68,25 +94,19 @@ public class SpatialAudioPlayer
         guient.components.set(AudioListenerComponent())
         
         // Setup listeners to get incoming tracks. Just ask to get everything (except our own audio) forwarded.
-        var streamIds = Set<String>()
-        func updateListener()
-        {
-            Task { @MainActor in
-                logger.info("Updating listener to forward \(streamIds)")
-                try? await listener.components.set(LiveMediaListener(mediaIds: streamIds))
-            }
-        }
+        self.listener = listener
+        streamIds.removeAll()
         client.placeState.observers[LiveMedia.self].addedWithInitial.sink { eid, liveMedia in
             guard let edata = self.client.placeState.current.entities[eid] else { return }
             guard edata.ownerClientId != self.client.cid else { return }
-            streamIds.insert(liveMedia.mediaId)
+            self.streamIds.insert(liveMedia.mediaId)
             let callback = self.addon?.mediaAdded(eid, liveMedia)
             self.state[liveMedia.mediaId] = SpatialAudioPlaybackState(streamId: liveMedia.mediaId, eid: eid, callback: callback)
-            updateListener()
+            self.updateListener(speakerEnabled: self.client.speakerEnabled)
         }.store(in: &listenerCancellables)
         client.placeState.observers[LiveMedia.self].removed.sink { edata, liveMedia in
-            streamIds.remove(liveMedia.mediaId)
-            updateListener()
+            self.streamIds.remove(liveMedia.mediaId)
+            self.updateListener(speakerEnabled: self.client.speakerEnabled)
             self.stop(streamId: liveMedia.mediaId)
             self.addon?.mediaRemoved(edata.id, liveMedia)
         }.store(in: &listenerCancellables)

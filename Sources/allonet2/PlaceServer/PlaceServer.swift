@@ -41,6 +41,9 @@ public class PlaceServer : AlloSessionDelegate
         }
     }()
     internal var outstandingPlaceChanges: [PlaceChange] = []
+    /// Entities with a removal (entity or Transform) queued but not yet applied. The sim tick
+    /// must not append updates for them: an update after a removal makes the changeset inapplicable.
+    internal var pendingRemovals: Set<EntityID> = []
     internal var movementLoop: Task<Void, Never>? = nil
     // This is here to help with some calculations; don't try to modify place through it.
     let placeHelper: Place
@@ -144,7 +147,15 @@ public class PlaceServer : AlloSessionDelegate
             {
                 client.ackdRevision = intent.ackStateRev
                 client.latestIntent = intent
-                if intent.moveDirection != .zero
+                if intent.grab == nil
+                {
+                    // The movement loop may have gone idle mid-grab and won't tick to clear these;
+                    // stale, they'd make the next grab of the same entity measure constraints
+                    // from this grab's start.
+                    client.grabBase = nil
+                    client.grabSimulated = nil
+                }
+                if intent.moveDirection != .zero || intent.grab != nil
                 {
                     self.startMovementLoopIfNeeded()
                 }

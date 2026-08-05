@@ -101,12 +101,15 @@ public struct Entity: CustomStringConvertible, Equatable
     }
     
     public var transformToWorld: simd_float4x4 {
+        // Stops on a Relationships cycle - remote data must not overflow the stack.
         var transform = self.transformToParent
-        if let parent = self.parent
+        var visited: Set<EntityID> = [id]
+        var current = self.parent
+        while let parent = current, visited.insert(parent.id).inserted
         {
-            transform = parent.transformToWorld * transform
+            transform = parent.transformToParent * transform
+            current = parent.parent
         }
-        
         return transform
     }
     
