@@ -18,19 +18,27 @@ extension PlaceServer
         {
         case .registerAsAuthenticationProvider:
             // Reasons this is bad:
-            // - First wins
             // - Only one provider per place server
-            // - No verification that the client is actually allowed to authenticate others
             // - A client could authenticate itself
-            if authenticationProvider == nil
+            // Announcing as an app is what authorizes this: with an app token set, only its holder
+            // gets that far, and that token already grants full management of the place.
+            guard client.identity?.expectation == .app else
             {
-                authenticationProvider = client
-                requiresAuthenticationProvider = true
-                client.session.send(interaction: inter.makeResponse(with: .success))
+                throw AlloverseError(code: PlaceErrorCode.unauthorized, description: "Only an app may be a place's authentication provider")
             }
-            else
+            // Last writer wins, so a backend that restarted can take the role back from its own
+            // dead session. The place can't tell a dead provider from a live one — a killed peer
+            // looks connected until ICE gives up — and refusing until then shuts the place to
+            // everyone for as long as that takes.
+            let previous = authenticationProvider
+            authenticationProvider = client
+            requiresAuthenticationProvider = true
+            client.session.send(interaction: inter.makeResponse(with: .success))
+            if let previous, previous.cid != client.cid
             {
-                throw AlloverseError(code: PlaceErrorCode.invalidRequest, description: "Place server already has an authentication provider")
+                // After reassigning: losing this session must not clear the new provider.
+                ilogger.warning("Replacing authentication provider \(previous.cid), disconnecting it")
+                previous.session.disconnect()
             }
 
         case .announce(let version, let identity, let avatarDescription):
@@ -113,8 +121,10 @@ extension PlaceServer
             }
         }
         
+        // Deliberately not fatal: a place whose provider is restarting is closed for a few seconds,
+        // not permanently, and a visor that gives up here needs a human to reconnect it.
         guard let authenticationProvider, let authenticationId = authenticationProvider.avatar else {
-            throw AlloverseError(code: AlloverseErrorCode.internalServerError, description: "Couldn't reach authentication server", overrideIsFatal: true)
+            throw AlloverseError(code: AlloverseErrorCode.internalServerError, description: "Couldn't reach authentication server")
         }
 
         let request = Interaction(type: .request, senderEntityId: Interaction.PlaceEntity,
