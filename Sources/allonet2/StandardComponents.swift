@@ -203,9 +203,12 @@ public struct CustomComponent
 public struct VisorInfo: Component
 {
     public var displayName: String
-    public init(displayName: String)
+    /// The user's chosen color, from their Identity.
+    public var color: Color
+    public init(displayName: String, color: Color = .white)
     {
         self.displayName = displayName
+        self.color = color
     }
 }
 
@@ -218,7 +221,7 @@ public struct SpawnPoint: Component
 // MARK: - Related types
 // Types that are not Components, but used by Components
 
-public enum Color: Equatable, Codable
+public enum Color: Equatable, Hashable, Sendable, Codable
 {
     case rgb(red: Float, green: Float, blue: Float, alpha: Float)
     case hsv(hue: Float, saturation: Float, value: Float, alpha: Float)
