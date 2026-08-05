@@ -57,6 +57,13 @@ public class PlaceServer : AlloSessionDelegate
         requiresAuthentication: Bool = false
     )
     {
+        // An empty token lets every app that announces authenticate, and the first app to ask
+        // becomes this place's authentication provider, so the combination would leave a place
+        // configured as closed open to whoever connects first. The CLI reports this as a usage
+        // error; an embedder gets it as the configuration bug it is.
+        precondition(!requiresAuthentication || !alloAppAuthToken.isEmpty,
+                     "A place that requires authentication needs a non-empty alloAppAuthToken")
+
         Allonet.Initialize()
         self.requiresAuthenticationProvider = requiresAuthentication
         self.place = PlaceState(logger: logger)
