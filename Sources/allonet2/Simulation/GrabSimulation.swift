@@ -88,8 +88,9 @@ public extension simd_quatf
 public extension PlaceContents
 {
     /// Composes a world transform by walking Relationships. `overrides` supplies local
-    /// transforms the simulation hasn't committed yet. Returns nil on a Relationships
-    /// cycle — client-writable data must not hang the server.
+    /// transforms the simulation hasn't committed yet. Returns nil on a Relationships cycle
+    /// or a missing Transform along the path — client-writable data must not hang the
+    /// server, and a Transform-less node must not silently pose at its parent's origin.
     func transformToWorld(of eid: EntityID, overrides: [EntityID: Transform] = [:]) -> simd_float4x4?
     {
         var transform = simd_float4x4.identity
@@ -97,8 +98,9 @@ public extension PlaceContents
         var visited = Set<EntityID>()
         while let id = current
         {
-            guard visited.insert(id).inserted else { return nil }
-            let local = overrides[id]?.matrix ?? components[Transform.self][id]?.matrix ?? .identity
+            guard visited.insert(id).inserted,
+                  let local = overrides[id]?.matrix ?? components[Transform.self][id]?.matrix
+            else { return nil }
             transform = local * transform
             current = components[Relationships.self][id]?.parent
         }

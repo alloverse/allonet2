@@ -17,7 +17,8 @@ extension PlaceServer
         // run before the heartbeat commits the queued teleport, and must not resurrect the old
         // position), and a removed avatar stops moving, or the next tick would queue an update
         // for a nonexistent component and make the whole changeset inapplicable. Removing an
-        // entity involved in a grab ends the grab for the same reason.
+        // entity involved in a grab ends the grab, and an external transform on the actuated
+        // entity rebases it, for the same reasons.
         for change in changes
         {
             switch change
@@ -212,10 +213,13 @@ extension PlaceServer
         var visited = Set<EntityID>()
         while current != target
         {
+            // Like transformToWorld, a missing Transform rejects the path rather than
+            // silently posing the node at its parent's origin.
             guard visited.insert(current).inserted,
-                  let parent = contents.components[Relationships.self][current]?.parent
+                  let parent = contents.components[Relationships.self][current]?.parent,
+                  let local = overrides[current]?.matrix ?? contents.components[Transform.self][current]?.matrix
             else { return nil }
-            composed = (overrides[current]?.matrix ?? contents.components[Transform.self][current]?.matrix ?? .identity) * composed
+            composed = local * composed
             current = parent
         }
         return (target, composed)

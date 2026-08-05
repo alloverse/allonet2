@@ -1,5 +1,7 @@
 import Testing
 import simd
+import Foundation
+import Logging
 @testable import allonet2
 
 @MainActor
@@ -123,6 +125,39 @@ struct GrabSimulationTests
             grab: grab(offset: base.matrix), grabbable: grabbable, base: base,
             grabberToWorld: translation([0, 0, -1]), parentToWorld: .identity))
         #expect(simd_distance(slid.matrix.translation, [0, 0, -1]) < 1e-5)
+    }
+
+    @Test func transformToWorldComposesAncestorsAndHonorsOverrides() throws
+    {
+        let c = contents(parents: ["hand": "avatar"],
+                         transforms: ["hand": Transform(translation: [0, 0, -1]), "avatar": Transform(translation: [10, 0, 0])])
+        let world = try #require(c.transformToWorld(of: "hand"))
+        #expect(simd_distance(world.translation, [10, 0, -1]) < 1e-5)
+        let overridden = try #require(c.transformToWorld(of: "hand", overrides: ["avatar": Transform(translation: [20, 0, 0])]))
+        #expect(simd_distance(overridden.translation, [20, 0, -1]) < 1e-5)
+    }
+
+    @Test func transformToWorldRejectsCyclesAndMissingTransforms()
+    {
+        // Relationships are client-writable: a cycle must not hang the server, and a
+        // Transform-less node must not silently pose at its parent's origin.
+        let cyclic = contents(parents: ["a": "b", "b": "a"],
+                              transforms: ["a": Transform(), "b": Transform()])
+        #expect(cyclic.transformToWorld(of: "a") == nil)
+        let bare = contents(parents: ["hand": "avatar"], transforms: ["hand": Transform()])
+        #expect(bare.transformToWorld(of: "hand") == nil)
+    }
+
+    private func contents(parents: [EntityID: EntityID], transforms: [EntityID: Transform]) -> PlaceContents
+    {
+        Allonet.Initialize()
+        let eids = Set(parents.keys).union(parents.values).union(transforms.keys)
+        let entities = Dictionary(uniqueKeysWithValues: eids.map { ($0, EntityData(id: $0, ownerClientId: UUID())) })
+        let lists: [ComponentTypeID: [EntityID: AnyComponent]] = [
+            Transform.componentTypeId: transforms.mapValues { AnyComponent($0) },
+            Relationships.componentTypeId: parents.mapValues { AnyComponent(Relationships(parent: $0)) },
+        ]
+        return PlaceContents(revision: 0, entities: entities, components: ComponentLists(lists: lists), logger: Logger(label: "test"))
     }
 
     @Test func degenerateClientInputStaysRigidOrMovesNothing()
