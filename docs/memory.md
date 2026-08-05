@@ -29,6 +29,8 @@
 - Component types must be registered with `MyComponent.register()` before `decoded()` will work (returns nil → crash otherwise)
 - HeadlessWebRTCTransport implements media forwarding; UIWebRTCTransport throws fatalError (client doesn't forward)
 - ConnectionStatus is @MainActor ObservableObject used for UI binding — don't confuse with transport-level state
+- AlloPlace logs to OSLog on macOS and only to stdout on Linux (`PlaceServerApp.configureLogging`), so running it locally with its output redirected to a file gives you an empty file, not a dead server
+- A place can't tell a dead client from a live one until ICE gives up (tens of seconds). Anything keyed on "is that client still there?" — the authentication provider slot especially — has to tolerate the stale answer rather than wait for it
 
 ## Recent Work (2026-03-04)
 - UIWebRTCTransport: Added @MainActor, nonisolated delegates, dispatchToMain, dispatchPrecondition
