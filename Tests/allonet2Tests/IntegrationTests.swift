@@ -122,8 +122,9 @@ final class AlloClientIntegrationTests: XCTestCase {
         XCTAssertEqual(client.connectionStatus.reconnection, .idle)
     }
 
-    // 4. Signalling failure
-    func testSignallingFailure() async {
+    // 4. A place that's restarting refuses signalling for a few seconds. Keep the backoff
+    //    running across it, and pick up by ourselves once the place answers again.
+    func testSignallingFailureRetries() async {
         let client = makeTestClient()
         client.signallingError = AlloverseError(
             code: AlloverseErrorCode.failedSignalling,
@@ -132,28 +133,29 @@ final class AlloClientIntegrationTests: XCTestCase {
 
         client.stayConnected()
 
-        // connect() catches error, calls disconnect() → .disconnected
-        await awaitClientState(client, {
-            if case .disconnected = $0 { return true }; return false
-        })
+        await awaitClientState(client, { $0.attempt > 0 })
+        XCTAssertTrue(client.state.current.isStayingConnected)
 
-        XCTAssertFalse(client.isAnnounced)
-        XCTAssertNil(client.avatarId)
+        client.signallingError = nil
+        await awaitClientState(client, { $0.avatarId != nil }, timeout: 10)
+        XCTAssertTrue(client.isAnnounced)
+
+        client.disconnect()
     }
 
-    // 5. Announce failure (place returns error)
-    func testAnnounceFailure() async {
+    // 5. An announce the place calls fatal — wrong protocol version, rejected credentials —
+    //    won't go better on a retry, so give up and surface it.
+    func testFatalAnnounceFailureDisconnects() async {
         let client = makeTestClient()
         // Set the announce response to error on the initial mock transport
         // (created by init → reset())
         client.mockTransport.announceResponse = .error(AlloverseError(
-            code: AlloverseErrorCode.unexpectedResponse,
+            code: AlloverseErrorCode.incompatibleProtocolVersion,
             description: "Test announce failure"
         ))
 
         client.stayConnected()
 
-        // Announce error path: state → .failed(...), then disconnect() → .disconnected
         await awaitClientState(client, {
             if case .disconnected = $0 { return true }; return false
         })
@@ -162,23 +164,45 @@ final class AlloClientIntegrationTests: XCTestCase {
         XCTAssertNil(client.avatarId)
     }
 
-    // 6. Disconnect cancels backoff
+    // 6. ...but a place whose authentication provider is still restarting rejects the announce
+    //    for a few seconds only, and stranding the user there needs a human to undo.
+    func testTransientAnnounceFailureRetries() async {
+        let client = makeTestClient()
+        client.mockTransport.announceResponse = .error(AlloverseError(
+            code: AlloverseErrorCode.internalServerError,
+            description: "Couldn't reach authentication server"
+        ))
+
+        client.stayConnected()
+
+        await awaitClientState(client, { $0.attempt > 0 })
+        XCTAssertTrue(client.state.current.isStayingConnected)
+        XCTAssertEqual(client.connectionStatus.reconnection, .waitingForReconnect)
+
+        client.disconnect()
+    }
+
+    // 7. Disconnect cancels a pending retry
     func testDisconnectCancelsBackoff() async {
         let client = makeTestClient()
         client.signallingError = URLError(.timedOut)
 
         client.stayConnected()
 
-        // connect() catches error, calls disconnect() → .disconnected
-        await awaitClientState(client, {
-            if case .disconnected = $0 { return true }; return false
-        })
+        await awaitClientState(client, { $0.attempt > 0 })
+
+        client.disconnect()
 
         XCTAssertFalse(client.state.current.isStayingConnected)
         XCTAssertEqual(client.connectionStatus.reconnection, .idle)
+
+        // Backoff for attempt 1 is 2s; the cancelled retry must not fire after it elapses.
+        try? await Task.sleep(for: .seconds(3))
+        XCTAssertEqual(client.mockTransport.generateOfferCallCount, 0)
+        XCTAssertFalse(client.state.current.isStayingConnected)
     }
 
-    // 7. Multiple stayConnected calls are idempotent
+    // 8. Multiple stayConnected calls are idempotent
     func testStayConnectedIdempotent() async {
         let client = makeTestClient()
         client.stayConnected()
@@ -191,7 +215,7 @@ final class AlloClientIntegrationTests: XCTestCase {
         client.disconnect()
     }
 
-    // 8. Verify that announce interaction was sent
+    // 9. Verify that announce interaction was sent
     func testAnnounceInteractionSent() async {
         let client = makeTestClient()
         client.stayConnected()

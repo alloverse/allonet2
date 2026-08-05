@@ -148,6 +148,16 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     }
 
     
+    /// Drop the current connection and connect again with the usual backoff, staying connected
+    /// afterwards. For when the connection came up but is unusable — an app that couldn't finish
+    /// its setup against a place that's still restarting, say.
+    public func reconnect()
+    {
+        guard state.current.isStayingConnected else { return }
+        logger.info("Reconnecting on request")
+        session.disconnect()
+    }
+
     /// Disconnect from peers and remain disconnected until asked to connect again by user
     public func disconnect()
     {
@@ -200,16 +210,41 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
             guard case .connecting = state.current else { return }
             logger.info("AlloClient RTC initial signalling complete")
         } catch {
-            // If we were cancelled/disconnected during the awaits, don't touch state
-            guard case .connecting = state.current else { return }
-            logger.error("Failed to connect: \(error)")
-            connectionStatus.signalling = .failed
-            connectionStatus.lastError = error
-            state.transition(to: .failed(error: error))
-            disconnect()
+            failConnectionAttempt(error)
         }
     }
-    
+
+    /// End a failed connection attempt. A place that is restarting refuses signalling, and admits
+    /// nobody until its authentication provider is back; both clear up on their own, so only a
+    /// fatal error — rejected credentials, incompatible protocol — ends the stay-connected loop.
+    /// Anything else re-arms the backoff, or a single blip would leave us disconnected for good.
+    private func failConnectionAttempt(_ error: Error)
+    {
+        // Cancelled or disconnected during the awaits that led here: not ours to fail.
+        guard case .connecting(let attempt) = state.current else { return }
+        connectionStatus.signalling = .failed
+        connectionStatus.lastError = error
+        state.transition(to: .failed(error: error))
+
+        guard (error as? AlloverseError)?.isFatal != true else
+        {
+            logger.error("Permanent connection failure, giving up: \(error)")
+            disconnect()
+            return
+        }
+
+        logger.error("Connection attempt \(attempt) failed, will retry: \(error)")
+        // Detach before tearing the half-open session down: the transport calls session(didDisconnect:)
+        // synchronously from disconnect(), which would schedule a second, competing attempt.
+        session.delegate = nil
+        session.disconnect()
+        reset()
+        let next = attempt + 1
+        state.transition(to: .waitingToRetry(attempt: next))
+        connectionStatus.reconnection = .waitingForReconnect
+        scheduleConnect(attempt: next)
+    }
+
     nonisolated public func session(didConnect sess: AlloSession)
     {
         Task
@@ -232,9 +267,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
             guard case .announceResponse(let avatarId, let placeName) = response.body else
             {
                 logger.error("Announce failed: \(response)")
-                self.connectionStatus.lastError = AlloverseError(with: response.body)
-                state.transition(to: .failed(error: AlloverseError(with: response.body)))
-                self.disconnect()
+                failConnectionAttempt(AlloverseError(with: response.body))
                 return
             }
             logger.info("Received announce response: \(response.body)")
