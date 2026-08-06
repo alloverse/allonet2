@@ -153,7 +153,17 @@ extension PlaceServer
                                   receiverEntityId: authenticationId,
                                   body: .authenticationRequest(clientId: cid, identity: identity))
 
-        let answer = await authenticationProvider.session.request(interaction: request)
+        // Bounded like every other interaction the place forwards. A provider that is connected but
+        // not answering — or one whose session died just before we asked, so no disconnect will
+        // arrive to fail this for us — would otherwise leave the visor awaiting an announce
+        // response for as long as its own connection lasts.
+        guard let answer = await authenticationProvider.session.request(interaction: request,
+                                                                        timeout: Self.InteractionTimeout)
+        else {
+            ilogger.error("Authentication provider didn't answer within \(Self.InteractionTimeout)s.")
+            throw AlloverseError(code: PlaceErrorCode.recipientTimedOut,
+                                 description: "Authentication server didn't answer in time")
+        }
 
         switch answer.body {
         case .success: break

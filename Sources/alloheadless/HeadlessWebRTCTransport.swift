@@ -11,11 +11,31 @@ import AlloDataChannel
 import OpenCombineShim
 import Logging
 
-// TODO: What actor are peer's combine publishers being signalled on? Where do we need to annotate nonisolated, and/or dispatch to main before calling delegate?
+/// libdatachannel signals its callbacks from its own thread pool — several worker threads, none
+/// of them the one that asked for the operation, and for a peer that reaches Closed it calls back
+/// synchronously on whichever network thread noticed (`PeerConnection::changeState`). Everything
+/// on this side of the boundary is main-actor state: this class, the connection state machine, and
+/// the delegate chain up into AlloSession and AlloClient. So nothing a peer publisher hands us is
+/// acted on before it has been marshalled with `onMain`.
+///
+/// Doing that also settles the `@Published` willSet problem, which is the same bug wearing a
+/// different hat: read inside the sink, the property that fired it still holds its old value.
+private func onMain(_ work: @escaping @Sendable @MainActor () -> Void)
+{
+    DispatchQueue.main.async { MainActor.assumeIsolated(work) }
+}
+
 @MainActor
 public class HeadlessWebRTCTransport: Transport
 {
-    public weak var delegate: TransportDelegate?
+    public weak var delegate: TransportDelegate? {
+        didSet { dataDelegate = delegate }
+    }
+    /// The same delegate, reachable from libdatachannel's threads. Incoming data is the one path
+    /// deliberately left off the main actor — `didReceiveData` is nonisolated so that decoding a
+    /// busy wire can't queue behind the main thread — and reading the isolated `delegate` from
+    /// there would be exactly the violation the rest of this class now avoids.
+    private nonisolated(unsafe) weak var dataDelegate: TransportDelegate?
     public var clientId: ClientId? {
         didSet {
             if let clientId {
@@ -37,6 +57,8 @@ public class HeadlessWebRTCTransport: Transport
     private static var initialized: Bool = false
     private static func initialize()
     {
+        // Global, and re-registering it per transport stacked another logging callback each time.
+        initialized = true
         AlloWebRTCPeer.enableLogging(at: .debug) { sev, msg in
             let level : Logger.Level = switch sev {
             case .verbose: .trace
@@ -59,60 +81,98 @@ public class HeadlessWebRTCTransport: Transport
         self.connectionStatus = status
         peer = AlloWebRTCPeer(portRange: connectionOptions.portRange, ipOverride: connectionOptions.ipOverride?.adc)
         
-        peer.$state.sink { [weak self] state in
-            guard let self = self else { return }
-            logger.info("peer state changed to \(state)")
-            if state == .connected
-            {
-                // @Published emits on willSet: inside this sink, peer.state (and channels'
-                // isOpen) still hold their old values. Defer so maybeConnected reads
-                // committed state; otherwise the last-arriving event reads itself as stale
-                // and the transport never reports connected.
-                DispatchQueue.main.async { self.maybeConnected() }
-            }
-            else if state == .closed || state == .failed
-            {
-                let didTransition = self.connectionState.transitionIf(to: .disconnected) { $0 != .disconnected }
-                if didTransition
+        peer.$state.sink { state in
+            onMain { [weak self] in
+                guard let self else { return }
+                logger.info("peer state changed to \(state)")
+                if state == .connected
                 {
-                    self.delegate?.transport(didDisconnect: self)
+                    maybeConnected()
+                }
+                else if state == .closed || state == .failed
+                {
+                    let didTransition = connectionState.transitionIf(to: .disconnected) { $0 != .disconnected }
+                    if didTransition
+                    {
+                        delegate?.transport(didDisconnect: self)
+                    }
                 }
             }
         }.store(in: &cancellables)
-        peer.$signalingState.sink { [weak self] state in
-            guard let self = self else { return }
-            logger.info("signalling state changed to \(state)")
-            self.delegate?.transport(self, didChangeSignallingState: TransportSignallingState(rawValue: state.rawValue)!)
-        }.store(in: &cancellables)
-        
-        peer.$gatheringState.sink { [weak self] gathering in
-            guard let self else { return }
-            self.connectionStatus.iceGathering = switch gathering
-            {
-                case .new: .idle
-                case .inProgress: .connecting
-                case .complete: .connected
+        peer.$signalingState.sink { state in
+            onMain { [weak self] in
+                guard let self else { return }
+                logger.info("signalling state changed to \(state)")
+                delegate?.transport(self, didChangeSignallingState: TransportSignallingState(rawValue: state.rawValue)!)
             }
         }.store(in: &cancellables)
-        peer.$iceState.sink { [weak self] ice in
-            guard let self else { return }
-            self.connectionStatus.iceConnection = switch ice
-            {
-                case .closed, .new, .disconnected: .idle
-                case .checking, .connected: .connecting
-                case .completed: .connected
-                case .failed: .failed
+
+        peer.$gatheringState.sink { gathering in
+            onMain { [weak self] in
+                self?.connectionStatus.iceGathering = switch gathering
+                {
+                    case .new: .idle
+                    case .inProgress: .connecting
+                    case .complete: .connected
+                }
             }
         }.store(in: &cancellables)
-        
-        
+        peer.$iceState.sink { ice in
+            onMain { [weak self] in
+                self?.connectionStatus.iceConnection = switch ice
+                {
+                    case .closed, .new, .disconnected: .idle
+                    case .checking, .connected: .connecting
+                    case .completed: .connected
+                    case .failed: .failed
+                }
+            }
+        }.store(in: &cancellables)
+
+
         peer.$tracks.sinkChanges(added: { track in
-            self.delegate?.transport(self, didReceiveMediaStream: track)
+            onMain { [weak self] in
+                guard let self else { return }
+                delegate?.transport(self, didReceiveMediaStream: track)
+            }
         }, removed: { track in
-            self.delegate?.transport(self, didRemoveMediaStream: track)
+            onMain { [weak self] in
+                guard let self else { return }
+                delegate?.transport(self, didRemoveMediaStream: track)
+            }
         }).store(in: &cancellables)
-        
+
     }
+
+    /// Wait for ICE gathering to finish, or give up on it.
+    ///
+    /// Signalling here is a single POST, so the description we send has to carry every candidate;
+    /// there is no channel to trickle later ones over. Reading `peer.candidates` straight after
+    /// createOffer() therefore both raced the worker threads still appending to that array and,
+    /// on anything slower than loopback, shipped an offer with only the candidates that happened
+    /// to have arrived.
+    private func awaitGatheringComplete() async
+    {
+        guard peer.gatheringState != .complete else { return }
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor [peer] in
+                for await state in peer.$gatheringState.values where state == .complete { return }
+            }
+            group.addTask {
+                // An interface that never finishes gathering must not wedge the handshake; going
+                // ahead with a partial candidate list is how this behaved before, and it connects
+                // often enough to be a better failure than not connecting at all.
+                try? await Task.sleep(for: .seconds(Self.gatheringTimeout))
+            }
+            await group.next()
+            group.cancelAll()
+        }
+        if peer.gatheringState != .complete
+        {
+            logger.warning("ICE gathering didn't complete within \(Self.gatheringTimeout)s; signalling \(peer.candidates.count) candidate(s) anyway")
+        }
+    }
+    static let gatheringTimeout: TimeInterval = 5
 
     /// Check if both ICE and data channels are ready; transition to .connected if so.
     private func maybeConnected()
@@ -140,8 +200,8 @@ public class HeadlessWebRTCTransport: Transport
         try peer.lockLocalDescription(type: .offer)
         let offerSdp = try peer.createOffer()
         logger.info("Generated my offer: \(offerSdp)")
-        
-        // TODO: await gathering status = complete
+
+        await awaitGatheringComplete()
         let offerCandidates = peer.candidates.compactMap(\.alloCandidate)
         logger.info("My offer candidates: \(offerCandidates)")
         
@@ -163,8 +223,8 @@ public class HeadlessWebRTCTransport: Transport
         // TODO: set remote ice candidates in peer from the offer
         let answerSdp = try peer.createAnswer()
         logger.info("Generated my answer: \(answerSdp)")
-        
-        // TODO: await gathering status = complete
+
+        await awaitGatheringComplete()
         let answerCandidates = peer.candidates.compactMap(\.alloCandidate)
         logger.info("My answer candidates: \(answerCandidates)")
         
@@ -226,13 +286,14 @@ public class HeadlessWebRTCTransport: Transport
         
         channel.$lastMessage.sink { [weak self, weak channel] message in
             guard let self, let channel, let message else { return }
-            self.delegate?.transport(self, didReceiveData: message, on: channel)
+            self.dataDelegate?.transport(self, didReceiveData: message, on: channel)
         }.store(in: &cancellables)
-        channel.$isOpen.sink { [weak self, weak channel] isOpen in
-            guard let self, let channel else { return }
-            self.connectionStatus.data = isOpen ? .connected : (channel.lastError != nil) ? .failed : .idle
-            // Deferred for the same willSet reason as the peer-state sink above.
-            if isOpen { DispatchQueue.main.async { self.maybeConnected() } }
+        channel.$isOpen.sink { [weak channel] isOpen in
+            onMain { [weak self, weak channel] in
+                guard let self, let channel else { return }
+                connectionStatus.data = isOpen ? .connected : (channel.lastError != nil) ? .failed : .idle
+                if isOpen { maybeConnected() }
+            }
         }.store(in: &cancellables)
 
         return channel

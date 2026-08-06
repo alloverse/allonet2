@@ -124,6 +124,13 @@ final class MockTransport: Transport {
         delegate?.transport(didDisconnect: self)
     }
 
+    /// Hand an interaction back to the session as if the peer had sent it.
+    func deliver(_ interaction: Interaction) {
+        guard let data = try? CBOREncoder().encode(interaction) else { return }
+        let channel = channels[.interactions] ?? MockDataChannel(label: .interactions, isOpen: true)
+        delegate?.transport(self, didReceiveData: data, on: channel)
+    }
+
     /// Simulate receiving data on a channel
     func simulateReceiveData(_ data: Data, on label: DataChannelLabel) {
         guard let ch = channels[label] else {

@@ -49,6 +49,37 @@ final class SessionRequestTests: XCTestCase
         client.disconnect()
     }
 
+    /// A peer that is connected but not answering releases nobody by itself: no disconnect arrives
+    /// to fail the request. The place asks its authentication provider exactly this way, and an
+    /// unbounded wait there hangs the announcing visor for as long as its own connection lasts.
+    func testRequestTimesOutWhenThePeerNeverAnswers() async
+    {
+        let transport = MockTransport(with: TransportConnectionOptions(routing: .direct), status: ConnectionStatus())
+        let session = AlloSession(side: .client, transport: transport)
+
+        let answer = await session.request(interaction: Interaction(
+            type: .request, senderEntityId: "", receiverEntityId: Interaction.PlaceEntity,
+            body: .registerAsAuthenticationProvider), timeout: 1)
+
+        XCTAssertNil(answer, "Expected the request to give up rather than wait forever")
+    }
+
+    /// The timeout must not fire for a request that was answered, nor leave the entry behind.
+    func testAnsweredRequestBeatsItsTimeout() async
+    {
+        let transport = MockTransport(with: TransportConnectionOptions(routing: .direct), status: ConnectionStatus())
+        let session = AlloSession(side: .client, transport: transport)
+        let request = Interaction(type: .request, senderEntityId: "", receiverEntityId: Interaction.PlaceEntity,
+                                  body: .registerAsAuthenticationProvider)
+
+        async let answer = session.request(interaction: request, timeout: 30)
+        while transport.sentMessages.isEmpty { await Task.yield() }
+        transport.deliver(request.makeResponse(with: .success))
+
+        let body = await answer?.body
+        guard case .success = body else { return XCTFail("Expected the real answer, got \(String(describing: body))") }
+    }
+
     /// A caller whose connection died between two of its requests is ordinary, not a programmer
     /// error — this used to abort the process on a precondition.
     func testRequestWhileUnannouncedAnswersInsteadOfTrapping() async
