@@ -242,8 +242,8 @@ public struct VisorInfo: Component
     /// — `AlloClient.publish` returning is the promise that they are. Referencing an id the place
     /// doesn't have gets consumers a 404, and since the component then never changes again, nothing
     /// would make them try a second time.
-    public var profileImage: String?
-    public init(displayName: String, color: Color = .white, profileImage: String? = nil)
+    public var profileImage: AssetID?
+    public init(displayName: String, color: Color = .white, profileImage: AssetID? = nil)
     {
         self.displayName = displayName
         self.color = color

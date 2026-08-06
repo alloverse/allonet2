@@ -103,7 +103,7 @@ public struct Identity: Equatable, Hashable, Codable, Sendable
         case app // This is an app that will connect using a per-place shared secret token
     }
 
-    public init(expectation: Identity.Expectation, displayName: String, emailAddress: String, authenticationToken: String, invitation: String? = nil, color: Color = .white, profileImage: String? = nil)
+    public init(expectation: Identity.Expectation, displayName: String, emailAddress: String, authenticationToken: String, invitation: String? = nil, color: Color = .white, profileImage: AssetID? = nil)
     {
         self.expectation = expectation
         self.displayName = displayName
@@ -128,7 +128,7 @@ public struct Identity: Equatable, Hashable, Codable, Sendable
     /// it, and the place only lets an agent publish once it has announced. So this is the user's
     /// standing choice, carried across sessions — it is *not* what a visor copies onto its avatar
     /// at announce time. Publish first, then set `VisorInfo.profileImage`.
-    public let profileImage: String?
+    public let profileImage: AssetID?
 }
 
 @MainActor

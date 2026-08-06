@@ -24,7 +24,7 @@ struct IdentityColorTests
 
     @Test func identityAndVisorInfoCarryAProfileImage() throws
     {
-        let id = AssetID(hashing: Data("a face".utf8)).description
+        let id = AssetID(hashing: Data("a face".utf8))
         let identity = Identity(expectation: .existingUser, displayName: "Nevyn", emailAddress: "n@koja.works",
                                 authenticationToken: "hunter2", color: .white, profileImage: id)
         #expect(try CBORDecoder().decode(Identity.self, from: try CBOREncoder().encode(identity)) == identity)
@@ -33,6 +33,19 @@ struct IdentityColorTests
         let decoded = try CBORDecoder().decode(VisorInfo.self, from: try CBOREncoder().encode(info))
         #expect(decoded == info)
         #expect(decoded.profileImage == id)
+        // The id is typed but still travels as its bare string, so it stays wire-compatible with
+        // anything that reads the field as text.
+        #expect(try CBOREncoder().encode(info).contains(Data(id.description.utf8)))
+    }
+
+    /// A malformed id is rejected at decode rather than reaching a renderer that would have to
+    /// re-parse it — the point of typing the field at all.
+    @Test func aMalformedProfileImageFailsToDecode() throws
+    {
+        let bogus = try CBOREncoder().encode(["displayName": "Nevyn", "profileImage": "not-a-hash"])
+        #expect(throws: (any Error).self) {
+            try CBORDecoder().decode(VisorInfo.self, from: bogus)
+        }
     }
 
     /// Having no picture is a state a user is genuinely in, not a missing value — which is why this
