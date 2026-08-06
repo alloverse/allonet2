@@ -130,6 +130,17 @@ struct AssetStoreTests
         #expect(try #require(try await store.entry(for: id)).contentType == "model/vnd.usdz+zip")
     }
 
+    /// Two stores over one directory don't serialize with each other, so clients that didn't ask for
+    /// their own cache have to end up on the same actor rather than merely the same path.
+    @MainActor
+    @Test func clientsShareOneDefaultCache() throws
+    {
+        let a = TestAlloClient(url: URL(string: "alloplace2://localhost:1")!, identity: .none, avatarDescription: EntityDescription())
+        let b = TestAlloClient(url: URL(string: "alloplace2://localhost:2")!, identity: .none, avatarDescription: EntityDescription())
+        #expect(a.assetCache === b.assetCache)
+        #expect(a.assetCache === AssetStore.shared)
+    }
+
     /// A missing asset is a value, not an error: the whole publish flow is "ask, then upload on nil".
     @Test func absenceIsNilNotAThrow() async throws
     {

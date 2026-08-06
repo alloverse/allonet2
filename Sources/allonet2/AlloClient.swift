@@ -80,9 +80,10 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     // MARK: - Assets
 
     /// Where assets fetched from the place are kept. Keyed by content address, so an entry can
-    /// never go stale and nothing ever needs invalidating. Replace it before connecting to put the
-    /// cache somewhere else.
-    public var assetCache = AssetStore(directory: AssetStore.defaultCacheDirectory)
+    /// never go stale and nothing ever needs invalidating. Shared across clients by default, since
+    /// two stores over one directory wouldn't serialize with each other; replace it before
+    /// connecting to put this client's cache somewhere of its own.
+    public var assetCache = AssetStore.shared
     /// Authorizes us to publish assets, handed over in the announce response. Nil until announced,
     /// and again after disconnecting: publishing is a privilege of having a session, since the
     /// HTTP request carrying the bytes has no other way to say who we are.

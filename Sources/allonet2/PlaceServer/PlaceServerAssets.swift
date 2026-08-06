@@ -160,14 +160,18 @@ public final class PlaceServerAssets: Sendable
                 body: try JSONEncoder().encode(AssetUploadResponse(id: id))
             )
         }
+        // Both paths below can fail partway through the body — a full disk, say. Whatever is left
+        // unread would be parsed as the next request on this socket, so drain it first. That is
+        // bounded: FlyingFox stops the sequence at Content-Length, which we checked above.
         catch AssetError.tooLarge(let bytes, let max)
         {
-            // Content-Length lied about how much was coming.
+            await drain(request)
             return Self.problem(.payloadTooLarge, AssetError.tooLarge(bytes: bytes, max: max))
         }
         catch
         {
             logger.error("Failed to store asset: \(error)")
+            await drain(request)
             return Self.problem(.internalServerError, "\(error)")
         }
     }

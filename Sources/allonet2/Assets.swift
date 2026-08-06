@@ -115,6 +115,12 @@ public actor AssetStore
         self.directory = directory
     }
 
+    /// The process-wide cache every client uses unless told otherwise. Shared rather than one per
+    /// client because separate actors over the same directory don't serialize against each other:
+    /// two clients fetching one id could both find it missing and then move the same blob out from
+    /// under one another. A caller that wants isolation gives its store its own directory.
+    public static let shared = AssetStore(directory: AssetStore.defaultCacheDirectory)
+
     /// Where a client caches what it fetched. Deliberately not `.cachesDirectory` on Linux: there
     /// Foundation reads /etc/default/useradd rather than $HOME and lands on `/home/.cache`, which in
     /// the AlloPlace container is neither the process's home nor a mounted volume. The place is told
