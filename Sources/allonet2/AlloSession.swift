@@ -47,7 +47,11 @@ public class AlloSession : NSObject, TransportDelegate
     @Published
     public private(set) var incomingStreams: [MediaStreamId: MediaStream] = [:]
     
-    private var outstandingInteractions: [Interaction.RequestID: CheckedContinuation<Interaction, Never>] = [:]
+    /// Requests awaiting an answer, keyed by request id. Stored as "how to finish this caller"
+    /// rather than as a continuation, so a response, a timeout and a disconnect can all complete
+    /// one, and `nil` means "no answer is coming". Removing the entry is what makes it exactly
+    /// once — everything here is main-actor, so the removal can't race.
+    private var outstandingInteractions: [Interaction.RequestID: @MainActor (Interaction?) -> Void] = [:]
     
     public enum Side { case client, server }
     private let side: Side
@@ -109,10 +113,41 @@ public class AlloSession : NSObject, TransportDelegate
     public func request(interaction: Interaction) async -> Interaction
     {
         assert(interaction.type == .request)
-        return await withCheckedContinuation {
-            outstandingInteractions[interaction.requestId] = $0
+        return await withCheckedContinuation { continuation in
+            outstandingInteractions[interaction.requestId] = { response in
+                continuation.resume(returning: response ?? interaction.makeResponse(with: AlloverseError(
+                    code: AlloverseErrorCode.disconnected,
+                    description: "Disconnected before the response arrived").asBody))
+            }
             send(interaction: interaction)
         }
+    }
+
+    /// As `request(interaction:)`, but answers `nil` if the peer hasn't replied within `timeout`.
+    /// For asking something of a peer that is connected as far as we know but may not be listening:
+    /// no disconnect will arrive to release us, so nothing else ever would.
+    public func request(interaction: Interaction, timeout: TimeInterval) async -> Interaction?
+    {
+        assert(interaction.type == .request)
+        let requestId = interaction.requestId
+        let timer = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(timeout))
+            guard !Task.isCancelled else { return }
+            self?.finishRequest(requestId, with: nil)
+        }
+        return await withCheckedContinuation { continuation in
+            outstandingInteractions[requestId] = { response in
+                timer.cancel()
+                continuation.resume(returning: response)
+            }
+            send(interaction: interaction)
+        }
+    }
+
+    /// Complete an outstanding request, if it is still outstanding. `nil` means no answer is coming.
+    private func finishRequest(_ requestId: Interaction.RequestID, with response: Interaction?)
+    {
+        outstandingInteractions.removeValue(forKey: requestId)?(response)
     }
     
     public func send(placeChangeSet: PlaceChangeSet)
@@ -205,17 +240,7 @@ public class AlloSession : NSObject, TransportDelegate
         // so it never notices the reconnection it is being told about right now.
         let abandoned = outstandingInteractions
         outstandingInteractions.removeAll()
-        for (requestId, continuation) in abandoned
-        {
-            continuation.resume(returning: Interaction(
-                type: .response,
-                senderEntityId: "",
-                receiverEntityId: "",
-                requestId: requestId,
-                body: AlloverseError(code: AlloverseErrorCode.disconnected,
-                                     description: "Disconnected before the response arrived").asBody
-            ))
-        }
+        for finish in abandoned.values { finish(nil) }
 
         self.delegate?.session(didDisconnect: self)
     }
@@ -242,10 +267,10 @@ public class AlloSession : NSObject, TransportDelegate
             Task { @MainActor in
                 if case .internal_renegotiate(.offer, let payload) = inter.body {
                     await respondToRenegotiation(offer: payload, request: inter)
-                } else if let continuation = outstandingInteractions.removeValue(forKey: inter.requestId) {
-                    // Removed, not read: resuming a continuation twice traps, so a duplicated or
-                    // replayed response must not find it still here.
-                    continuation.resume(with: .success(inter))
+                } else if outstandingInteractions[inter.requestId] != nil {
+                    // finishRequest removes before completing, so a duplicated or replayed response
+                    // finds nothing to resume a second time.
+                    finishRequest(inter.requestId, with: inter)
                 } else {
                     self.delegate?.session(self, didReceiveInteraction: inter)
                 }

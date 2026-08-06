@@ -161,6 +161,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     {
         guard case .announced = state.current else { return }
         logger.info("Reconnecting on request")
+        reconnectWasRequested = true
         session.disconnect()
     }
 
@@ -206,19 +207,30 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
 
     private func connect() async
     {
+        // Bound once. `session` is a var that reset() swaps, and every step below suspends, so
+        // re-reading it would let a late attempt hand its answer to the connection that replaced
+        // it — negotiating one session's offer onto another's peer.
+        let session = self.session!
         do {
             logger.info("Trying to connect to \(url)...")
             let offer = try await session.generateOffer()
             let answer = try await performHTTPSignalling(offer: offer)
+            guard isCurrent(session) else { return }
             connectionStatus.signalling = .connected
             try await session.acceptAnswer(answer)
             // Guard: if we disconnected between awaits, bail out
-            guard case .connecting = state.current else { return }
+            guard isCurrent(session), case .connecting = state.current else { return }
             logger.info("AlloClient RTC initial signalling complete")
         } catch {
+            guard isCurrent(session) else { return }
             failConnectionAttempt(error)
         }
     }
+
+    /// Whether `session` is still the connection this client is running on. Anything that suspends
+    /// and then wants to act on the session it started with has to ask: `reset()` replaces it on
+    /// every reconnection, and the state machine alone can't tell two attempts apart.
+    private func isCurrent(_ session: AlloSession) -> Bool { session === self.session }
 
     /// End a failed connection attempt. A place that is restarting refuses signalling, and admits
     /// nobody until its authentication provider is back; both clear up on their own, so only a
@@ -278,6 +290,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
             }
             logger.info("Received announce response: \(response.body)")
             state.transition(to: .announced(avatarId: avatarId, placeName: placeName))
+            announcedAt = Date()
             self.avatarId = avatarId
             self.placeName = placeName
             self.connectionStatus.hasReceivedAnnounceResponse = true
@@ -295,12 +308,42 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         guard state.current.isStayingConnected else { return }
 
         // Transport-initiated disconnect: auto-reconnect
-        let attempt = state.current.attempt
+        let attempt = nextAttemptAfterDrop()
         reset()
         state.transition(to: .waitingToRetry(attempt: attempt))
         connectionStatus.reconnection = .waitingForReconnect
         scheduleConnect(attempt: attempt)
     }
+
+    /// How hard to back off after losing a connection that had been established.
+    ///
+    /// A connection that stood up for a while and then dropped is a blip: come straight back, which
+    /// is what makes recovery from a place restart quick. One that died moments after announcing is
+    /// a flap, and coming straight back to it just spins — two backends sharing an app token evict
+    /// each other for as long as both live, at the rate of a handshake. So an unstable connection
+    /// escalates, and a stable one resets the escalation.
+    ///
+    /// `reconnect()` is exempt: the caller asked for this drop and owns the pacing of its own
+    /// reasons for asking.
+    private func nextAttemptAfterDrop() -> Int
+    {
+        defer { announcedAt = nil }
+        if reconnectWasRequested
+        {
+            reconnectWasRequested = false
+            shortLivedConnections = 0
+            return 0
+        }
+        let stableFor = announcedAt.map { Date().timeIntervalSince($0) } ?? 0
+        shortLivedConnections = stableFor >= Self.stableConnectionThreshold ? 0 : shortLivedConnections + 1
+        // Still 0 for the first drop of a healthy connection, so that one retries immediately.
+        return max(state.current.attempt, shortLivedConnections - 1)
+    }
+    /// How long a connection has to last to count as having worked.
+    static let stableConnectionThreshold: TimeInterval = 30
+    private var announcedAt: Date?
+    private var shortLivedConnections = 0
+    private var reconnectWasRequested = false
     
     public func session(_: AlloSession, didReceiveMediaStream: MediaStream)
     {
@@ -335,22 +378,25 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     /// Use this to register handlers for all other kinds of Interactions.
     public var handlers = InteractionHandler<Void>()
     
-    public func session(_: AlloSession, didReceiveInteraction inter: Interaction)
+    public func session(_ sess: AlloSession, didReceiveInteraction inter: Interaction)
     {
         Task { @MainActor in
             do
             {
-                try await self.handle(interaction: inter)
+                try await self.handle(interaction: inter, on: sess)
             }
             catch (let e as AlloverseError)
             {
                 logger.error("Error handling interaction: \(e)")
-                session.send(interaction: inter.makeResponse(with: e.asBody))
+                sess.send(interaction: inter.makeResponse(with: e.asBody))
             }
         }
     }
-    
-    func handle(interaction inter: Interaction) async throws(AlloverseError)
+
+    /// Answers go back to `sess`, the session the request came in on, not to whichever session is
+    /// current when the responder finishes: app responders await, and a reconnection in that window
+    /// would otherwise address the reply to a place that never asked.
+    func handle(interaction inter: Interaction, on sess: AlloSession) async throws(AlloverseError)
     {
         if inter.type == .request
         {
@@ -359,7 +405,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
                 throw AlloverseError(code: AlloverseErrorCode.unhandledRequest, description: "No handler for \(inter.body.caseName)")
             }
             let response = try await handler(inter)
-            session.send(interaction: response)
+            sess.send(interaction: response)
         }
         else
         {

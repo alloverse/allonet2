@@ -255,6 +255,40 @@ final class AlloClientIntegrationTests: XCTestCase {
         client.disconnect()
     }
 
+    // 7e. A connection that dies moments after announcing is a flap, not a blip: coming straight
+    //     back to it forever is how two backends sharing a token evict each other in a tight loop.
+    func testRepeatedShortLivedConnectionsBackOff() async {
+        let client = makeTestClient()
+        client.stayConnected()
+        await awaitClientState(client, { $0.avatarId != nil })
+
+        // First drop of an established connection still retries at once.
+        client.mockTransport.simulateDisconnect()
+        await awaitClientState(client, { $0.avatarId != nil }, timeout: 10)
+
+        // The second one has now seen two short-lived connections in a row, so it waits.
+        client.mockTransport.simulateDisconnect()
+        await awaitClientState(client, { $0.attempt > 0 })
+        XCTAssertTrue(client.state.current.isStayingConnected)
+
+        client.disconnect()
+    }
+
+    // 7f. ...but a drop the app asked for is the app's to pace, so it stays immediate.
+    func testRequestedReconnectsDoNotBackOff() async {
+        let client = makeTestClient()
+        client.stayConnected()
+        await awaitClientState(client, { $0.avatarId != nil })
+
+        for _ in 0..<3 {
+            client.reconnect()
+            await awaitClientState(client, { $0.avatarId != nil }, timeout: 10)
+        }
+        XCTAssertEqual(client.state.current.attempt, 0, "A requested reconnect must not accrue backoff")
+
+        client.disconnect()
+    }
+
     // 8. Multiple stayConnected calls are idempotent
     func testStayConnectedIdempotent() async {
         let client = makeTestClient()
