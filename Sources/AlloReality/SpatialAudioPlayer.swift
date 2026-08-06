@@ -44,14 +44,39 @@ public class SpatialAudioPlayer
     // Guaranteed to be called _after_ avatar and initial state is loaded
     func start()
     {
-        client.session.$incomingStreams.sinkChanges(added: { (key, value) in
-            self.play(stream: value)
-        }, removed: { (key, value) in
-            self.stop(streamId: key)
-        }).store(in: &streamCancellables)
+        // The client replaces its session on every reconnection, so the stream subscription has to
+        // follow it. Bound once, as this was, a visor goes permanently silent the first time it
+        // reconnects — it keeps listening to the streams of a connection that no longer exists.
+        client.$isAnnounced.sink { [weak self] announced in
+            guard let self else { return }
+            announced ? bindToCurrentSession() : unbindFromSession()
+        }.store(in: &streamCancellables)
+        bindToCurrentSession()
+
         client.$speakerEnabled.sink { [weak self] enabled in
             self?.updateListener(speakerEnabled: enabled)
         }.store(in: &streamCancellables)
+    }
+
+    /// Subscriptions that belong to one connection, dropped and remade as it is replaced.
+    private var sessionCancellables: Set<AnyCancellable> = []
+
+    private func bindToCurrentSession()
+    {
+        unbindFromSession()
+        client.session.$incomingStreams.sinkChanges(added: { [weak self] (key, value) in
+            self?.play(stream: value)
+        }, removed: { [weak self] (key, value) in
+            self?.stop(streamId: key)
+        }).store(in: &sessionCancellables)
+    }
+
+    private func unbindFromSession()
+    {
+        sessionCancellables.forEach { $0.cancel() }; sessionCancellables.removeAll()
+        // Whatever was playing came over the connection we just lost; the place will send the
+        // streams that still exist again once we are announced on the new one.
+        for streamId in state.keys { stop(streamId: streamId) }
     }
 
     private var listener: allonet2.Entity? = nil
@@ -219,6 +244,7 @@ public class SpatialAudioPlayer
     {
         streamCancellables.forEach { $0.cancel() }; streamCancellables.removeAll()
         listenerCancellables.forEach { $0.cancel() }; listenerCancellables.removeAll()
+        sessionCancellables.forEach { $0.cancel() }; sessionCancellables.removeAll()
     }
     
     public typealias PCMCallback = ((UnsafeMutableAudioBufferListPointer, Int) -> Void)
