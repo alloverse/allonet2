@@ -41,7 +41,10 @@ let package = Package(
           .package(url: "https://github.com/outfoxx/PotentCodables.git", from: "3.5.3"),
 
         .package(url: "https://github.com/livekit/webrtc-xcframework.git", exact: "137.7151.07"),
-        .package(url: "https://github.com/swhitty/FlyingFox.git", .upToNextMajor(from: "0.25.0")),
+        // 0.26.0 introduced HTTPHeaders, which the asset endpoint uses. Our own Package.resolved
+        // pins something newer, so nothing here catches a build that honours the lower bound —
+        // KojaApp resolved 0.25.0 and failed to compile allonet2.
+        .package(url: "https://github.com/swhitty/FlyingFox.git", .upToNextMajor(from: "0.26.0")),
 
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
         .package(url: "https://github.com/alloverse/OpenCombine.git", branch: "fix/vision-support"), // So we can use Combine on Linux.

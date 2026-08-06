@@ -242,12 +242,23 @@ public struct VisorInfo: Component
     /// — `AlloClient.publish` returning is the promise that they are. Referencing an id the place
     /// doesn't have gets consumers a 404, and since the component then never changes again, nothing
     /// would make them try a second time.
-    public var profileImage: String?
-    public init(displayName: String, color: Color = .white, profileImage: String? = nil)
+    public var profileImage: AssetID?
+    public init(displayName: String, color: Color = .white, profileImage: AssetID? = nil)
     {
         self.displayName = displayName
         self.color = color
         self.profileImage = profileImage
+    }
+
+    /// A component is whatever a peer put there, and `AnyComponent.decoded()` force-tries — so a
+    /// throwing decode here would trap in every client that renders this person. An id we can't
+    /// parse means they have no picture; their name and colour still arrive.
+    public init(from decoder: any Decoder) throws
+    {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        displayName = try c.decode(String.self, forKey: .displayName)
+        color = try c.decode(Color.self, forKey: .color)
+        profileImage = try c.decodeIfPresent(String.self, forKey: .profileImage).flatMap(AssetID.init)
     }
 }
 

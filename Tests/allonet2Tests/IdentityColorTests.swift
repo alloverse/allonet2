@@ -24,7 +24,7 @@ struct IdentityColorTests
 
     @Test func identityAndVisorInfoCarryAProfileImage() throws
     {
-        let id = AssetID(hashing: Data("a face".utf8)).description
+        let id = AssetID(hashing: Data("a face".utf8))
         let identity = Identity(expectation: .existingUser, displayName: "Nevyn", emailAddress: "n@koja.works",
                                 authenticationToken: "hunter2", color: .white, profileImage: id)
         #expect(try CBORDecoder().decode(Identity.self, from: try CBOREncoder().encode(identity)) == identity)
@@ -33,6 +33,27 @@ struct IdentityColorTests
         let decoded = try CBORDecoder().decode(VisorInfo.self, from: try CBOREncoder().encode(info))
         #expect(decoded == info)
         #expect(decoded.profileImage == id)
+        // The id is typed but still travels as its bare string, so it stays wire-compatible with
+        // anything that reads the field as text.
+        #expect(try CBOREncoder().encode(info).contains(Data(id.description.utf8)))
+    }
+
+    /// A peer can put anything in a component, and `AnyComponent.decoded()` force-tries, so a throw
+    /// here would trap in every client rendering that person. Garbage means no picture — the name
+    /// and colour still arrive.
+    @Test func aMalformedProfileImageMeansNoPictureRatherThanAThrow() throws
+    {
+        /// What a peer can put on the wire: the same shape, but any string it likes for the id.
+        struct HostileVisorInfo: Encodable
+        {
+            let displayName = "Nevyn"
+            let color = Color.cyan
+            let profileImage = "../../etc/passwd"
+        }
+        let decoded = try CBORDecoder().decode(VisorInfo.self, from: try CBOREncoder().encode(HostileVisorInfo()))
+        #expect(decoded.profileImage == nil)
+        #expect(decoded.displayName == "Nevyn")
+        #expect(decoded.color == .cyan)
     }
 
     /// Having no picture is a state a user is genuinely in, not a missing value — which is why this
