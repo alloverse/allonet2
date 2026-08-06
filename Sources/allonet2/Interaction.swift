@@ -51,7 +51,10 @@ public enum InteractionBody : Codable
 {
     // - Agent to Place
     case announce(version: String, identity: Identity, avatar: EntityDescription) // -> .announceResponse
-    case announceResponse(avatarId: String, placeName: String)
+    /// `assetToken` authorizes this agent to publish assets for as long as it stays connected.
+    /// Optional so an older place that doesn't issue one still decodes; a client without a token
+    /// simply can't publish.
+    case announceResponse(avatarId: String, placeName: String, assetToken: String? = nil)
     
     case createEntity(EntityDescription) // -> .createEntityResponse
     case createEntityResponse(entityId: EntityID)

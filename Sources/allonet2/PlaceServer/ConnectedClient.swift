@@ -41,6 +41,9 @@ internal class ConnectedClient
         grabSimulated = nil
     }
     var cid: ClientId = UUID()
+    /// Bearer token this client uses to publish assets over HTTP, where it has no session to
+    /// identify it. Minted at announce, revoked on disconnect. 256 bits from the system CSPRNG.
+    let assetToken = Data((0..<32).map { _ in UInt8.random(in: .min ... .max) }).base64EncodedString()
     var avatar: EntityID? // Assigned in the place server upon successful client announce
     var logger: Logger
     var remoteLoggers: [String: Logger] = [:]

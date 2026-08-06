@@ -104,7 +104,12 @@ extension PlaceServer
         client.announced = true
         // Client is now announced, so move it into the main list of clients so it can get world states etc.
         clients[client.cid] = unannouncedClients.removeValue(forKey: client.cid)!
-        
+
+        // Admitted here, while the client is reachable in `clients`, and not after the awaits below:
+        // a client that drops during them is revoked by the disconnect path, and admitting after
+        // that has run would leave a token behind that nothing ever takes away.
+        await web.assets.publishers.admit(client.assetToken)
+
         // Time to create the avatar
         let avatar = await self.createEntity(from: avatarDescription, for: client)
         client.avatar = avatar.id
@@ -126,7 +131,11 @@ extension PlaceServer
         ilogger.info("Accepted client with email \(identity.emailAddress), display name \(identity.displayName), assigned avatar id \(avatar.id)")
         await heartbeat.awaitNextSync() // make it exist before we tell client about it
         
-        client.session.send(interaction: announce.makeResponse(with: .announceResponse(avatarId: avatar.id, placeName: name)))
+        client.session.send(interaction: announce.makeResponse(with: .announceResponse(
+            avatarId: avatar.id,
+            placeName: name,
+            assetToken: client.assetToken
+        )))
     }
     
     func authenticate(identity: Identity, from client: ConnectedClient, in ilogger: Logger) async throws(AlloverseError)
