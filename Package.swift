@@ -93,7 +93,7 @@ let package = Package(
         ),
         .testTarget(
             name: "allonet2Tests",
-            dependencies: ["allonet2"]
+            dependencies: ["allonet2", "alloheadless"]
         ),
         .executableTarget(
             name: "AlloPlace",
