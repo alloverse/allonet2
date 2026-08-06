@@ -249,6 +249,17 @@ public struct VisorInfo: Component
         self.color = color
         self.profileImage = profileImage
     }
+
+    /// A component is whatever a peer put there, and `AnyComponent.decoded()` force-tries — so a
+    /// throwing decode here would trap in every client that renders this person. An id we can't
+    /// parse means they have no picture; their name and colour still arrive.
+    public init(from decoder: any Decoder) throws
+    {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        displayName = try c.decode(String.self, forKey: .displayName)
+        color = try c.decode(Color.self, forKey: .color)
+        profileImage = try c.decodeIfPresent(String.self, forKey: .profileImage).flatMap(AssetID.init)
+    }
 }
 
 /// When a new user joins a Place, the Place looks for a random SpawnPoint component'd Entity, and sets the new user's transform to that entity's transform. If none is found, the user is placed at 0,0,0.
