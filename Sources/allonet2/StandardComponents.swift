@@ -238,10 +238,16 @@ public struct VisorInfo: Component
     public var displayName: String
     /// The user's chosen color, from their Identity.
     public var color: Color
-    public init(displayName: String, color: Color = .white)
+    /// Asset id of the user's picture, or nil for none. Set this only once the bytes are published
+    /// — `AlloClient.publish` returning is the promise that they are. Referencing an id the place
+    /// doesn't have gets consumers a 404, and since the component then never changes again, nothing
+    /// would make them try a second time.
+    public var profileImage: String?
+    public init(displayName: String, color: Color = .white, profileImage: String? = nil)
     {
         self.displayName = displayName
         self.color = color
+        self.profileImage = profileImage
     }
 }
 
