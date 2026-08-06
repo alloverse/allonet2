@@ -28,7 +28,14 @@ private func onMain(_ work: @escaping @Sendable @MainActor () -> Void)
 @MainActor
 public class HeadlessWebRTCTransport: Transport
 {
-    public weak var delegate: TransportDelegate?
+    public weak var delegate: TransportDelegate? {
+        didSet { dataDelegate = delegate }
+    }
+    /// The same delegate, reachable from libdatachannel's threads. Incoming data is the one path
+    /// deliberately left off the main actor — `didReceiveData` is nonisolated so that decoding a
+    /// busy wire can't queue behind the main thread — and reading the isolated `delegate` from
+    /// there would be exactly the violation the rest of this class now avoids.
+    private nonisolated(unsafe) weak var dataDelegate: TransportDelegate?
     public var clientId: ClientId? {
         didSet {
             if let clientId {
@@ -50,6 +57,8 @@ public class HeadlessWebRTCTransport: Transport
     private static var initialized: Bool = false
     private static func initialize()
     {
+        // Global, and re-registering it per transport stacked another logging callback each time.
+        initialized = true
         AlloWebRTCPeer.enableLogging(at: .debug) { sev, msg in
             let level : Logger.Level = switch sev {
             case .verbose: .trace
@@ -277,13 +286,14 @@ public class HeadlessWebRTCTransport: Transport
         
         channel.$lastMessage.sink { [weak self, weak channel] message in
             guard let self, let channel, let message else { return }
-            self.delegate?.transport(self, didReceiveData: message, on: channel)
+            self.dataDelegate?.transport(self, didReceiveData: message, on: channel)
         }.store(in: &cancellables)
-        channel.$isOpen.sink { [weak self, weak channel] isOpen in
-            guard let self, let channel else { return }
-            self.connectionStatus.data = isOpen ? .connected : (channel.lastError != nil) ? .failed : .idle
-            // Deferred for the same willSet reason as the peer-state sink above.
-            if isOpen { DispatchQueue.main.async { self.maybeConnected() } }
+        channel.$isOpen.sink { [weak channel] isOpen in
+            onMain { [weak self, weak channel] in
+                guard let self, let channel else { return }
+                connectionStatus.data = isOpen ? .connected : (channel.lastError != nil) ? .failed : .idle
+                if isOpen { maybeConnected() }
+            }
         }.store(in: &cancellables)
 
         return channel

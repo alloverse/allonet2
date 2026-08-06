@@ -289,6 +289,22 @@ final class AlloClientIntegrationTests: XCTestCase {
         client.disconnect()
     }
 
+    // 7g. A place that accepts the connection and then never answers the announce leaves us
+    //     connected, unannounced and with nothing pending — the same dead end as giving up.
+    func testUnansweredAnnounceRetries() async {
+        let client = makeTestClient()
+        client.announceTimeout = 1
+        client.mockTransport.announceResponse = .noResponse
+
+        client.stayConnected()
+
+        await awaitClientState(client, { $0.attempt > 0 }, timeout: 10)
+        XCTAssertTrue(client.state.current.isStayingConnected)
+        XCTAssertFalse(client.isAnnounced)
+
+        client.disconnect()
+    }
+
     // 8. Multiple stayConnected calls are idempotent
     func testStayConnectedIdempotent() async {
         let client = makeTestClient()

@@ -176,6 +176,11 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         connectionStatus.reconnection = .idle
         connectionStatus.willReconnectAt = nil
         avatarId = nil
+        // Scoring belongs to the run of connections we just ended; a later stayConnected() starts
+        // fresh rather than inheriting how badly the previous one was going.
+        announcedAt = nil
+        shortLivedConnections = 0
+        reconnectWasRequested = false
         session.disconnect()
         reset()
     }
@@ -274,14 +279,25 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
             logger = logger.forClient(sess.clientId!)
             logger.info("Connected as \(sess.clientId!)")
 
+            // Bounded: a place that accepts the connection and then never answers would otherwise
+            // leave us here for the lifetime of the process, connected and unannounced, with no
+            // retry pending — the same dead end as giving up, just quieter.
             let response = await sess.request(interaction: Interaction(
                 type: .request,
                 senderEntityId: "",
                 receiverEntityId: Interaction.PlaceEntity,
                 body: .announce(version: Allonet.version().description, identity: identity, avatar: avatarDesc)
-            ))
-            // Guard again: disconnect may have happened during announce
-            guard case .connecting = state.current else { return }
+            ), timeout: announceTimeout)
+            // Guard again: disconnect may have happened during announce, or this may be a stale
+            // attempt answering after reset() already moved us to a different session.
+            guard isCurrent(sess), case .connecting = state.current else { return }
+            guard let response else
+            {
+                logger.error("Place didn't answer our announce within \(announceTimeout)s")
+                failConnectionAttempt(AlloverseError(code: AlloverseErrorCode.disconnected,
+                                                     description: "Place didn't answer our announce"))
+                return
+            }
             guard case .announceResponse(let avatarId, let placeName) = response.body else
             {
                 logger.error("Announce failed: \(response)")
@@ -330,8 +346,9 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         defer { announcedAt = nil }
         if reconnectWasRequested
         {
+            // Skipped, not reset: how badly involuntary drops have been going isn't news the app
+            // asking for a reconnect gets to erase.
             reconnectWasRequested = false
-            shortLivedConnections = 0
             return 0
         }
         let stableFor = announcedAt.map { Date().timeIntervalSince($0) } ?? 0
@@ -341,6 +358,8 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     }
     /// How long a connection has to last to count as having worked.
     static let stableConnectionThreshold: TimeInterval = 30
+    /// Generous: the place may be waiting on its own authentication provider before it can answer.
+    var announceTimeout: TimeInterval = 30
     private var announcedAt: Date?
     private var shortLivedConnections = 0
     private var reconnectWasRequested = false

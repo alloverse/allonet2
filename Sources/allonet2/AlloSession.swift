@@ -59,6 +59,9 @@ public class AlloSession : NSObject, TransportDelegate
     // --- Negotiation
     private let negotiation = StateMachine<NegotiationState>(.stable, label: "Negotiation")
 
+    /// How long to wait for a peer to answer a renegotiation offer before rolling it back.
+    static let renegotiationTimeout: TimeInterval = 30
+
     /// What to do if we receive an offer while we already have an outstanding offer?
     /// Client is polite (rolls back own offer, accepts theirs).
     /// Server is impolite (rejects incoming, keeps own).
@@ -267,7 +270,7 @@ public class AlloSession : NSObject, TransportDelegate
             Task { @MainActor in
                 if case .internal_renegotiate(.offer, let payload) = inter.body {
                     await respondToRenegotiation(offer: payload, request: inter)
-                } else if outstandingInteractions[inter.requestId] != nil {
+                } else if inter.type == .response, outstandingInteractions[inter.requestId] != nil {
                     // finishRequest removes before completing, so a duplicated or replayed response
                     // finds nothing to resume a second time.
                     finishRequest(inter.requestId, with: inter)
@@ -335,7 +338,17 @@ public class AlloSession : NSObject, TransportDelegate
         
         let offer = try await generateOffer()
         logger.info("Sending renegotiation offer over RPC")
-        let response = await request(interaction: Interaction(type: .request, senderEntityId: "", receiverEntityId: Interaction.PlaceEntity, body: .internal_renegotiate(.offer, offer)))
+        // Bounded: an unanswered offer would leave negotiation stuck in .negotiating, and every
+        // later renegotiation is deferred behind that state and never runs.
+        guard let response = await request(
+            interaction: Interaction(type: .request, senderEntityId: "", receiverEntityId: Interaction.PlaceEntity,
+                                     body: .internal_renegotiate(.offer, offer)),
+            timeout: Self.renegotiationTimeout)
+        else {
+            try? await rollbackOffer()
+            throw AlloverseError(code: AlloverseErrorCode.failedRenegotiation,
+                                 description: "Peer didn't answer our renegotiation offer")
+        }
         switch response.body
         {
             case .internal_renegotiate(.answer, let answer):
