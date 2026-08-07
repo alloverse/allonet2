@@ -195,13 +195,14 @@ final class AlloClientIntegrationTests: XCTestCase {
         client.mockTransport.announceResponse = .noResponse
         client.stayConnected()
 
-        // Wait for the announce to go out, as the place would.
+        // Wait for the announce to go out, as the place would. Decoding failures throw: an
+        // unparseable interaction is a protocol regression, not a message to poll past.
         var announce: Interaction?
         let deadline = Date().addingTimeInterval(5)
         while announce == nil, Date() < deadline {
-            announce = client.mockTransport.sentMessages.lazy
+            announce = try client.mockTransport.sentMessages
                 .filter { $0.channel == .interactions }
-                .compactMap { try? CBORDecoder().decode(Interaction.self, from: $0.data) }
+                .map { try CBORDecoder().decode(Interaction.self, from: $0.data) }
                 .first { if case .announce = $0.body { return true }; return false }
             await Task.yield()
         }

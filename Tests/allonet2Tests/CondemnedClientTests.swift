@@ -47,6 +47,27 @@ import PotentCBOR
                             from: client)
     }
 
+    /// Interactions this transport has sent. Throws on undecodable data — that's a protocol
+    /// regression to surface, not a message to skip past.
+    private func sentInteractions(on transport: MockTransport) throws -> [Interaction]
+    {
+        try transport.sentMessages
+            .filter { $0.channel == .interactions }
+            .map { try CBORDecoder().decode(Interaction.self, from: $0.data) }
+    }
+
+    private func awaitSentInteraction(on transport: MockTransport, timeout: TimeInterval = 5,
+                                      where predicate: (Interaction) -> Bool) async throws -> Interaction?
+    {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline
+        {
+            if let found = try sentInteractions(on: transport).first(where: predicate) { return found }
+            await Task.yield()
+        }
+        return nil
+    }
+
     /// The response to a fatal error is the client's only chance to learn that coming back won't
     /// help. It has to say so in the response itself, and the place must not hang up in the same
     /// turn — the client acts on the answer and hangs up itself; dropping it is only a backstop.
@@ -157,16 +178,9 @@ import PotentCBOR
         let auth = Task { try await server.authenticate(identity: visor.identity!, from: visor, in: visor.logger) }
 
         // Wait for the place to ask the provider, as the visor's announce would.
-        var request: Interaction?
-        let deadline = Date().addingTimeInterval(5)
-        while request == nil, Date() < deadline {
-            request = providerTransport.sentMessages.lazy
-                .filter { $0.channel == .interactions }
-                .compactMap { try? CBORDecoder().decode(Interaction.self, from: $0.data) }
-                .first { if case .authenticationRequest = $0.body { return true }; return false }
-            await Task.yield()
-        }
-        let pending = try #require(request)
+        let pending = try #require(await awaitSentInteraction(on: providerTransport) {
+            if case .authenticationRequest = $0.body { return true }; return false
+        })
 
         await server.condemn(provider)
         providerTransport.deliver(pending.makeResponse(with: .success))
@@ -200,16 +214,9 @@ import PotentCBOR
         let announcing = Task { try await server.handle(placeInteraction: announce, from: visor) }
 
         // Wait until the announce is suspended awaiting the provider...
-        var request: Interaction?
-        let deadline = Date().addingTimeInterval(5)
-        while request == nil, Date() < deadline {
-            request = providerTransport.sentMessages.lazy
-                .filter { $0.channel == .interactions }
-                .compactMap { try? CBORDecoder().decode(Interaction.self, from: $0.data) }
-                .first { if case .authenticationRequest = $0.body { return true }; return false }
-            await Task.yield()
-        }
-        let pending = try #require(request)
+        let pending = try #require(await awaitSentInteraction(on: providerTransport) {
+            if case .authenticationRequest = $0.body { return true }; return false
+        })
 
         // ...condemn the client behind its back, then let the provider approve it.
         await sendUnauthorizedInteraction(to: server, from: visor)
@@ -223,26 +230,40 @@ import PotentCBOR
         #expect(server.clients[visor.cid] == nil)
     }
 
+    /// A publisher forwarding to a listener, built the way production does: the stream arrives on
+    /// the publisher's session, a desire pairs it with the listener, and reconciliation starts a
+    /// live forwarder.
+    private func makeActiveForwarding(on server: PlaceServer) throws -> (publisher: ConnectedClient, listener: ConnectedClient, forwarder: MockMediaStreamForwarder)
+    {
+        let (publisher, publisherTransport) = makeClient(on: server, in: \.clients)
+        publisher.announced = true
+        publisher.session.delegate = server
+        let (listener, _) = makeClient(on: server, in: \.clients)
+        listener.announced = true
+
+        let psi = PlaceStreamId(shortClientId: publisher.cid.shortClientId, incomingMediaId: "mic")
+        server.sfu.desired.insert(ForwardingId(source: psi, target: listener.cid))
+        publisher.session.transport(publisherTransport, didReceiveMediaStream: MockMediaStream(mediaId: "mic"))
+
+        let forwarder = try #require(server.sfu.active.values.first as? MockMediaStreamForwarder,
+                                     "Reconciliation should have started forwarding")
+        return (publisher, listener, forwarder)
+    }
+
     /// Forwarders a condemned client *receives* stop at condemn time too: its listener components
     /// only clean up on the next heartbeat, and it shouldn't keep hearing the room for that beat.
     @Test func condemnStopsForwardingToTheClient() async throws
     {
         let server = makeServer()
         server.fatalDisconnectGrace = 10
-        let (publisher, publisherTransport) = makeClient(on: server, in: \.clients)
-        publisher.announced = true
-        publisher.session.delegate = server
-        publisher.session.transport(publisherTransport, didReceiveMediaStream: MockMediaStream(mediaId: "mic"))
-
-        let (listener, _) = makeClient(on: server, in: \.clients)
-        listener.announced = true
-        let psi = PlaceStreamId(shortClientId: publisher.cid.shortClientId, incomingMediaId: "mic")
-        server.sfu.desired.insert(ForwardingId(source: psi, target: listener.cid))
+        let (_, listener, forwarder) = try makeActiveForwarding(on: server)
 
         await sendUnauthorizedInteraction(to: server, from: listener)
 
         #expect(server.sfu.desired.allSatisfy { $0.target != listener.cid },
                 "A condemned client's desires leave the SFU with it")
+        #expect(server.sfu.active.isEmpty)
+        #expect(forwarder.stopCount == 1)
     }
 
     /// Streams a condemned client publishes stop forwarding at condemn time, not when the session
@@ -251,15 +272,35 @@ import PotentCBOR
     {
         let server = makeServer()
         server.fatalDisconnectGrace = 10
-        let (client, transport) = makeClient(on: server, in: \.clients)
-        client.announced = true
-        client.session.delegate = server
+        let (publisher, _, forwarder) = try makeActiveForwarding(on: server)
 
-        client.session.transport(transport, didReceiveMediaStream: MockMediaStream(mediaId: "mic"))
-        #expect(server.sfu.available.count == 1)
-
-        await sendUnauthorizedInteraction(to: server, from: client)
+        await sendUnauthorizedInteraction(to: server, from: publisher)
 
         #expect(server.sfu.available.isEmpty, "A condemned client's streams leave the SFU immediately")
+        #expect(server.sfu.active.isEmpty)
+        #expect(forwarder.stopCount == 1)
+    }
+
+    /// An entity whose creation was queued but not yet committed when its owner was condemned —
+    /// and who hung up before the heartbeat — must still be swept: both sweeps read committed
+    /// state, so the disconnect-time one waits out the heartbeat that commits it.
+    @Test func entityQueuedAtCondemnTimeIsStillSweptOnDisconnect() async throws
+    {
+        let server = makeServer()
+        server.fatalDisconnectGrace = 10
+        let (client, _) = makeClient(on: server, in: \.clients)
+        client.announced = true
+
+        // Queued, not yet committed by a heartbeat...
+        let ent = await server.createEntity(from: EntityDescription(), for: client)
+        // ...when the client is condemned and immediately acts on the answer.
+        await sendUnauthorizedInteraction(to: server, from: client)
+        server.session(didDisconnect: client.session)
+
+        await server.heartbeat.awaitNextSync()
+        let deadline = Date().addingTimeInterval(5)
+        while server.place.current.entities[ent.id] != nil, Date() < deadline { await Task.yield() }
+        #expect(server.place.current.entities[ent.id] == nil,
+                "A queued entity must not outlive its condemned owner")
     }
 }

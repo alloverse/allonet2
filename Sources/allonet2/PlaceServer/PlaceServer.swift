@@ -133,10 +133,12 @@ public class PlaceServer : AlloSessionDelegate
         Task { @MainActor in
             // A condemned client was torn down when it was condemned; this is just it (or the
             // backstop) closing the line, and the roster entry is all that's left to clear. The
-            // entity sweep re-runs because condemn's could miss one: an announce suspended in
-            // authenticate when the condemn struck creates its avatar only after resuming.
+            // entity sweep re-runs because condemn's could miss one — a createEntity in flight
+            // when the condemn struck had only queued its addition — and it waits out a heartbeat
+            // first, like the path below, so queued changes commit before the sweep reads state.
             if self.waitingToDisconnect.removeValue(forKey: cid) != nil
             {
+                await self.heartbeat.awaitNextSync()
                 await self.removeEntites(ownedBy: cid)
                 clogger.info("Condemned client \(cid) is now gone.")
                 return

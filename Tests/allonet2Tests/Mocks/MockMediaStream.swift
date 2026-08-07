@@ -15,3 +15,15 @@ final class MockMediaStream: MediaStream
     var description: String { "<MockMediaStream \(mediaId)>" }
     func render() -> AudioRingBuffer { fatalError("These tests never play audio") }
 }
+
+final class MockMediaStreamForwarder: MediaStreamForwarder
+{
+    private(set) var stopCount = 0
+    func stop() { stopCount += 1 }
+
+    var ssrc: UInt32? { nil }
+    var pt: UInt8? { nil }
+    var forwardedMessageCount: Int { 0 }
+    var lastError: Error? { nil }
+    var lastErrorAt: Date? { nil }
+}
