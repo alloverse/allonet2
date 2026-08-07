@@ -273,21 +273,28 @@ public class ComponentCallbacks<T: Component>  : AnyComponentCallbacksProtocol
 {
     /// An entity has received a new component of this type
     public var added: AnyPublisher<(EntityID, T), Never> { addedSubject.eraseToAnyPublisher() }
-    /// Computed, not cached: the snapshot has to be the one current when *this* subscriber asks.
-    /// Built once and stored, a later subscriber — anyone re-subscribing after a reconnection —
-    /// gets replayed the entities of a place that is already gone, and none of the ones there now.
-    public var addedWithInitial: AnyPublisher<(EntityID, T), Never> {
-        let initial = state.current.components[T.self].map { ($0.key, $0.value) }
-        return added.prepend(initial).eraseToAnyPublisher()
-    }
+    /// `added`, but each new subscriber is first replayed the components present right now.
+    /// The instance is cached — SwiftUI's `onReceive` treats a fresh publisher as a new one and
+    /// resubscribes (replaying the snapshot) on every body evaluation — but the snapshot inside
+    /// is captured per *subscription* (`Deferred`): a subscriber re-attaching after a reconnection
+    /// must see the place as it is now, not as it was when this publisher was first built.
+    public lazy var addedWithInitial: AnyPublisher<(EntityID, T), Never> = deferredWithInitial(addedSubject)
     /// An entity has received an update to a component with the following contents. NOTE: This is also called immediately after `added`, so you can put all your "react to property changes regardless of add or update" in one place.
     public var updated: AnyPublisher<(EntityID, T), Never> { updatedSubject.eraseToAnyPublisher() }
-    public var updatedWithInitial: AnyPublisher<(EntityID, T), Never> {
-        let initial = state.current.components[T.self].map { ($0.key, $0.value) }
-        return updated.prepend(initial).eraseToAnyPublisher()
-    }
+    /// `updated`, with the same snapshot-per-subscription contract as `addedWithInitial`.
+    public lazy var updatedWithInitial: AnyPublisher<(EntityID, T), Never> = deferredWithInitial(updatedSubject)
     /// A component has been removed from an entity.
     public var removed: AnyPublisher<(EntityData, T), Never> { removedSubject.eraseToAnyPublisher() }
+
+    // weak self: the cached publisher lives on self, so a strong capture here is a retain cycle.
+    private func deferredWithInitial(_ subject: PassthroughSubject<(EntityID, T), Never>) -> AnyPublisher<(EntityID, T), Never>
+    {
+        Deferred { [weak self] () -> AnyPublisher<(EntityID, T), Never> in
+            guard let self else { return Empty().eraseToAnyPublisher() }
+            let initial = state.current.components[T.self].map { ($0.key, $0.value) }
+            return subject.prepend(initial).eraseToAnyPublisher()
+        }.eraseToAnyPublisher()
+    }
 
     internal func sendAdded  (entityID: String, component: AnyComponent) { addedSubject.send((entityID, component.decoded() as! T)) }
     internal func sendUpdated(entityID: String, component: AnyComponent) { updatedSubject.send((entityID, component.decoded() as! T)) }
