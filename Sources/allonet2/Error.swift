@@ -64,13 +64,14 @@ public struct AlloverseError: LocalizedError, Codable
         return "\(domain) \(code): \(description)"
     }
 
-    // Coded by hand to keep the shape peers with the previous definition read and write: the
-    // stored property was `overrideIsFatal: Bool`, whose `false` meant "consult the code tables"
-    // — which is what nil means now — and whose key old decoders require.
+    // Coded by hand to stay readable by peers with the previous definition, whose stored
+    // `overrideIsFatal: Bool` is a required key with `false` meaning "consult the code tables".
+    // That Bool can't carry today's three-valued verdict, so current peers exchange it under its
+    // own key, which wins when present; the legacy key rides along for old readers.
     private enum CodingKeys: String, CodingKey
     {
-        case domain, code, description
-        case statedIsFatal = "overrideIsFatal"
+        case domain, code, description, statedIsFatal
+        case legacyIsFatal = "overrideIsFatal"
     }
 
     public init(from decoder: Decoder) throws
@@ -79,7 +80,14 @@ public struct AlloverseError: LocalizedError, Codable
         domain = try c.decode(String.self, forKey: .domain)
         code = try c.decode(Int.self, forKey: .code)
         description = try c.decode(String.self, forKey: .description)
-        statedIsFatal = try c.decodeIfPresent(Bool.self, forKey: .statedIsFatal) == true ? true : nil
+        if let stated = try c.decodeIfPresent(Bool.self, forKey: .statedIsFatal)
+        {
+            statedIsFatal = stated
+        }
+        else
+        {
+            statedIsFatal = try c.decodeIfPresent(Bool.self, forKey: .legacyIsFatal) == true ? true : nil
+        }
     }
 
     public func encode(to encoder: Encoder) throws
@@ -88,7 +96,8 @@ public struct AlloverseError: LocalizedError, Codable
         try c.encode(domain, forKey: .domain)
         try c.encode(code, forKey: .code)
         try c.encode(description, forKey: .description)
-        try c.encode(statedIsFatal == true, forKey: .statedIsFatal)
+        try c.encodeIfPresent(statedIsFatal, forKey: .statedIsFatal)
+        try c.encode(statedIsFatal == true, forKey: .legacyIsFatal)
     }
 
     public init(domain: String, code: Int, description: String, overrideIsFatal: Bool = false)

@@ -79,11 +79,19 @@ import PotentCodables
         let decodedTabled = try CBORDecoder().decode(AlloverseError.self, from: CBOREncoder().encode(oldTabled))
         #expect(decodedTabled.isFatal, "overrideIsFatal: false must still defer to the tables")
 
-        // And what we encode must carry the key old decoders require.
+        // What we encode must carry the key old decoders require...
         let ours = AlloverseError(domain: "works.koja.error", code: 2, description: "Nope", overrideIsFatal: true)
         let encoded = try CBORDecoder().decode(AnyValue.self, from: CBOREncoder().encode(ours))
         #expect(encoded["overrideIsFatal"] == .bool(true))
-        #expect(encoded["statedIsFatal"] == nil)
+
+        // ...while the legacy Bool can't say "the raiser explicitly called this non-fatal", so
+        // that verdict rides its own key and survives a round-trip even for a table-fatal code.
+        let downgraded = AlloverseError(with: .error(domain: AlloverseErrorCode.domain,
+                                                     code: AlloverseErrorCode.incompatibleProtocolVersion.rawValue,
+                                                     description: "Peer says retry anyway", isFatal: false))
+        #expect(!downgraded.isFatal)
+        let roundTripped = try CBORDecoder().decode(AlloverseError.self, from: CBOREncoder().encode(downgraded))
+        #expect(!roundTripped.isFatal, "An explicit non-fatal verdict must not revert to the tables")
     }
 
     /// The flag rides the wire resolved rather than as stated, so a receiver never has to guess,
