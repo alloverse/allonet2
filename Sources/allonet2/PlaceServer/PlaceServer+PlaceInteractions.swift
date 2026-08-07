@@ -176,7 +176,7 @@ extension PlaceServer
 
         switch answer.body {
         case .success: break
-        case .error(let domain, let code, let description):
+        case .error(let domain, let code, let description, _):
             ilogger.error("Failed authentication (\(domain)#\(code)): \(description). Disconnecting.")
             throw AlloverseError(with: answer.body, overrideIsFatal: true)
         default:

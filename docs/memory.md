@@ -22,6 +22,7 @@
 - AlloSession is @MainActor; `transport(_:didReceiveData:on:)` is explicitly nonisolated for performance (CBOR parsing off main thread)
 - AnyComponent uses PotentCodables AnyValue for type-erased storage; concrete types recovered via `decoded()` / ComponentRegistry
 - AudioRingBuffer: lock-free SPSC ring buffer using swift-atomics for real-time audio I/O
+- Whether an error is permanent (`AlloverseError.isFatal`) is what decides between retrying with backoff and ending the stay-connected loop. Only the raiser can answer it — an app's codes mean nothing to `PlaceErrorCode`/`AlloverseErrorCode` — so `asBody` puts the resolved answer on the wire and `init(with:)` reads it back. Local `overrideIsFatal` still outranks it, which is how a place calls a rejected login permanent even though the app that rejected it didn't say. A body with no flag falls back to the code tables, so peers that predate it still work
 
 ## Gotchas
 - AnyComponent requires explicit wrapping: `AnyComponent(MyComponent(...))` — no implicit conversion in enum cases or dictionary literals (Swift 6)
@@ -34,6 +35,7 @@
 - `client.identity` on the place is whatever the client *said* in its announce, and it is stored before anything checks it. Authorization reads `client.authenticatedAsApp`, which is the place's own verdict; never `identity.expectation`
 - libdatachannel calls back from its own thread pool, on several worker threads, and synchronously on the calling network thread for `Closed` (`PeerConnection::changeState`). Everything above the transport is main-actor, so `HeadlessWebRTCTransport` marshals every peer publisher through `onMain` before touching anything. The one deliberate exception is the incoming-data path: `didReceiveData` is `nonisolated` so decoding can't queue behind the main thread, and it reads `dataDelegate` rather than the isolated `delegate`
 - `client.session` is replaced on every reconnection, so anything that subscribes to it — or reads it across an `await` — is bound to a connection that may already be gone. Fixed in AlloClient (`isCurrent`, and responses go to the session that asked); **still broken in `AlloReality/SpatialAudioPlayer.start()`**, which subscribes to `client.session.$incomingStreams` once, so a visor stops receiving any audio after a reconnect. Now that reconnections actually happen, that is reachable
+- **Unfixed**: a response that arrives in the same breath as the disconnect is thrown away. Inbound interactions reach the main actor one `Task` hop late (the nonisolated decode above), while `AlloSession.transport(didDisconnect:)` runs synchronously and abandons every outstanding request with `nil`. `PlaceServer` sends a fatal error and hangs up in the same turn, so the client can lose the reason it was refused and just reconnect. Repro probe in the disconnect-credentials worktree scratchpad
 - Known and deliberately unfixed: `awaitGatheringComplete` leaks one `$gatheringState` subscriber per peer on the success path — an AsyncPublisher iterator is only torn down by cancellation, and the success branch returns instead. Bounded by one per peer and it dies with the peer
 
 ## Recent Work (2026-03-04)

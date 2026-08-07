@@ -164,6 +164,28 @@ final class AlloClientIntegrationTests: XCTestCase {
         XCTAssertNil(client.avatarId)
     }
 
+    // 5b. ...including when the code belongs to the place's own authentication app rather than to
+    //     allonet, which is every real rejected login: only the raiser can tell us it's permanent.
+    func testFatalAnnounceFailureFromForeignDomainDisconnects() async {
+        let client = makeTestClient()
+        client.mockTransport.announceResponse = .error(AlloverseError(
+            domain: "works.koja.error",
+            code: 2,
+            description: "Incorrect credentials. Check your email and password and try again.",
+            overrideIsFatal: true
+        ))
+
+        client.stayConnected()
+
+        await awaitClientState(client, {
+            if case .disconnected = $0 { return true }; return false
+        })
+
+        XCTAssertFalse(client.isAnnounced)
+        XCTAssertEqual(client.connectionStatus.reconnection, .idle)
+        XCTAssertEqual((client.connectionStatus.lastError as? AlloverseError)?.code, 2)
+    }
+
     // 6. ...but a place whose authentication provider is still restarting rejects the announce
     //    for a few seconds only, and stranding the user there needs a human to undo.
     func testTransientAnnounceFailureRetries() async {

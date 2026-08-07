@@ -72,7 +72,10 @@ public enum InteractionBody : Codable
     case custom(value: [String: AnyValue])
     
     // - Generic responses
-    case error(domain: String, code: Int, description: String)
+    /// `isFatal` is the raiser's word on whether retrying could ever work: only it knows what its
+    /// own domain's codes mean. Optional so an error from a peer that predates it still decodes,
+    /// in which case the receiver falls back to classifying the code itself.
+    case error(domain: String, code: Int, description: String, isFatal: Bool? = nil)
     case success // generic request-was-successful
     
     // - Internal, do not use

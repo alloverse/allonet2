@@ -354,7 +354,7 @@ public class AlloSession : NSObject, TransportDelegate
             case .internal_renegotiate(.answer, let answer):
                 try await acceptAnswer(answer)
                 logger.info("RTC renegotiation complete on the offering side")
-            case .error(domain: AlloverseErrorCode.domain, code: AlloverseErrorCode.discardedRenegotiation.rawValue, description: let _):
+            case .error(domain: AlloverseErrorCode.domain, code: AlloverseErrorCode.discardedRenegotiation.rawValue, description: _, isFatal: _):
                 logger.info("Offer was discarded, let's roll back if needed")
                 try? await rollbackOffer()
             default:
