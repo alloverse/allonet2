@@ -231,23 +231,22 @@ public class PlaceServer : AlloSessionDelegate
         )
     }
     
+    // Synchronous, unlike the other session callbacks: AlloSession fires stream removals and the
+    // disconnect in one main-actor turn, and a Task hop here would let the disconnect's cleanup
+    // clear the roster before this lookup ran, stranding the stream in the SFU forever.
     public func session(_ sess: AlloSession, didReceiveMediaStream stream: any MediaStream)
     {
         let cid = sess.clientId!
-        Task { @MainActor in
-            guard let client = self.clients[cid] ?? self.unannouncedClients[cid] else { return }
-            sfu.handle(incoming: stream, from: client)
-        }
+        guard let client = self.clients[cid] ?? self.unannouncedClients[cid] else { return }
+        sfu.handle(incoming: stream, from: client)
     }
-    
+
     public func session(_ sess: AlloSession, didRemoveMediaStream stream: any MediaStream)
     {
         let cid = sess.clientId!
-        Task { @MainActor in
-            // Condemned clients included: they gain no new streams, but the ones they brought
-            // still have to leave `available` when the session finally closes.
-            guard let client = self.clients[cid] ?? self.unannouncedClients[cid] ?? self.waitingToDisconnect[cid] else { return }
-            sfu.handle(lost: stream, from: client)
-        }
+        // Condemned clients included: they gain no new streams, but any still registered have to
+        // leave `available` when the session finally closes.
+        guard let client = self.clients[cid] ?? self.unannouncedClients[cid] ?? self.waitingToDisconnect[cid] else { return }
+        sfu.handle(lost: stream, from: client)
     }
 }
