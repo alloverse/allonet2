@@ -101,6 +101,14 @@ extension PlaceServer
             try await authenticate(identity: identity, from: client, in: ilogger)
         }
 
+        // Authenticating suspends, and the client can leave during it — condemned for an
+        // unauthorized request it pipelined behind this announce, or plain disconnected. Its slot
+        // in unannouncedClients is gone then, and admitting it would trap on the unwrap below.
+        guard !client.announced, unannouncedClients[client.cid] != nil else
+        {
+            throw AlloverseError(code: PlaceErrorCode.invalidRequest, description: "Client is no longer eligible to announce")
+        }
+
         client.announced = true
         // Client is now announced, so move it into the main list of clients so it can get world states etc.
         clients[client.cid] = unannouncedClients.removeValue(forKey: client.cid)!

@@ -179,6 +179,72 @@ import PotentCBOR
                 "Refusal must stay retryable; the successor may be seconds away")
     }
 
+    /// An announce suspended in authenticate() can outlive its client's welcome: the client
+    /// pipelines an unauthorized request behind it and gets condemned, or just hangs up. When the
+    /// provider's answer then resumes the announce, admitting the client trapped on the roster
+    /// unwrap — a crash any authenticated place's visitor could trigger.
+    @Test func condemnedMidAnnounceIsNotAdmitted() async throws
+    {
+        let server = makeServer()
+        server.fatalDisconnectGrace = 10
+        let (provider, providerTransport) = makeClient(on: server, in: \.clients)
+        provider.authenticatedAsApp = true
+        provider.announced = true
+        provider.avatar = "auth-entity"
+        server.authenticationProvider = provider
+
+        let (visor, _) = makeClient(on: server, in: \.unannouncedClients)
+        let announce = Interaction(type: .request, senderEntityId: "", receiverEntityId: Interaction.PlaceEntity,
+                                   body: .announce(version: Allonet.version().description,
+                                                   identity: visor.identity!, avatar: EntityDescription()))
+        let announcing = Task { try await server.handle(placeInteraction: announce, from: visor) }
+
+        // Wait until the announce is suspended awaiting the provider...
+        var request: Interaction?
+        let deadline = Date().addingTimeInterval(5)
+        while request == nil, Date() < deadline {
+            request = providerTransport.sentMessages.lazy
+                .filter { $0.channel == .interactions }
+                .compactMap { try? CBORDecoder().decode(Interaction.self, from: $0.data) }
+                .first { if case .authenticationRequest = $0.body { return true }; return false }
+            await Task.yield()
+        }
+        let pending = try #require(request)
+
+        // ...condemn the client behind its back, then let the provider approve it.
+        await sendUnauthorizedInteraction(to: server, from: visor)
+        #expect(server.waitingToDisconnect[visor.cid] != nil)
+        providerTransport.deliver(pending.makeResponse(with: .success))
+
+        guard case .failure = await announcing.result else {
+            Issue.record("A condemned client must not be admitted")
+            return
+        }
+        #expect(server.clients[visor.cid] == nil)
+    }
+
+    /// Forwarders a condemned client *receives* stop at condemn time too: its listener components
+    /// only clean up on the next heartbeat, and it shouldn't keep hearing the room for that beat.
+    @Test func condemnStopsForwardingToTheClient() async throws
+    {
+        let server = makeServer()
+        server.fatalDisconnectGrace = 10
+        let (publisher, publisherTransport) = makeClient(on: server, in: \.clients)
+        publisher.announced = true
+        publisher.session.delegate = server
+        publisher.session.transport(publisherTransport, didReceiveMediaStream: MockMediaStream(mediaId: "mic"))
+
+        let (listener, _) = makeClient(on: server, in: \.clients)
+        listener.announced = true
+        let psi = PlaceStreamId(shortClientId: publisher.cid.shortClientId, incomingMediaId: "mic")
+        server.sfu.desired.insert(ForwardingId(source: psi, target: listener.cid))
+
+        await sendUnauthorizedInteraction(to: server, from: listener)
+
+        #expect(server.sfu.desired.allSatisfy { $0.target != listener.cid },
+                "A condemned client's desires leave the SFU with it")
+    }
+
     /// Streams a condemned client publishes stop forwarding at condemn time, not when the session
     /// finally closes — being refused mustn't come with a grace period of airtime to the room.
     @Test func condemnSilencesPublishedStreams() async throws
