@@ -73,8 +73,10 @@ extension PlaceServer
     {
         let cid = client.cid
         guard waitingToDisconnect[cid] == nil else { return } // a second fatal error changes nothing
-        clients.removeValue(forKey: cid)
-        unannouncedClients.removeValue(forKey: cid)
+        // A client no longer in any roster already disconnected — dropped while authenticate()
+        // awaited the provider, say — and that path tore it down. Quarantining it now would leak
+        // it: its transport is closed, so no disconnect callback will ever clear the entry.
+        guard clients.removeValue(forKey: cid) != nil || unannouncedClients.removeValue(forKey: cid) != nil else { return }
         waitingToDisconnect[cid] = client
         if authenticationProvider === client
         {
@@ -93,9 +95,11 @@ extension PlaceServer
 
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(self?.fatalDisconnectGrace ?? 0))
-            guard let self, self.waitingToDisconnect[cid] != nil else { return }
-            client.logger.warning("Client didn't act on a fatal error, dropping it")
-            client.session.disconnect()
+            guard let self, let squatter = self.waitingToDisconnect.removeValue(forKey: cid) else { return }
+            // Removed here, not by the disconnect callback: a transport that died in the
+            // meantime delivers no callback, and the entry would squat in the roster forever.
+            squatter.logger.warning("Client didn't act on a fatal error, dropping it")
+            squatter.session.disconnect()
         }
     }
 

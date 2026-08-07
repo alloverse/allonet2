@@ -71,6 +71,23 @@ import PotentCBOR
 
         try await Task.sleep(for: .seconds(0.5))
         #expect(transport.disconnectCallCount == 1, "A client that ignores the answer still gets dropped")
+        #expect(server.waitingToDisconnect[client.cid] == nil,
+                "The backstop clears the roster itself; a dead transport delivers no callback to do it")
+    }
+
+    /// A fatal verdict can resume after the client already dropped — it hung up while
+    /// authenticate() was awaiting the provider, and the disconnect path tore it down. Condemning
+    /// it then would park a closed session in the roster with nothing left to ever clear it.
+    @Test func condemningAnAlreadyGoneClientDoesNotResurrectIt() async throws
+    {
+        let server = makeServer()
+        let (client, _) = makeClient(on: server, in: \.unannouncedClients)
+        // What the disconnect path leaves behind: the client in no roster.
+        server.unannouncedClients.removeValue(forKey: client.cid)
+
+        await sendUnauthorizedInteraction(to: server, from: client)
+
+        #expect(server.waitingToDisconnect[client.cid] == nil)
     }
 
     /// A client that did act on the answer is gone from the roster by the time the backstop fires,
