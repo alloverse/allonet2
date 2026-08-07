@@ -114,7 +114,7 @@ final class MockTransport: Transport {
 
     static func forward(mediaStream: MediaStream, from sender: any Transport,
                         to receiver: any Transport) throws -> MediaStreamForwarder {
-        fatalError("MockTransport does not support media forwarding")
+        MockMediaStreamForwarder()
     }
 
     // --- Test helpers ---

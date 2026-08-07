@@ -1,4 +1,5 @@
 import XCTest
+import PotentCBOR
 @testable import allonet2
 
 @MainActor

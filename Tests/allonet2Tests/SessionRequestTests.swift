@@ -21,7 +21,7 @@ final class SessionRequestTests: XCTestCase
         while transport.sentMessages.isEmpty { await Task.yield() }
         transport.simulateDisconnect()
 
-        guard case .error(_, let code, _) = await response.value.body else {
+        guard case .error(_, let code, _, _) = await response.value.body else {
             return XCTFail("Expected an error body, got \(await response.value.body)")
         }
         XCTAssertEqual(code, AlloverseErrorCode.disconnected.rawValue)
@@ -87,7 +87,7 @@ final class SessionRequestTests: XCTestCase
         let client = makeTestClient()
         let response = await client.request(receiverEntityId: Interaction.PlaceEntity,
                                             body: .registerAsAuthenticationProvider)
-        guard case .error(_, let code, _) = response.body else {
+        guard case .error(_, let code, _, _) = response.body else {
             return XCTFail("Expected an error body, got \(response.body)")
         }
         XCTAssertEqual(code, AlloverseErrorCode.disconnected.rawValue)

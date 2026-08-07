@@ -101,6 +101,14 @@ extension PlaceServer
             try await authenticate(identity: identity, from: client, in: ilogger)
         }
 
+        // Authenticating suspends, and the client can leave during it — condemned for an
+        // unauthorized request it pipelined behind this announce, or plain disconnected. Its slot
+        // in unannouncedClients is gone then, and admitting it would trap on the unwrap below.
+        guard !client.announced, unannouncedClients[client.cid] != nil else
+        {
+            throw AlloverseError(code: PlaceErrorCode.invalidRequest, description: "Client is no longer eligible to announce")
+        }
+
         client.announced = true
         // Client is now announced, so move it into the main list of clients so it can get world states etc.
         clients[client.cid] = unannouncedClients.removeValue(forKey: client.cid)!
@@ -174,9 +182,19 @@ extension PlaceServer
                                  description: "Authentication server didn't answer in time")
         }
 
+        // The role can change hands during that await — the provider was condemned, or a restarted
+        // backend took the role back — and responses complete their continuation directly, before
+        // any roster check. An answer from a provider the place no longer trusts must not admit
+        // anyone. Non-fatal, because the successor may be seconds away.
+        guard self.authenticationProvider === authenticationProvider else {
+            ilogger.error("Authentication provider lost the role while answering; discarding its answer.")
+            throw AlloverseError(code: AlloverseErrorCode.internalServerError,
+                                 description: "Authentication provider changed; try again")
+        }
+
         switch answer.body {
         case .success: break
-        case .error(let domain, let code, let description):
+        case .error(let domain, let code, let description, _):
             ilogger.error("Failed authentication (\(domain)#\(code)): \(description). Disconnecting.")
             throw AlloverseError(with: answer.body, overrideIsFatal: true)
         default:

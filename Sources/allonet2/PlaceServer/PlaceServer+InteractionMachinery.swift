@@ -13,9 +13,16 @@ extension PlaceServer
     {
         
         let cid = sess.clientId!
-        
+
         Task { @MainActor in
-            let client = (self.clients[cid] ?? self.unannouncedClients[cid])!
+            // Condemned clients still have interactions in flight — they get no further service.
+            // And an unknown cid is hostile input, not a place bug; neither may trap.
+            guard let client = self.clients[cid] ?? self.unannouncedClients[cid] else
+            {
+                // Metadata only: an announce body carries the client's credentials.
+                self.logger.forClient(cid).info("Dropping \(inter.type) \(inter.body.caseName) (\(inter.requestId)) from client we no longer serve")
+                return
+            }
             let ilogger = client.logger.forInteraction(inter)
             ilogger.trace("Received and now handling interaction from \(cid): \(inter)")
             await self.handle(inter, from: client)
@@ -50,14 +57,56 @@ extension PlaceServer
                 client.session.send(interaction: inter.makeResponse(with: e.asBody))
                 if e.isFatal
                 {
-                    ilogger.error("Interaction error was fatal, disconnecting.")
-                    // TODO: Attach the error message to the disconnect packet too
-                    client.session.disconnect()
+                    ilogger.error("Interaction error was fatal, condemning the client.")
+                    await condemn(client)
                 }
             }
         }
     }
     
+    /// A fatal error ends this client's stay, but the response saying *why* has to win the race
+    /// with the hangup: the bytes may not have flushed, and even received, the client processes
+    /// interactions one main-actor hop later than a disconnect. So the client's presence ends now
+    /// — off the rosters, no more service or world updates, entities and publishing rights torn
+    /// down — while the session stays up for the client to act on the answer and hang up itself,
+    /// as AlloClient does. The backstop disconnect is only for one that ignores the answer.
+    func condemn(_ client: ConnectedClient) async
+    {
+        let cid = client.cid
+        guard waitingToDisconnect[cid] == nil else { return } // a second fatal error changes nothing
+        // A client no longer in any roster already disconnected — dropped while authenticate()
+        // awaited the provider, say — and that path tore it down. Quarantining it now would leak
+        // it: its transport is closed, so no disconnect callback will ever clear the entry.
+        guard clients.removeValue(forKey: cid) != nil || unannouncedClients.removeValue(forKey: cid) != nil else { return }
+        waitingToDisconnect[cid] = client
+        if authenticationProvider === client
+        {
+            // Condemned means no longer trusted with anything, least of all everyone's credentials.
+            authenticationProvider = nil
+        }
+        await web.assets.publishers.revoke(client.assetToken)
+        client.stopMoving()
+        // Media stops both ways now, not when the session closes: streams it publishes lose their
+        // airtime to the room, and forwarders it receives stop rather than waiting out the
+        // heartbeat that removes its listener components.
+        for stream in client.session.incomingStreams.values
+        {
+            sfu.handle(lost: stream, from: client)
+        }
+        sfu.drop(target: cid)
+        await removeEntites(ownedBy: cid)
+
+        Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(self?.fatalDisconnectGrace ?? 0)) }
+            catch { return } // Cancelled is not expired: dropping the client early isn't ours to do.
+            guard let self, let squatter = self.waitingToDisconnect.removeValue(forKey: cid) else { return }
+            // Removed here, not by the disconnect callback: a transport that died in the
+            // meantime delivers no callback, and the entry would squat in the roster forever.
+            squatter.logger.warning("Client didn't act on a fatal error, dropping it")
+            squatter.session.disconnect()
+        }
+    }
+
     func handle(forwardingOfInteraction inter: Interaction, from client: ConnectedClient) async throws(AlloverseError)
     {
         let ilogger = client.logger.forInteraction(inter)

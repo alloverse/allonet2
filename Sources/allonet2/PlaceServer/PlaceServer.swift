@@ -14,6 +14,10 @@ public class PlaceServer : AlloSessionDelegate
 {
     var clients : [ClientId: ConnectedClient] = [:]
     var unannouncedClients : [ClientId: ConnectedClient] = [:]
+    /// Told a fatal error and quarantined: no longer served, synced or simulated, entities torn
+    /// down — but the session stays up, so the response saying *why* can reach the client before
+    /// the line drops. The client hangs up itself; `condemn(_:)`'s backstop covers one that won't.
+    var waitingToDisconnect : [ClientId: ConnectedClient] = [:]
     
     let name: String
     let httpPort:UInt16
@@ -49,6 +53,9 @@ public class PlaceServer : AlloSessionDelegate
     let placeHelper: Place
     
     static let InteractionTimeout: TimeInterval = 10
+    /// How long a client told about a fatal error gets to hang up itself before we drop it.
+    /// Var so tests don't have to wait it out.
+    var fatalDisconnectGrace: TimeInterval = 3
     
     public init(
         name: String,
@@ -101,7 +108,7 @@ public class PlaceServer : AlloSessionDelegate
     public func stop() async
     {
         await web.stop()
-        for client in Array(clients.values) + Array(unannouncedClients.values)
+        for client in Array(clients.values) + Array(unannouncedClients.values) + Array(waitingToDisconnect.values)
         {
             client.session.disconnect()
         }
@@ -124,6 +131,18 @@ public class PlaceServer : AlloSessionDelegate
         var clogger = logger.forClient(cid)
         clogger.info("Lost session for client \(cid), removing entities...")
         Task { @MainActor in
+            // A condemned client was torn down when it was condemned; this is just it (or the
+            // backstop) closing the line, and the roster entry is all that's left to clear. The
+            // entity sweep re-runs because condemn's could miss one — a createEntity in flight
+            // when the condemn struck had only queued its addition — and it waits out a heartbeat
+            // first, like the path below, so queued changes commit before the sweep reads state.
+            if self.waitingToDisconnect.removeValue(forKey: cid) != nil
+            {
+                await self.heartbeat.awaitNextSync()
+                await self.removeEntites(ownedBy: cid)
+                clogger.info("Condemned client \(cid) is now gone.")
+                return
+            }
             // Publishing rights end with the session, so revoke before any of the awaits below —
             // entity removal and the next sync would otherwise leave a window in which a client
             // that is already gone can still POST an asset.
@@ -178,8 +197,9 @@ public class PlaceServer : AlloSessionDelegate
                 }
             } else
             {
-                // If it's not in clients, it should be in unacknowledged... just double checking
-                if self.unannouncedClients[cid] == nil
+                // If it's not in clients, it should be in unacknowledged... just double checking.
+                // A condemned client's intents are expectedly in flight; not worth a warning.
+                if self.unannouncedClients[cid] == nil && self.waitingToDisconnect[cid] == nil
                 {
                     logger.forClient(cid).warning("Received intent from unknown client \(cid)")
                 }
@@ -216,21 +236,22 @@ public class PlaceServer : AlloSessionDelegate
         )
     }
     
+    // Synchronous, unlike the other session callbacks: AlloSession fires stream removals and the
+    // disconnect in one main-actor turn, and a Task hop here would let the disconnect's cleanup
+    // clear the roster before this lookup ran, stranding the stream in the SFU forever.
     public func session(_ sess: AlloSession, didReceiveMediaStream stream: any MediaStream)
     {
         let cid = sess.clientId!
-        Task { @MainActor in
-            guard let client = self.clients[cid] ?? self.unannouncedClients[cid] else { return }
-            sfu.handle(incoming: stream, from: client)
-        }
+        guard let client = self.clients[cid] ?? self.unannouncedClients[cid] else { return }
+        sfu.handle(incoming: stream, from: client)
     }
-    
+
     public func session(_ sess: AlloSession, didRemoveMediaStream stream: any MediaStream)
     {
         let cid = sess.clientId!
-        Task { @MainActor in
-            guard let client = self.clients[cid] ?? self.unannouncedClients[cid] else { return }
-            sfu.handle(lost: stream, from: client)
-        }
+        // Condemned clients included: they gain no new streams, but any still registered have to
+        // leave `available` when the session finally closes.
+        guard let client = self.clients[cid] ?? self.unannouncedClients[cid] ?? self.waitingToDisconnect[cid] else { return }
+        sfu.handle(lost: stream, from: client)
     }
 }
