@@ -1,4 +1,5 @@
-import XCTest
+import Testing
+import Foundation
 import PotentCBOR
 @testable import allonet2
 
@@ -7,7 +8,7 @@ import PotentCBOR
 /// the place drops it. These cover that window — the response has to win the race with the
 /// hangup, and a condemned client must get nothing further out of the place.
 @MainActor
-final class CondemnedClientTests: XCTestCase
+@Suite struct CondemnedClientTests
 {
     private func makeServer() -> PlaceServer
     {
@@ -49,31 +50,32 @@ final class CondemnedClientTests: XCTestCase
     /// The response to a fatal error is the client's only chance to learn that coming back won't
     /// help. It has to say so in the response itself, and the place must not hang up in the same
     /// turn — the client acts on the answer and hangs up itself; dropping it is only a backstop.
-    func testFatalErrorResponseSaysSoAndTheHangupWaitsForIt() async throws
+    @Test func fatalErrorResponseSaysSoAndTheHangupWaitsForIt() async throws
     {
         let server = makeServer()
         let (client, transport) = makeClient(on: server, in: \.unannouncedClients)
 
         await sendUnauthorizedInteraction(to: server, from: client)
 
-        let lastSent = try XCTUnwrap(transport.sentMessages.last { $0.channel == .interactions })
+        let lastSent = try #require(transport.sentMessages.last { $0.channel == .interactions })
         let response: Interaction = try CBORDecoder().decode(Interaction.self, from: lastSent.data)
         guard case .error(_, let code, _, let isFatal) = response.body else {
-            return XCTFail("Expected an error response, got \(response.body)")
+            Issue.record("Expected an error response, got \(response.body)")
+            return
         }
-        XCTAssertEqual(code, PlaceErrorCode.unauthorized.rawValue)
-        XCTAssertEqual(isFatal, true, "A client that isn't told will just reconnect and be refused again")
-        XCTAssertEqual(transport.disconnectCallCount, 0, "Hanging up in the same turn races the response")
-        XCTAssertNil(server.unannouncedClients[client.cid])
-        XCTAssertNotNil(server.waitingToDisconnect[client.cid])
+        #expect(code == PlaceErrorCode.unauthorized.rawValue)
+        #expect(isFatal == true, "A client that isn't told will just reconnect and be refused again")
+        #expect(transport.disconnectCallCount == 0, "Hanging up in the same turn races the response")
+        #expect(server.unannouncedClients[client.cid] == nil)
+        #expect(server.waitingToDisconnect[client.cid] != nil)
 
         try await Task.sleep(for: .seconds(0.5))
-        XCTAssertEqual(transport.disconnectCallCount, 1, "A client that ignores the answer still gets dropped")
+        #expect(transport.disconnectCallCount == 1, "A client that ignores the answer still gets dropped")
     }
 
     /// A client that did act on the answer is gone from the roster by the time the backstop fires,
     /// and there is nothing left for it to drop.
-    func testBackstopStandsDownWhenClientHungUpItself() async throws
+    @Test func backstopStandsDownWhenClientHungUpItself() async throws
     {
         let server = makeServer()
         let (client, transport) = makeClient(on: server, in: \.unannouncedClients)
@@ -84,14 +86,14 @@ final class CondemnedClientTests: XCTestCase
         server.session(didDisconnect: client.session)
 
         try await Task.sleep(for: .seconds(0.5))
-        XCTAssertEqual(transport.disconnectCallCount, 0)
-        XCTAssertNil(server.waitingToDisconnect[client.cid])
+        #expect(transport.disconnectCallCount == 0)
+        #expect(server.waitingToDisconnect[client.cid] == nil)
     }
 
     /// Condemned means gone from the place, not lingering with reduced standing: entities leave,
     /// and interactions still in flight are dropped rather than served — or worse, trapping the
     /// place, as the roster lookup used to when it assumed every sender was in one.
-    func testCondemnedClientIsTornDownAndUnserved() async throws
+    @Test func condemnedClientIsTornDownAndUnserved() async throws
     {
         let server = makeServer()
         server.fatalDisconnectGrace = 10 // Out of the picture; this tests the quarantine itself.
@@ -100,21 +102,39 @@ final class CondemnedClientTests: XCTestCase
         let avatar = await server.createEntity(from: EntityDescription(), for: client)
         client.avatar = avatar.id
         await server.heartbeat.awaitNextSync()
-        XCTAssertNotNil(server.place.current.entities[avatar.id])
+        #expect(server.place.current.entities[avatar.id] != nil)
 
         await sendUnauthorizedInteraction(to: server, from: client)
 
-        XCTAssertNil(server.clients[client.cid])
-        XCTAssertNotNil(server.waitingToDisconnect[client.cid])
+        #expect(server.clients[client.cid] == nil)
+        #expect(server.waitingToDisconnect[client.cid] != nil)
         await server.heartbeat.awaitNextSync()
-        XCTAssertNil(server.place.current.entities[avatar.id], "A condemned client's entities leave the place")
+        #expect(server.place.current.entities[avatar.id] == nil, "A condemned client's entities leave the place")
 
         let sentBefore = transport.sentMessages.count
         server.session(client.session, didReceiveInteraction:
             Interaction(type: .request, senderEntityId: avatar.id, receiverEntityId: Interaction.PlaceEntity,
                         body: .createEntity(EntityDescription())))
         try await Task.sleep(for: .seconds(0.2))
-        XCTAssertEqual(transport.sentMessages.count, sentBefore, "No response owed to a condemned client")
-        XCTAssertEqual(transport.disconnectCallCount, 0)
+        #expect(transport.sentMessages.count == sentBefore, "No response owed to a condemned client")
+        #expect(transport.disconnectCallCount == 0)
+    }
+
+    /// Streams a condemned client publishes stop forwarding at condemn time, not when the session
+    /// finally closes — being refused mustn't come with a grace period of airtime to the room.
+    @Test func condemnSilencesPublishedStreams() async throws
+    {
+        let server = makeServer()
+        server.fatalDisconnectGrace = 10
+        let (client, transport) = makeClient(on: server, in: \.clients)
+        client.announced = true
+        client.session.delegate = server
+
+        client.session.transport(transport, didReceiveMediaStream: MockMediaStream(mediaId: "mic"))
+        #expect(server.sfu.available.count == 1)
+
+        await sendUnauthorizedInteraction(to: server, from: client)
+
+        #expect(server.sfu.available.isEmpty, "A condemned client's streams leave the SFU immediately")
     }
 }
