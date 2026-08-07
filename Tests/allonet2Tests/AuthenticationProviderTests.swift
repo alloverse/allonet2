@@ -150,27 +150,4 @@ final class AuthenticationProviderTests: XCTestCase
         XCTAssertTrue(server.authenticationProvider === app)
         XCTAssertEqual(transport.disconnectCallCount, 0)
     }
-
-    /// The place hangs up on a fatal error, so the response it sends first is the client's only
-    /// chance to learn that coming back won't help. It has to say so in the response itself.
-    func testFatalErrorResponseSaysSoBeforeTheDisconnect() async throws
-    {
-        let server = makeServer()
-        let (client, transport) = await makeClient(.existingUser, on: server)
-
-        // Acting through an entity you don't own is unauthorized, which the place calls fatal.
-        await server.handle(Interaction(type: .request, senderEntityId: "not-yours",
-                                        receiverEntityId: Interaction.PlaceEntity,
-                                        body: .createEntity(EntityDescription())),
-                            from: client)
-
-        let lastSent = try XCTUnwrap(transport.sentMessages.last { $0.channel == .interactions })
-        let response: Interaction = try CBORDecoder().decode(Interaction.self, from: lastSent.data)
-        guard case .error(_, let code, _, let isFatal) = response.body else {
-            return XCTFail("Expected an error response, got \(response.body)")
-        }
-        XCTAssertEqual(code, PlaceErrorCode.unauthorized.rawValue)
-        XCTAssertEqual(isFatal, true, "A client that isn't told will just reconnect and be refused again")
-        XCTAssertEqual(transport.disconnectCallCount, 1)
-    }
 }

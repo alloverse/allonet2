@@ -1,4 +1,5 @@
 import XCTest
+import PotentCBOR
 @testable import allonet2
 
 // MARK: - Async test helpers
@@ -182,6 +183,45 @@ final class AlloClientIntegrationTests: XCTestCase {
         })
 
         XCTAssertFalse(client.isAnnounced)
+        XCTAssertEqual(client.connectionStatus.reconnection, .idle)
+        XCTAssertEqual((client.connectionStatus.lastError as? AlloverseError)?.code, 2)
+    }
+
+    // 5c. The place answers a fatal error and then drops the client that doesn't act on it.
+    //     The full exchange: the rejection has to win over the hangup that follows it, or the
+    //     client mistakes being refused for a network blip and reconnects into the same refusal.
+    func testFatalRejectionFollowedByHangupStaysRejected() async throws {
+        let client = makeTestClient()
+        client.mockTransport.announceResponse = .noResponse
+        client.stayConnected()
+
+        // Wait for the announce to go out, as the place would.
+        var announce: Interaction?
+        let deadline = Date().addingTimeInterval(5)
+        while announce == nil, Date() < deadline {
+            announce = client.mockTransport.sentMessages.lazy
+                .filter { $0.channel == .interactions }
+                .compactMap { try? CBORDecoder().decode(Interaction.self, from: $0.data) }
+                .first { if case .announce = $0.body { return true }; return false }
+            await Task.yield()
+        }
+        guard let announce else { return XCTFail("Client never announced") }
+
+        let transportAtRejection = client.mockTransport!
+        transportAtRejection.deliver(announce.makeResponse(with: AlloverseError(
+            domain: "works.koja.error", code: 2, description: "Incorrect credentials.",
+            overrideIsFatal: true).asBody))
+
+        await awaitClientState(client, {
+            if case .disconnected = $0 { return true }; return false
+        })
+        XCTAssertEqual((client.connectionStatus.lastError as? AlloverseError)?.code, 2)
+
+        // The place's backstop hangup lands on the connection the client already left; it must
+        // not shake the client out of its settled verdict.
+        transportAtRejection.simulateDisconnect()
+        try await Task.sleep(for: .seconds(0.2))
+        XCTAssertFalse(client.state.current.isStayingConnected)
         XCTAssertEqual(client.connectionStatus.reconnection, .idle)
         XCTAssertEqual((client.connectionStatus.lastError as? AlloverseError)?.code, 2)
     }
