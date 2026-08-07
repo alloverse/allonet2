@@ -174,6 +174,16 @@ extension PlaceServer
                                  description: "Authentication server didn't answer in time")
         }
 
+        // The role can change hands during that await — the provider was condemned, or a restarted
+        // backend took the role back — and responses complete their continuation directly, before
+        // any roster check. An answer from a provider the place no longer trusts must not admit
+        // anyone. Non-fatal, because the successor may be seconds away.
+        guard self.authenticationProvider === authenticationProvider else {
+            ilogger.error("Authentication provider lost the role while answering; discarding its answer.")
+            throw AlloverseError(code: AlloverseErrorCode.internalServerError,
+                                 description: "Authentication provider changed; try again")
+        }
+
         switch answer.body {
         case .success: break
         case .error(let domain, let code, let description, _):

@@ -137,6 +137,48 @@ import PotentCBOR
         #expect(transport.disconnectCallCount == 0)
     }
 
+    /// An authentication answer only counts from the provider that currently holds the role: a
+    /// condemned provider's session lives through the grace, and responses complete their
+    /// continuation before any roster check, so its `.success` would otherwise admit a visor on
+    /// the word of a peer the place already threw out.
+    @Test func condemnedProvidersPendingAuthenticationsDoNotAdmit() async throws
+    {
+        let server = makeServer()
+        server.fatalDisconnectGrace = 10
+        let (provider, providerTransport) = makeClient(on: server, in: \.clients)
+        provider.identity = Identity(expectation: .app, displayName: "KojaServ",
+                                     emailAddress: "", authenticationToken: "apptoken")
+        provider.authenticatedAsApp = true
+        provider.announced = true
+        provider.avatar = "auth-entity"
+        server.authenticationProvider = provider
+
+        let (visor, _) = makeClient(on: server, in: \.unannouncedClients)
+        let auth = Task { try await server.authenticate(identity: visor.identity!, from: visor, in: visor.logger) }
+
+        // Wait for the place to ask the provider, as the visor's announce would.
+        var request: Interaction?
+        let deadline = Date().addingTimeInterval(5)
+        while request == nil, Date() < deadline {
+            request = providerTransport.sentMessages.lazy
+                .filter { $0.channel == .interactions }
+                .compactMap { try? CBORDecoder().decode(Interaction.self, from: $0.data) }
+                .first { if case .authenticationRequest = $0.body { return true }; return false }
+            await Task.yield()
+        }
+        let pending = try #require(request)
+
+        await server.condemn(provider)
+        providerTransport.deliver(pending.makeResponse(with: .success))
+
+        guard case .failure(let error) = await auth.result else {
+            Issue.record("A condemned provider's answer must not authenticate anyone")
+            return
+        }
+        #expect((error as? AlloverseError)?.isFatal != true,
+                "Refusal must stay retryable; the successor may be seconds away")
+    }
+
     /// Streams a condemned client publishes stop forwarding at condemn time, not when the session
     /// finally closes — being refused mustn't come with a grace period of airtime to the room.
     @Test func condemnSilencesPublishedStreams() async throws
