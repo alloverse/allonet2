@@ -19,7 +19,8 @@ extension PlaceServer
             // And an unknown cid is hostile input, not a place bug; neither may trap.
             guard let client = self.clients[cid] ?? self.unannouncedClients[cid] else
             {
-                self.logger.forClient(cid).info("Dropping interaction from client we no longer serve: \(inter)")
+                // Metadata only: an announce body carries the client's credentials.
+                self.logger.forClient(cid).info("Dropping \(inter.type) \(inter.body.caseName) (\(inter.requestId)) from client we no longer serve")
                 return
             }
             let ilogger = client.logger.forInteraction(inter)
