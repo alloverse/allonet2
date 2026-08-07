@@ -123,6 +123,15 @@ class PlaceServerSFU
         reconcile()
     }
     
+    /// Forget every forwarding this client receives, ahead of its LiveMediaListener components
+    /// disappearing: those only clean up on the next heartbeat, and a condemned client shouldn't
+    /// keep hearing the room even for that beat.
+    internal func drop(target cid: ClientId)
+    {
+        desired = desired.filter { $0.target != cid }
+        reconcile()
+    }
+
     /// Either the client disconnected, or at least its stream was lost. Stop forwarding it.
     internal func handle(lost stream: MediaStream, from sender: ConnectedClient)
     {
