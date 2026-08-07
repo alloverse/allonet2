@@ -64,6 +64,33 @@ public struct AlloverseError: LocalizedError, Codable
         return "\(domain) \(code): \(description)"
     }
 
+    // Coded by hand to keep the shape peers with the previous definition read and write: the
+    // stored property was `overrideIsFatal: Bool`, whose `false` meant "consult the code tables"
+    // — which is what nil means now — and whose key old decoders require.
+    private enum CodingKeys: String, CodingKey
+    {
+        case domain, code, description
+        case statedIsFatal = "overrideIsFatal"
+    }
+
+    public init(from decoder: Decoder) throws
+    {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        domain = try c.decode(String.self, forKey: .domain)
+        code = try c.decode(Int.self, forKey: .code)
+        description = try c.decode(String.self, forKey: .description)
+        statedIsFatal = try c.decodeIfPresent(Bool.self, forKey: .statedIsFatal) == true ? true : nil
+    }
+
+    public func encode(to encoder: Encoder) throws
+    {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(domain, forKey: .domain)
+        try c.encode(code, forKey: .code)
+        try c.encode(description, forKey: .description)
+        try c.encode(statedIsFatal == true, forKey: .statedIsFatal)
+    }
+
     public init(domain: String, code: Int, description: String, overrideIsFatal: Bool = false)
     {
         self.domain = domain

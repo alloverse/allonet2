@@ -62,6 +62,30 @@ import PotentCodables
         #expect(!unknown.isFatal, "Nothing to go on: retrying is the safer guess")
     }
 
+    /// AlloverseError itself is public Codable, and peers built against the previous definition
+    /// wrote — and require — `overrideIsFatal`. The renamed storage must keep that shape.
+    @Test func directCodingStaysCompatibleWithThePreviousDefinition() throws
+    {
+        // What an old peer encoded: override set means fatal...
+        let oldFatal: AnyValue = ["domain": "works.koja.error", "code": 2,
+                                  "description": "Nope", "overrideIsFatal": true]
+        let decodedFatal = try CBORDecoder().decode(AlloverseError.self, from: CBOREncoder().encode(oldFatal))
+        #expect(decodedFatal.isFatal)
+
+        // ...and false meant "consult the code tables", not "the raiser said non-fatal".
+        let oldTabled: AnyValue = ["domain": .string(AlloverseErrorCode.domain),
+                                   "code": .int(AlloverseErrorCode.incompatibleProtocolVersion.rawValue),
+                                   "description": "Old peer, fatal code", "overrideIsFatal": false]
+        let decodedTabled = try CBORDecoder().decode(AlloverseError.self, from: CBOREncoder().encode(oldTabled))
+        #expect(decodedTabled.isFatal, "overrideIsFatal: false must still defer to the tables")
+
+        // And what we encode must carry the key old decoders require.
+        let ours = AlloverseError(domain: "works.koja.error", code: 2, description: "Nope", overrideIsFatal: true)
+        let encoded = try CBORDecoder().decode(AnyValue.self, from: CBOREncoder().encode(ours))
+        #expect(encoded["overrideIsFatal"] == .bool(true))
+        #expect(encoded["statedIsFatal"] == nil)
+    }
+
     /// The flag rides the wire resolved rather than as stated, so a receiver never has to guess,
     /// and a peer that predates it just sees one more key it doesn't read.
     @Test func unstatedFatalityIsEncodedResolved() throws
