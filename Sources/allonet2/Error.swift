@@ -60,6 +60,9 @@ public struct AlloverseError: LocalizedError, Codable
     /// What the raiser said about permanence, or nil if it didn't say. Distinct from `isFatal`,
     /// which falls back to the code tables when nobody did.
     private let statedIsFatal: Bool?
+    /// Source compatibility for the former stored property.
+    @available(*, deprecated, message: "Read isFatal; the raiser's verdict is folded into it")
+    public var overrideIsFatal: Bool { statedIsFatal == true }
     public var errorDescription: String? {
         return "\(domain) \(code): \(description)"
     }
