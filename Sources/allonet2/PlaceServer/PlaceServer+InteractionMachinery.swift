@@ -94,7 +94,8 @@ extension PlaceServer
         await removeEntites(ownedBy: cid)
 
         Task { [weak self] in
-            try? await Task.sleep(for: .seconds(self?.fatalDisconnectGrace ?? 0))
+            do { try await Task.sleep(for: .seconds(self?.fatalDisconnectGrace ?? 0)) }
+            catch { return } // Cancelled is not expired: dropping the client early isn't ours to do.
             guard let self, let squatter = self.waitingToDisconnect.removeValue(forKey: cid) else { return }
             // Removed here, not by the disconnect callback: a transport that died in the
             // meantime delivers no callback, and the entry would squat in the roster forever.
