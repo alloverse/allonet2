@@ -83,6 +83,12 @@ extension PlaceServer
         }
         await web.assets.publishers.revoke(client.assetToken)
         client.stopMoving()
+        // Streams it publishes stop now, not when the session closes: a condemned client doesn't
+        // get a grace period of airtime to the rest of the room.
+        for stream in client.session.incomingStreams.values
+        {
+            sfu.handle(lost: stream, from: client)
+        }
         await removeEntites(ownedBy: cid)
 
         Task { [weak self] in
