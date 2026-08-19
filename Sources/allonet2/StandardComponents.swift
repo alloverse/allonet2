@@ -101,6 +101,9 @@ public struct Model: Component
 /// `.bottom` stands it above). The text faces +Z of the entity's transform (readable from +Z, like
 /// a RealityKit plane stood up) and has no depth. The font is the renderer's choice; only the
 /// metric box is protocol.
+///
+/// The name is allonet1's and collides with `SwiftUI.Text` wherever both are imported: qualify it
+/// as `allonet2.Text` in annotations and metatypes.
 public struct Text: Component
 {
     @MainActor
