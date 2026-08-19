@@ -188,6 +188,25 @@ struct AssetStoreTests
     }
 }
 
+// MARK: - Media types
+
+struct AssetMediaTypeTests
+{
+    /// The two tables are hand-written and drifted apart once already: heic was publishable and
+    /// then stored without an extension, so nothing could open it.
+    @Test func theTwoTablesAgree()
+    {
+        for type in ["model/vnd.usdz+zip", "model/vnd.usda", "model/gltf-binary", "model/gltf+json",
+                     "image/png", "image/jpeg", "image/heic", "image/ktx2",
+                     "audio/wav", "audio/mpeg", "application/json"]
+        {
+            let ext = AssetStore.filenameExtension(for: type)
+            #expect(ext != nil, "no extension for \(type)")
+            #expect(AssetStore.contentType(forExtension: ext ?? "") == type)
+        }
+    }
+}
+
 // MARK: - Range parsing
 // Off-wire, because a route parameter can't be exercised without a real socket but this can.
 
