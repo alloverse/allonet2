@@ -96,11 +96,11 @@ public struct Model: Component
 /// give the text its own child entity nudged along +Z.
 ///
 /// Layout contract: the text is laid out in a box `width` metres wide, centred on the entity
-/// origin; lines stack downwards, `halign` places the block across the box and `valign` places it
-/// against the origin (`.top` hangs the block below the origin, `.middle` centres it on it,
-/// `.bottom` stands it above). The text faces +Z of the entity's transform (readable from +Z, like
-/// a RealityKit plane stood up) and has no depth. The font is the renderer's choice; only the
-/// metric box is protocol.
+/// origin; lines stack downwards and `halign` places the block across the box. `fit` decides what
+/// `height` means and where `valign` measures from — a line height with the block hung on the
+/// origin, or the second side of a box the block is scaled into. The text faces +Z of the entity's
+/// transform (readable from +Z, like a RealityKit plane stood up) and has no depth. The font is the
+/// renderer's choice; only the metric box is protocol.
 ///
 /// The name is allonet1's and collides with `SwiftUI.Text` wherever both are imported: qualify it
 /// as `allonet2.Text` in annotations and metatypes.
@@ -116,18 +116,33 @@ public struct Text: Component
     {
         case top, middle, bottom
     }
+    /// How `height` and `width` size the text.
+    @MainActor
+    public enum Fit: String, Equatable, Codable
+    {
+        /// `height` is the line height; `width` only bounds `wrap`. The block keeps that size
+        /// however big it comes out.
+        case lineHeight
+        /// `.lineHeight`, but a block wider than `width` is scaled down until it fits.
+        case shrinkToWidth
+        /// `width` x `height` is a box centred on the origin, and the block is scaled — up as well
+        /// as down — to the largest size that fits it, aspect preserved. `height` is then the box,
+        /// not a line height: the rendered line height is whatever the fit works out to.
+        case box
+    }
 
     public var string: String
-    /// Line height in metres: baseline to baseline of consecutive lines, not the height of the
-    /// glyphs you can see — a capital letter measures about 0.6 of it.
+    /// Metres. With `fit` `.lineHeight`/`.shrinkToWidth` it's the line height: baseline to baseline
+    /// of consecutive lines, not the height of the glyphs you can see — a capital letter measures
+    /// about 0.6 of it. With `.box` it's the height of the box the block is fitted into.
     public var height: Float
-    /// Width of the layout box in metres — only `wrap` and `fitToWidth` read it, so a single
-    /// short line is laid out the same whatever it says.
+    /// Width of the layout box in metres. `.lineHeight` only lets `wrap` read it, so a single short
+    /// line is laid out the same whatever it says; `.shrinkToWidth` and `.box` also fit to it.
     public var width: Float
-    /// Break lines at `width`.
+    /// Break lines at `width`, before any fitting.
     public var wrap: Bool
-    /// If a line still comes out wider than `width`, scale the whole block down until it fits.
-    public var fitToWidth: Bool
+    /// Whether `width`/`height` are advisory, a maximum, or a box. See `Fit`.
+    public var fit: Fit
     public var halign: HorizontalAlignment
     public var valign: VerticalAlignment
     public var color: Color
@@ -139,7 +154,7 @@ public struct Text: Component
         height: Float,
         width: Float,
         wrap: Bool = false,
-        fitToWidth: Bool = true,
+        fit: Fit = .shrinkToWidth,
         halign: HorizontalAlignment = .center,
         valign: VerticalAlignment = .middle,
         color: Color = .white
@@ -149,7 +164,7 @@ public struct Text: Component
         self.height = height
         self.width = width
         self.wrap = wrap
-        self.fitToWidth = fitToWidth
+        self.fit = fit
         self.halign = halign
         self.valign = valign
         self.color = color
@@ -382,16 +397,28 @@ func RegisterStandardComponents()
 
 extension Text
 {
-    /// Where a laid-out block of text has to sit, given the size the renderer's font made it: the
-    /// box is `width` wide and centred on the entity origin, `halign` puts the block across it and
-    /// `valign` above/across/below it, and `fitToWidth` scales an over-wide block down first.
-    /// Renderer-independent by design — every renderer measures its own glyphs and then needs this
-    /// same answer.
+    /// Where a laid-out block of text has to sit, and how much to scale it, given the size the
+    /// renderer's font made it: the box is `width` wide and centred on the entity origin, `halign`
+    /// puts the block across it, and `fit` decides the scale and what `valign` measures against —
+    /// the origin, or the `height`-tall box the block was fitted into. Renderer-independent by
+    /// design: every renderer measures its own glyphs and then needs this same answer.
     public func placement(ofBlockFrom min: SIMD3<Float>, to max: SIMD3<Float>) -> (scale: Float, translation: SIMD3<Float>)
     {
-        let blockWidth = max.x - min.x
-        let scale = (fitToWidth && blockWidth > width && blockWidth > 0) ? width / blockWidth : 1
+        let blockWidth = max.x - min.x, blockHeight = max.y - min.y
+        let scale: Float
+        switch fit
+        {
+        case .lineHeight:
+            scale = 1
+        case .shrinkToWidth:
+            scale = (blockWidth > width && blockWidth > 0) ? width / blockWidth : 1
+        case .box:
+            scale = (blockWidth > 0 && blockHeight > 0) ? Swift.min(width / blockWidth, height / blockHeight) : 1
+        }
         let lo = min * scale, hi = max * scale
+        // Only `.box` gives the box a height; otherwise `valign` hangs the block on the origin,
+        // which is the same arithmetic against a zero-height box.
+        let boxHeight = fit == .box ? height : 0
         var translation = SIMD3<Float>.zero
         switch halign
         {
@@ -401,16 +428,16 @@ extension Text
         }
         switch valign
         {
-        case .top:    translation.y = -hi.y
+        case .top:    translation.y = boxHeight/2 - hi.y
         case .middle: translation.y = -(lo.y + hi.y)/2
-        case .bottom: translation.y = -lo.y
+        case .bottom: translation.y = -boxHeight/2 - lo.y
         }
         return (scale, translation)
     }
 
     public func indentedDescription(_ prefix: String) -> String
     {
-        "\(prefix)Text: \"\(string)\" \(height)m in a \(width)m box, \(halign)/\(valign)"
+        "\(prefix)Text: \"\(string)\" \(height)m in a \(width)m box, \(fit), \(halign)/\(valign)"
     }
 }
 
