@@ -131,6 +131,13 @@ public struct Text: Component
         case box
     }
 
+    /// A renderer tessellates at most this many characters of `string`, and drops the rest. Glyph
+    /// meshes are built synchronously on the thread that draws, so without a cap any peer can
+    /// publish a megabyte of text and stall every client in the place. 1024 is a few paragraphs —
+    /// orders of magnitude past the signs and labels this component is for — so the cap is only
+    /// ever reached by something that isn't text to read.
+    public static let maxRenderedCharacters = 1024
+
     public var string: String
     /// Metres. With `fit` `.lineHeight`/`.shrinkToWidth` it's the line height: baseline to baseline
     /// of consecutive lines, not the height of the glyphs you can see — a capital letter measures
@@ -397,13 +404,23 @@ func RegisterStandardComponents()
 
 extension Text
 {
+    /// Whether `width` and `height` describe a box text can be laid out in at all. They become a
+    /// point size and a scale, so a hostile NaN or a zero turns into a NaN transform downstream.
+    public var hasLayoutBox: Bool { width.isFinite && width > 0 && height.isFinite && height > 0 }
+
     /// Where a laid-out block of text has to sit, and how much to scale it, given the size the
     /// renderer's font made it: the box is `width` wide and centred on the entity origin, `halign`
     /// puts the block across it, and `fit` decides the scale and what `valign` measures against —
     /// the origin, or the `height`-tall box the block was fitted into. Renderer-independent by
     /// design: every renderer measures its own glyphs and then needs this same answer.
-    public func placement(ofBlockFrom min: SIMD3<Float>, to max: SIMD3<Float>) -> (scale: Float, translation: SIMD3<Float>)
+    ///
+    /// Nil means don't render: `width`/`height` come off the wire, and a peer's zero, negative or
+    /// non-finite size has no placement — only a NaN scale that would poison a transform.
+    public func placement(ofBlockFrom min: SIMD3<Float>, to max: SIMD3<Float>) -> (scale: Float, translation: SIMD3<Float>)?
     {
+        guard hasLayoutBox,
+              min.x.isFinite, min.y.isFinite, max.x.isFinite, max.y.isFinite else { return nil }
+
         let blockWidth = max.x - min.x, blockHeight = max.y - min.y
         let scale: Float
         switch fit

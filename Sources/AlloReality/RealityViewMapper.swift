@@ -257,11 +257,16 @@ public class RealityViewMapper
     /// touching the entity's own `Model`.
     static let textChildName = "allo.text"
 
+    /// Entities whose `Text` we've already complained about. Bounding the text is pointless if an
+    /// unbounded log takes its place: a peer can rewrite a component as fast as it likes.
+    private var complainedAboutText: Set<EntityID> = []
+
     private func startSyncingOfText()
     {
         startSyncingOf(networkComponentType: allonet2.Text.self)
         { (entity, _, text) in
             entity.children.first { $0.name == Self.textChildName }?.removeFromParent()
+            self.complainAboutText(text, on: entity.name)
             guard let child = Self.realityText(for: text) else { return }
             entity.addChild(child)
         }
@@ -270,11 +275,28 @@ public class RealityViewMapper
         }
     }
 
+    private func complainAboutText(_ text: allonet2.Text, on eid: EntityID)
+    {
+        let problem: String
+        if text.string.count > allonet2.Text.maxRenderedCharacters {
+            problem = "\(text.string.count) characters; rendering the first \(allonet2.Text.maxRenderedCharacters)"
+        } else if !text.string.isEmpty && !text.hasLayoutBox {
+            problem = "a \(text.width) x \(text.height) m box, which is not a size; rendering nothing"
+        } else { return }
+        guard complainedAboutText.insert(eid).inserted else { return }
+        print("Entity \(eid) has a Text with \(problem)")
+    }
+
     /// Build the child entity for a `Text`, or nil if there is nothing to draw. Regenerated from
     /// scratch on every change: text meshes are cheap and diffing glyphs is not.
     static func realityText(for text: allonet2.Text) -> RealityKit.Entity?
     {
-        guard !text.string.isEmpty else { return nil } // generateText("") returns infinite bounds
+        // Everything here comes from a peer. Tessellation is synchronous on the main actor and its
+        // cost is per glyph, so cap the string; a size that isn't a size gets no mesh at all,
+        // rather than a NaN point size handed to Core Text.
+        let string = String(text.string.prefix(allonet2.Text.maxRenderedCharacters))
+        guard !string.isEmpty else { return nil } // generateText("") returns infinite bounds
+        guard text.hasLayoutBox else { return nil }
 
         // Measured: RealityKit lays text out at one metre per point, so the font's own line height
         // (ascender - descender + leading, 1.178 x point size for the system font) is what has to
@@ -291,18 +313,18 @@ public class RealityViewMapper
         var frame = CGRect.zero
         if text.wrap
         {
-            let height = CGFloat(text.height) * CGFloat(text.string.count + 1)
+            let height = CGFloat(text.height) * CGFloat(string.count + 1)
             frame = CGRect(x: 0, y: -height, width: CGFloat(text.width), height: height)
         }
         let mesh = MeshResource.generateText(
-            text.string,
+            string,
             extrusionDepth: 0, // flat, and already facing +Z
             font: font,
             containerFrame: frame,
             alignment: text.halign.realityAlignment,
             lineBreakMode: .byWordWrapping
         )
-        let placement = text.placement(ofBlockFrom: mesh.bounds.min, to: mesh.bounds.max)
+        guard let placement = text.placement(ofBlockFrom: mesh.bounds.min, to: mesh.bounds.max) else { return nil }
 
         let child = ModelEntity(mesh: mesh, materials: [UnlitMaterial(color: text.color.realityColor)])
         child.name = textChildName
