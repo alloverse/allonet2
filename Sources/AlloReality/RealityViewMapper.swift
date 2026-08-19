@@ -210,7 +210,7 @@ public class RealityViewMapper
         }
     }
 
-    private static var warnedAboutMissingAssetResolver = false
+    private var warnedAboutMissingAssetResolver = false
 
     /// A `.image` material's texture, or magenta if it can't be had: a logo nobody wired up must be
     /// impossible to miss, and one failed fetch must not become a retry loop.
@@ -218,9 +218,9 @@ public class RealityViewMapper
     {
         guard let assetResolver else
         {
-            if !Self.warnedAboutMissingAssetResolver
+            if !warnedAboutMissingAssetResolver
             {
-                Self.warnedAboutMissingAssetResolver = true
+                warnedAboutMissingAssetResolver = true
                 print("RealityViewMapper.assetResolver is nil, so image materials cannot load (first: \(asset) on entity \(entityName))")
             }
             return SimpleMaterial(color: .magenta, isMetallic: false)
