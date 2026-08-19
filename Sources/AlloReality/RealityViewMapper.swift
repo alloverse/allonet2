@@ -134,6 +134,7 @@ public class RealityViewMapper
         { (entity, _, model) in
             var state = entity.components[AlloModelStateComponent.self] ?? AlloModelStateComponent()
             guard state.current != model else { return }
+            let previous = state.current
             state.current = model
             state.loadingTask?.cancel()
             state.loadingTask = nil
@@ -167,7 +168,20 @@ public class RealityViewMapper
             else if case .image(let asset) = model.material
             {
                 // Shape now, texture when it arrives — a plane that pops in late reads as a bug.
-                entity.components.set(ModelComponent(mesh: model.mesh.realityMesh, materials: [SimpleMaterial()]))
+                // Only paint the blank placeholder when there is nothing on screen yet: repainting
+                // an already-textured plane would flash it white on every icon change.
+                if var existing = entity.components[ModelComponent.self]
+                {
+                    if previous?.mesh != model.mesh
+                    {
+                        existing.mesh = model.mesh.realityMesh
+                        entity.components.set(existing)
+                    }
+                }
+                else
+                {
+                    entity.components.set(ModelComponent(mesh: model.mesh.realityMesh, materials: [SimpleMaterial()]))
+                }
                 state.loadingTask = Task {
                     let material = await self.imageMaterial(asset: asset, for: entity.name)
                     if(Task.isCancelled) { return }
