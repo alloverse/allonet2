@@ -377,6 +377,32 @@ func RegisterStandardComponents()
 
 extension Text
 {
+    /// Where a laid-out block of text has to sit, given the size the renderer's font made it: the
+    /// box is `width` wide and centred on the entity origin, `halign` puts the block across it and
+    /// `valign` above/across/below it, and `fitToWidth` scales an over-wide block down first.
+    /// Renderer-independent by design — every renderer measures its own glyphs and then needs this
+    /// same answer.
+    public func placement(ofBlockFrom min: SIMD3<Float>, to max: SIMD3<Float>) -> (scale: Float, translation: SIMD3<Float>)
+    {
+        let blockWidth = max.x - min.x
+        let scale = (fitToWidth && blockWidth > width && blockWidth > 0) ? width / blockWidth : 1
+        let lo = min * scale, hi = max * scale
+        var translation = SIMD3<Float>.zero
+        switch halign
+        {
+        case .left:   translation.x = -width/2 - lo.x
+        case .center: translation.x = -(lo.x + hi.x)/2
+        case .right:  translation.x = width/2 - hi.x
+        }
+        switch valign
+        {
+        case .top:    translation.y = -hi.y
+        case .middle: translation.y = -(lo.y + hi.y)/2
+        case .bottom: translation.y = -lo.y
+        }
+        return (scale, translation)
+    }
+
     public func indentedDescription(_ prefix: String) -> String
     {
         "\(prefix)Text: \"\(string)\" \(height)m in a \(width)m box, \(halign)/\(valign)"

@@ -27,6 +27,26 @@ struct TextAndImageTests
         #expect(json.contains("\"bottom\""))
     }
 
+    /// The layout contract in `Text`'s doc comment, as arithmetic: a renderer measures its glyphs
+    /// and this decides where the block lands.
+    @Test func alignmentPlacesTheBlockInTheBox()
+    {
+        let lo = SIMD3<Float>(0, 0, 0), hi = SIMD3<Float>(2, 1, 0)  // a 2x1 block, origin at its corner
+        func placed(_ h: Text.HorizontalAlignment, _ v: Text.VerticalAlignment, width: Float = 4, fit: Bool = false) -> (scale: Float, translation: SIMD3<Float>)
+        {
+            Text(string: "x", height: 1, width: width, fitToWidth: fit, halign: h, valign: v).placement(ofBlockFrom: lo, to: hi)
+        }
+        #expect(placed(.left, .top).translation == [-2, -1, 0])    // left edge on the box's, hanging below the origin
+        #expect(placed(.center, .middle).translation == [-1, -0.5, 0])
+        #expect(placed(.right, .bottom).translation == [0, 0, 0])  // right edge at +width/2, sitting on the origin
+
+        #expect(placed(.left, .top, fit: true).scale == 1)         // 2 wide already fits a 4 wide box
+        let tight = placed(.center, .middle, width: 1, fit: true)
+        #expect(tight.scale == 0.5)
+        #expect(tight.translation == [-0.5, -0.25, 0])
+        #expect(placed(.center, .middle, width: 1).scale == 1)     // ... but only when asked to fit
+    }
+
     @Test func imageMaterialRoundTripsThroughTheRegistry() throws
     {
         Model.register()
