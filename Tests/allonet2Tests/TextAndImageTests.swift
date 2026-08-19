@@ -72,6 +72,22 @@ struct TextAndImageTests
             .placement(ofBlockFrom: SIMD3<Float>(0, 0, 0), to: SIMD3<Float>(2, 1, 0))
     }
 
+    /// Emoji have no outlines; a renderer needs to know before it reaches for a text mesh.
+    @Test func emojiCountAsColorGlyphsAndLettersDont()
+    {
+        func text(_ s: String) -> Text { Text(string: s, height: 1, width: 1) }
+        #expect(text("Ambi AB").hasColorGlyphs == false)
+        #expect(text("1 (c) * # (tm)").hasColorGlyphs == false)
+        #expect(text("\u{00A9}").hasColorGlyphs == false) // bare copyright sign: emoji-capable, not emoji
+        #expect(text("\u{2605}").hasColorGlyphs == false) // black star: an outline glyph
+        #expect(text("🛠️").hasColorGlyphs)
+        #expect(text("Builds 🚦").hasColorGlyphs)
+        #expect(text("⌚").hasColorGlyphs)           // emoji presentation by default
+        #expect(text("1️⃣").hasColorGlyphs)          // keycap sequence
+        #expect(text("👩‍💻").hasColorGlyphs)          // ZWJ sequence
+        #expect(text("🇸🇪").hasColorGlyphs)          // flag
+    }
+
     @Test func imageMaterialRoundTripsThroughTheRegistry() throws
     {
         Model.register()
