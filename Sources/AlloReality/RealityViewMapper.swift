@@ -137,9 +137,15 @@ public class RealityViewMapper
             state.current = model
             state.loadingTask?.cancel()
             state.loadingTask = nil
+            // A builtin mesh draws through a loaded child entity, every other model through the
+            // entity's own ModelComponent. A change of kind has to take the previous one down, or
+            // the old model stays on screen next to the new one.
+            state.entity?.removeFromParent()
+            state.entity = nil
 
             if case .builtin(name: let name) = model.mesh
             {
+                entity.components.remove(ModelComponent.self)
                 state.loadingTask = Task {
                     var loaded: RealityKit.Entity!
                     do {
