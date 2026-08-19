@@ -487,6 +487,13 @@ struct AssetHTTPTests
             // Second publish sees the place already has it and uploads nothing.
             #expect(try await client.publish(asset: bytes, contentType: "model/vnd.usdz+zip") == id)
 
+            // Type and size in one HEAD: what a consumer needs to decide whether to fetch at all.
+            let info = try #require(try await client.placeAssetInfo(id))
+            #expect(info.contentType == "model/vnd.usdz+zip")
+            #expect(info.byteCount == bytes.count)
+            let absent = try await client.placeAssetInfo(AssetID(hashing: Data("never published".utf8)))
+            #expect(absent == nil)
+
             // Fetch through a cold cache, so this really goes over the wire.
             let consumer = TestAlloClient(
                 url: URL(string: "alloplace2://localhost:\(base.port!)")!,

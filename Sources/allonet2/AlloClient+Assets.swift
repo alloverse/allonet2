@@ -77,8 +77,10 @@ public extension AlloClient
         return try await fetch.value.url
     }
 
-    /// The media type the place already holds these bytes under, or nil if it doesn't hold them.
-    func placeAssetType(_ id: AssetID) async throws -> String?
+    /// What the place holds these bytes as, or nil if it doesn't hold them. The size is what a
+    /// fetch would cost, so a consumer can decide whether to pay it before calling `fetchAsset`;
+    /// it's optional because only the origin is obliged to declare one, and an intermediary may not.
+    func placeAssetInfo(_ id: AssetID) async throws -> (contentType: String, byteCount: Int?)?
     {
         var request = URLRequest(url: try assetsURL(for: id))
         request.httpMethod = "HEAD"
@@ -86,10 +88,19 @@ public extension AlloClient
         let http = response as! HTTPURLResponse
         switch http.statusCode
         {
-        case 200: return http.value(forHTTPHeaderField: "Content-Type") ?? AssetStore.defaultContentType
+        case 200: return (
+            http.value(forHTTPHeaderField: "Content-Type") ?? AssetStore.defaultContentType,
+            http.value(forHTTPHeaderField: "Content-Length").flatMap { Int($0) }
+        )
         case 404: return nil
         default: throw AssetError.transferFailed(id: id, status: http.statusCode, body: "")
         }
+    }
+
+    /// The media type the place already holds these bytes under, or nil if it doesn't hold them.
+    func placeAssetType(_ id: AssetID) async throws -> String?
+    {
+        try await placeAssetInfo(id)?.contentType
     }
 }
 
