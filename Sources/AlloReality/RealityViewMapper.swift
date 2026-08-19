@@ -242,7 +242,12 @@ public class RealityViewMapper
         }
         catch
         {
-            print("Failed to load image asset \(asset) for entity \(entityName): \(error)")
+            // A newer Model landed and cancelled us: the caller throws away whatever we return, so
+            // this is not a failure to report.
+            if !(Task.isCancelled || error is CancellationError)
+            {
+                print("Failed to load image asset \(asset) for entity \(entityName): \(error)")
+            }
             return SimpleMaterial(color: .magenta, isMetallic: false)
         }
     }
