@@ -11,6 +11,10 @@ afternoon to find.
   glyphs measure *p* metres per em. So `Text.height` (a line height in metres) becomes a font of
   size `height / (ascender - descender + leading)`; that ratio is 1.1777 for the system font, and
   the resulting baseline-to-baseline advance then measures `height` to five decimals.
+* **`fit: .box` still generates at that size**, even though `height` is then a box rather than a
+  line height: `placement` scales the block to the box afterwards, so the point size only sets the
+  ratio the fit is computed from — and generating at the box's own scale keeps that ratio, and
+  hence where `wrap` breaks lines, identical for a box of any size.
 * Cap height lands at 0.705 x point size, i.e. 0.6 x `Text.height` — a line looks smaller than the
   number says, which is what typography means by line height.
 * **The mesh origin is the bottom-left of the *last* line's line box**, not the first: with no

@@ -278,7 +278,10 @@ public class RealityViewMapper
 
         // Measured: RealityKit lays text out at one metre per point, so the font's own line height
         // (ascender - descender + leading, 1.178 x point size for the system font) is what has to
-        // equal `Text.height`.
+        // equal `Text.height`. In `.box`, `height` is the box rather than a line height, but it
+        // still serves as the nominal one: `placement` scales the finished block to the box, so
+        // only the ratio of the generated block to the box survives — and generating at the box's
+        // own scale keeps that ratio (and hence where `wrap` breaks) the same for a box of any size.
         let unit = MeshResource.Font.systemFont(ofSize: 1)
         let lineHeightPerPoint = Float(unit.ascender - unit.descender + unit.leading)
         let font = MeshResource.Font.systemFont(ofSize: CGFloat(text.height / lineHeightPerPoint))
