@@ -203,9 +203,10 @@ public class RealityViewMapper
             entity.components.set(state)
         }
         remover: { (entity, _, model) in
-            var state = entity.components[AlloModelStateComponent.self] ?? AlloModelStateComponent()
+            let state = entity.components[AlloModelStateComponent.self] ?? AlloModelStateComponent()
             state.loadingTask?.cancel()
             state.entity?.removeFromParent()
+            entity.components.remove(ModelComponent.self)
             entity.components.remove(AlloModelStateComponent.self)
         }
     }
