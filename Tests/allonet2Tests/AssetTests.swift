@@ -188,6 +188,25 @@ struct AssetStoreTests
     }
 }
 
+// MARK: - Media types
+
+struct AssetMediaTypeTests
+{
+    /// The two tables are hand-written and drifted apart once already: heic was publishable and
+    /// then stored without an extension, so nothing could open it.
+    @Test func theTwoTablesAgree()
+    {
+        for type in ["model/vnd.usdz+zip", "model/vnd.usda", "model/gltf-binary", "model/gltf+json",
+                     "image/png", "image/jpeg", "image/heic", "image/ktx2",
+                     "audio/wav", "audio/mpeg", "application/json"]
+        {
+            let ext = AssetStore.filenameExtension(for: type)
+            #expect(ext != nil, "no extension for \(type)")
+            #expect(AssetStore.contentType(forExtension: ext ?? "") == type)
+        }
+    }
+}
+
 // MARK: - Range parsing
 // Off-wire, because a route parameter can't be exercised without a real socket but this can.
 
@@ -467,6 +486,13 @@ struct AssetHTTPTests
 
             // Second publish sees the place already has it and uploads nothing.
             #expect(try await client.publish(asset: bytes, contentType: "model/vnd.usdz+zip") == id)
+
+            // Type and size in one HEAD: what a consumer needs to decide whether to fetch at all.
+            let info = try #require(try await client.placeAssetInfo(id))
+            #expect(info.contentType == "model/vnd.usdz+zip")
+            #expect(info.byteCount == bytes.count)
+            let absent = try await client.placeAssetInfo(AssetID(hashing: Data("never published".utf8)))
+            #expect(absent == nil)
 
             // Fetch through a cold cache, so this really goes over the wire.
             let consumer = TestAlloClient(

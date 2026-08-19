@@ -15,6 +15,9 @@ import SwiftUI
 public class RealityViewMapper
 {
     public var builtinAssetsBundle: Bundle?
+    /// How to turn an `AssetID` from a component into local bytes on disk; wire it to
+    /// `AlloClient.assetURL(_:)`. Without it, `.image` materials can only render as magenta.
+    public var assetResolver: (@Sendable (AssetID) async throws -> URL)?
     private var netstate: PlaceState
     private var guiroot: RealityKit.Entity
     private var cancellables = Set<AnyCancellable>()
@@ -60,6 +63,7 @@ public class RealityViewMapper
         }
         
         startSyncingOfModel()
+        startSyncingOfText()
         
         startSyncingOf(networkComponentType: Collision.self, to: CollisionComponent.self)
         { entity, _, collision in
@@ -130,10 +134,19 @@ public class RealityViewMapper
         { (entity, _, model) in
             var state = entity.components[AlloModelStateComponent.self] ?? AlloModelStateComponent()
             guard state.current != model else { return }
-            
+            let previous = state.current
+            state.current = model
+            state.loadingTask?.cancel()
+            state.loadingTask = nil
+            // A builtin mesh draws through a loaded child entity, every other model through the
+            // entity's own ModelComponent. A change of kind has to take the previous one down, or
+            // the old model stays on screen next to the new one.
+            state.entity?.removeFromParent()
+            state.entity = nil
+
             if case .builtin(name: let name) = model.mesh
             {
-                state.loadingTask?.cancel()
+                entity.components.remove(ModelComponent.self)
                 state.loadingTask = Task {
                     var loaded: RealityKit.Entity!
                     do {
@@ -143,10 +156,39 @@ public class RealityViewMapper
                         loaded = ModelEntity(mesh: .generateBox(size: 0.5), materials: [SimpleMaterial(color: .red, isMetallic: true)])
                     }
                     if(Task.isCancelled) { return }
+                    // Re-read: `state` is a value copy from before the await, and a newer Model may
+                    // have landed in the meantime.
+                    var state = entity.components[AlloModelStateComponent.self] ?? AlloModelStateComponent()
                     state.loadingTask = nil
                     state.entity = loaded
                     entity.components.set(state)
                     entity.addChild(loaded)
+                }
+            }
+            else if case .image(let asset) = model.material
+            {
+                // Shape now, texture when it arrives — a plane that pops in late reads as a bug.
+                // Only paint the blank placeholder when there is nothing on screen yet: repainting
+                // an already-textured plane would flash it white on every icon change.
+                if var existing = entity.components[ModelComponent.self]
+                {
+                    if previous?.mesh != model.mesh
+                    {
+                        existing.mesh = model.mesh.realityMesh
+                        entity.components.set(existing)
+                    }
+                }
+                else
+                {
+                    entity.components.set(ModelComponent(mesh: model.mesh.realityMesh, materials: [SimpleMaterial()]))
+                }
+                state.loadingTask = Task {
+                    let material = await self.imageMaterial(asset: asset, for: entity.name)
+                    if(Task.isCancelled) { return }
+                    entity.components.set(ModelComponent(mesh: model.mesh.realityMesh, materials: [material]))
+                    var state = entity.components[AlloModelStateComponent.self] ?? AlloModelStateComponent()
+                    state.loadingTask = nil
+                    entity.components.set(state)
                 }
             }
             else
@@ -161,13 +203,136 @@ public class RealityViewMapper
             entity.components.set(state)
         }
         remover: { (entity, _, model) in
-            var state = entity.components[AlloModelStateComponent.self] ?? AlloModelStateComponent()
+            let state = entity.components[AlloModelStateComponent.self] ?? AlloModelStateComponent()
             state.loadingTask?.cancel()
             state.entity?.removeFromParent()
+            entity.components.remove(ModelComponent.self)
             entity.components.remove(AlloModelStateComponent.self)
         }
     }
-    
+
+    private var warnedAboutMissingAssetResolver = false
+
+    /// A `.image` material's texture, or magenta if it can't be had: a logo nobody wired up must be
+    /// impossible to miss, and one failed fetch must not become a retry loop.
+    private func imageMaterial(asset: AssetID, for entityName: String) async -> RealityKit.Material
+    {
+        guard let assetResolver else
+        {
+            if !warnedAboutMissingAssetResolver
+            {
+                warnedAboutMissingAssetResolver = true
+                print("RealityViewMapper.assetResolver is nil, so image materials cannot load (first: \(asset) on entity \(entityName))")
+            }
+            return SimpleMaterial(color: .magenta, isMetallic: false)
+        }
+        do
+        {
+            let url = try await assetResolver(asset)
+            let texture = try await TextureResource(contentsOf: url, options: .init(semantic: .color))
+            // Measured (RealityKit, macOS 26): a base colour texture alone renders its transparent
+            // texels black; `.transparent(opacity: .init(scale: 1))` is what makes RealityKit read
+            // the texture's own alpha. Do NOT pass the texture as the opacity map — that samples
+            // alpha a second time and makes opaque areas semi-transparent.
+            var material = PhysicallyBasedMaterial()
+            material.baseColor = .init(texture: .init(texture))
+            material.blending = .transparent(opacity: .init(scale: 1))
+            material.roughness = 1.0 // matte: a specular highlight across a logo looks broken
+            material.metallic = 0.0
+            return material
+        }
+        catch
+        {
+            // A newer Model landed and cancelled us: the caller throws away whatever we return, so
+            // this is not a failure to report.
+            if !(Task.isCancelled || error is CancellationError)
+            {
+                print("Failed to load image asset \(asset) for entity \(entityName): \(error)")
+            }
+            return SimpleMaterial(color: .magenta, isMetallic: false)
+        }
+    }
+
+    /// Name of the child entity holding a `Text` component's mesh, so it can be replaced without
+    /// touching the entity's own `Model`.
+    static let textChildName = "allo.text"
+
+    /// Entities whose `Text` we've already complained about. Bounding the text is pointless if an
+    /// unbounded log takes its place: a peer can rewrite a component as fast as it likes.
+    private var complainedAboutText: Set<EntityID> = []
+
+    private func startSyncingOfText()
+    {
+        startSyncingOf(networkComponentType: allonet2.Text.self)
+        { (entity, _, text) in
+            entity.children.first { $0.name == Self.textChildName }?.removeFromParent()
+            self.complainAboutText(text, on: entity.name)
+            guard let child = Self.realityText(for: text) else { return }
+            entity.addChild(child)
+        }
+        remover: { (entity, _, _) in
+            entity.children.first { $0.name == Self.textChildName }?.removeFromParent()
+        }
+    }
+
+    private func complainAboutText(_ text: allonet2.Text, on eid: EntityID)
+    {
+        let problem: String
+        if text.string.count > allonet2.Text.maxRenderedCharacters {
+            problem = "\(text.string.count) characters; rendering the first \(allonet2.Text.maxRenderedCharacters)"
+        } else if !text.string.isEmpty && !text.hasLayoutBox {
+            problem = "a \(text.width) x \(text.height) m box, which is not a size; rendering nothing"
+        } else { return }
+        guard complainedAboutText.insert(eid).inserted else { return }
+        print("Entity \(eid) has a Text with \(problem)")
+    }
+
+    /// Build the child entity for a `Text`, or nil if there is nothing to draw. Regenerated from
+    /// scratch on every change: text meshes are cheap and diffing glyphs is not.
+    static func realityText(for text: allonet2.Text) -> RealityKit.Entity?
+    {
+        // Everything here comes from a peer. Tessellation is synchronous on the main actor and its
+        // cost is per glyph, so cap the string; a size that isn't a size gets no mesh at all,
+        // rather than a NaN point size handed to Core Text.
+        let string = String(text.string.prefix(allonet2.Text.maxRenderedCharacters))
+        guard !string.isEmpty else { return nil } // generateText("") returns infinite bounds
+        guard text.hasLayoutBox else { return nil }
+
+        // Measured: RealityKit lays text out at one metre per point, so the font's own line height
+        // (ascender - descender + leading, 1.178 x point size for the system font) is what has to
+        // equal `Text.height`. In `.box`, `height` is the box rather than a line height, but it
+        // still serves as the nominal one: `placement` scales the finished block to the box, so
+        // only the ratio of the generated block to the box survives — and generating at the box's
+        // own scale keeps that ratio (and hence where `wrap` breaks) the same for a box of any size.
+        let unit = MeshResource.Font.systemFont(ofSize: 1)
+        let lineHeightPerPoint = Float(unit.ascender - unit.descender + unit.leading)
+        let font = MeshResource.Font.systemFont(ofSize: CGFloat(text.height / lineHeightPerPoint))
+        // A zero frame means "one line, no wrapping"; a real frame wraps at its width and stacks
+        // lines down from its top edge, so put that edge at y=0 and make it tall enough for the
+        // worst case of one glyph per line (lines past the frame's bottom are dropped).
+        var frame = CGRect.zero
+        if text.wrap
+        {
+            let height = CGFloat(text.height) * CGFloat(string.count + 1)
+            frame = CGRect(x: 0, y: -height, width: CGFloat(text.width), height: height)
+        }
+        let mesh = MeshResource.generateText(
+            string,
+            extrusionDepth: 0, // flat, and already facing +Z
+            font: font,
+            containerFrame: frame,
+            alignment: text.halign.realityAlignment,
+            lineBreakMode: .byWordWrapping
+        )
+        guard let placement = text.placement(ofBlockFrom: mesh.bounds.min, to: mesh.bounds.max) else { return nil }
+
+        let child = ModelEntity(mesh: mesh, materials: [UnlitMaterial(color: text.color.realityColor)])
+        child.name = textChildName
+        child.transform.scale = .init(repeating: placement.scale)
+        child.transform.translation = placement.translation
+        return child
+    }
+
     /// Stop syncing Alloverse<>RealityKit. Call this to break reference cycles, e g when your RealityView disappears (i e in `onDisappear()`).
     public func stopSyncing()
     {
@@ -208,8 +373,10 @@ extension allonet2.Model.Material
         {
         case .color(let color, let metallic):
             return RealityKit.SimpleMaterial(color: color.realityColor, isMetallic: metallic)
-        default:
+        case .standard:
             return nil
+        case .image:
+            fatalError("Image materials load asynchronously; route them through RealityViewMapper's texture loading instead")
         }
     }
 }
@@ -252,6 +419,19 @@ extension HoverEffect
         {
         case .spotlight(color: let color, strength: let strength):
             return .spotlight(.init(color: color.realityColor, strength: 0.5))
+        }
+    }
+}
+
+extension allonet2.Text.HorizontalAlignment
+{
+    var realityAlignment: CTTextAlignment
+    {
+        switch self
+        {
+        case .left: return .left
+        case .center: return .center
+        case .right: return .right
         }
     }
 }

@@ -4,4 +4,5 @@ Deep notes that aren't easily rediscovered from the code live here — architect
 build quirks, gotchas worth keeping between sessions. Add a one-line pointer per doc.
 
 - [memory.md](memory.md) — running notes: architecture overview, build quirks, and pitfalls.
+- [realitykit-rendering.md](realitykit-rendering.md) — measured text geometry and texture-alpha behaviour behind the `Text` component and `.image` material.
 - [assets.md](assets.md) — content-addressed assets over HTTP: store layout, FlyingFox pitfalls, Linux constraints.
