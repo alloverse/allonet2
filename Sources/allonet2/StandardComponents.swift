@@ -90,14 +90,16 @@ public struct Model: Component
     }
 }
 
-/// A block of text drawn at the Entity, as a sibling of any `Model` on it: the Model draws the
-/// entity's own mesh, the Text is drawn in front of it, so a plane can carry a label without the
-/// two fighting over one mesh.
+/// A block of text drawn at the Entity, alongside any `Model` on it rather than instead of it: the
+/// Model draws the entity's own mesh and the Text is its own geometry, so neither has to give up
+/// being a mesh. Both sit at the entity origin, so a Text over a coplanar Model plane z-fights —
+/// give the text its own child entity nudged along +Z.
 ///
 /// Layout contract: the text is laid out in a box `width` metres wide, centred on the entity
-/// origin; lines stack downwards from the top of the box, and `valign` positions the resulting
-/// block within it. The text faces +Z of the entity's transform (readable from +Z, like a
-/// RealityKit plane stood up) and has no depth. The font is the renderer's choice; only the
+/// origin; lines stack downwards, `halign` places the block across the box and `valign` places it
+/// against the origin (`.top` hangs the block below the origin, `.middle` centres it on it,
+/// `.bottom` stands it above). The text faces +Z of the entity's transform (readable from +Z, like
+/// a RealityKit plane stood up) and has no depth. The font is the renderer's choice; only the
 /// metric box is protocol.
 public struct Text: Component
 {
@@ -113,8 +115,8 @@ public struct Text: Component
     }
 
     public var string: String
-    /// Line height in metres: the font's point size expressed in metres, so ascender-to-descender
-    /// plus leading, not the height of the glyphs you can see. Cap height lands around 0.7 of it.
+    /// Line height in metres: baseline to baseline of consecutive lines, not the height of the
+    /// glyphs you can see — a capital letter measures about 0.6 of it.
     public var height: Float
     /// Width of the layout box in metres — only `wrap` and `fitToWidth` read it, so a single
     /// short line is laid out the same whatever it says.
