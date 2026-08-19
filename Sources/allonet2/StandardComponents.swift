@@ -74,6 +74,10 @@ public struct Model: Component
     {
         case standard // No material for basic geometry; or for builtin/asset: use the material from the loaded file.
         case color(color: Color, metallic: Bool)
+        /// Base colour texture is the image asset (any raster format the renderer reads; PNG is safe).
+        /// Alpha is respected: a transparent PNG lets the mesh's backdrop through. Applies to the
+        /// primitive meshes only — like `.color`, a `.builtin` mesh keeps the material from its own file.
+        case image(asset: AssetID)
     }
 
     public var mesh: Mesh
@@ -83,6 +87,67 @@ public struct Model: Component
     {
         self.mesh = mesh
         self.material = material
+    }
+}
+
+/// A block of text drawn at the Entity, as a sibling of any `Model` on it: the Model draws the
+/// entity's own mesh, the Text is drawn in front of it, so a plane can carry a label without the
+/// two fighting over one mesh.
+///
+/// Layout contract: the text is laid out in a box `width` metres wide, centred on the entity
+/// origin; lines stack downwards from the top of the box, and `valign` positions the resulting
+/// block within it. The text faces +Z of the entity's transform (readable from +Z, like a
+/// RealityKit plane stood up) and has no depth. The font is the renderer's choice; only the
+/// metric box is protocol.
+public struct Text: Component
+{
+    @MainActor
+    public enum HorizontalAlignment: String, Equatable, Codable
+    {
+        case left, center, right
+    }
+    @MainActor
+    public enum VerticalAlignment: String, Equatable, Codable
+    {
+        case top, middle, bottom
+    }
+
+    public var string: String
+    /// Line height in metres: the font's point size expressed in metres, so ascender-to-descender
+    /// plus leading, not the height of the glyphs you can see. Cap height lands around 0.7 of it.
+    public var height: Float
+    /// Width of the layout box in metres — only `wrap` and `fitToWidth` read it, so a single
+    /// short line is laid out the same whatever it says.
+    public var width: Float
+    /// Break lines at `width`.
+    public var wrap: Bool
+    /// If a line still comes out wider than `width`, scale the whole block down until it fits.
+    public var fitToWidth: Bool
+    public var halign: HorizontalAlignment
+    public var valign: VerticalAlignment
+    public var color: Color
+
+    // No insertion marker/caret: YAGNI until there is a text field to edit.
+
+    public init(
+        string: String,
+        height: Float,
+        width: Float,
+        wrap: Bool = false,
+        fitToWidth: Bool = true,
+        halign: HorizontalAlignment = .center,
+        valign: VerticalAlignment = .middle,
+        color: Color = .white
+    )
+    {
+        self.string = string
+        self.height = height
+        self.width = width
+        self.wrap = wrap
+        self.fitToWidth = fitToWidth
+        self.halign = halign
+        self.valign = valign
+        self.color = color
     }
 }
 
@@ -296,6 +361,7 @@ func RegisterStandardComponents()
     Transform.register()
     Relationships.register()
     Model.register()
+    Text.register()
     VisorInfo.register()
     Collision.register()
     InputTarget.register()
@@ -307,6 +373,14 @@ func RegisterStandardComponents()
     LiveMedia.register()
     LiveMediaListener.register()
     SpawnPoint.register()
+}
+
+extension Text
+{
+    public func indentedDescription(_ prefix: String) -> String
+    {
+        "\(prefix)Text: \"\(string)\" \(height)m in a \(width)m box, \(halign)/\(valign)"
+    }
 }
 
 extension Transform
