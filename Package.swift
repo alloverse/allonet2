@@ -59,6 +59,10 @@ let package = Package(
         // re-export, so the BoringSSL build cost is Linux-only. Pinned to the minor: the Docker
         // image is Swift 6.1.2 and swift-crypto 4.5 is already tools-version 6.1.
         .package(url: "https://github.com/apple/swift-crypto.git", .upToNextMinor(from: "4.5.1")),
+        // Runtime glTF -> RealityKit, for `Model.mesh == .asset`. An xcframework binaryTarget with
+        // Apple-only slices; pinned exactly, since a binary drop can change behaviour without
+        // changing an API. MIT.
+        .package(url: "https://github.com/warrenm/GLTFKit2.git", exact: "0.5.15"),
     ],
     targets: [
         .target(
@@ -99,6 +103,7 @@ let package = Package(
             dependencies: [
                 .product(name: "OpenCombineShim", package: "opencombine"),
                 "alloclient",
+                .product(name: "GLTFKit2", package: "GLTFKit2"),
             ]
         ),
         .testTarget(
@@ -109,6 +114,12 @@ let package = Package(
                 "FlyingFox",
                 .product(name: "FlyingSocks", package: "FlyingFox") // reading back an ephemeral port
             ]
+        ),
+        // RealityKit, so Darwin-only — `swift test` on Linux would not build this. CI only builds
+        // the AlloPlace product there, and the merge gate runs the tests on macOS.
+        .testTarget(
+            name: "AlloRealityTests",
+            dependencies: ["AlloReality"]
         ),
         .executableTarget(
             name: "AlloPlace",

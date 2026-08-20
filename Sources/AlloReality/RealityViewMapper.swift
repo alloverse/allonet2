@@ -9,6 +9,7 @@ import RealityKit
 import OpenCombineShim
 import allonet2
 import SwiftUI
+import GLTFKit2
 
 /// The RealityViewMapper creates and maintains RealityKit entities and components to perfectly match corresponding entities and components inside an Alloverse connection's PlaceContents.
 @MainActor
@@ -146,23 +147,17 @@ public class RealityViewMapper
 
             if case .builtin(name: let name) = model.mesh
             {
-                entity.components.remove(ModelComponent.self)
-                state.loadingTask = Task {
-                    var loaded: RealityKit.Entity!
-                    do {
-                        loaded = try await Entity(named: name, in: self.builtinAssetsBundle)
-                    } catch (let e) {
-                        print("Failed to load builtin model \(name) for entity \(entity.id): \(e)")
-                        loaded = ModelEntity(mesh: .generateBox(size: 0.5), materials: [SimpleMaterial(color: .red, isMetallic: true)])
-                    }
-                    if(Task.isCancelled) { return }
-                    // Re-read: `state` is a value copy from before the await, and a newer Model may
-                    // have landed in the meantime.
-                    var state = entity.components[AlloModelStateComponent.self] ?? AlloModelStateComponent()
-                    state.loadingTask = nil
-                    state.entity = loaded
-                    entity.components.set(state)
-                    entity.addChild(loaded)
+                state.loadingTask = self.loadVisual(of: entity, describedAs: "builtin model \(name)")
+                {
+                    try await Entity(named: name, in: self.builtinAssetsBundle)
+                }
+            }
+            else if case .asset(id: let id) = model.mesh
+            {
+                state.loadingTask = self.loadVisual(of: entity, describedAs: "mesh asset \(id)")
+                {
+                    guard let url = try await self.resolvedAssetURL(id, for: entity.name) else { return Self.missingVisual() }
+                    return try await Self.visual(ofAssetAt: url)
                 }
             }
             else if case .image(let asset) = model.material
@@ -211,24 +206,108 @@ public class RealityViewMapper
         }
     }
 
+    /// Meshes that draw through a loaded child entity — `.builtin` and `.asset` — rather than
+    /// through the entity's own `ModelComponent`. The subtree is the visual, opaquely; nothing
+    /// addresses inside it, and the file's own materials are the materials. A load that fails
+    /// leaves the placeholder rather than nothing: an invisible entity reads as no entity.
+    private func loadVisual(
+        of entity: RealityKit.Entity,
+        describedAs description: String,
+        loading load: @escaping @MainActor () async throws -> RealityKit.Entity
+    ) -> Task<Void, Error>
+    {
+        entity.components.remove(ModelComponent.self)
+        return Task {
+            var loaded: RealityKit.Entity
+            do { loaded = try await load() }
+            catch
+            {
+                // A newer Model landed and cancelled us; nothing failed.
+                if Task.isCancelled || error is CancellationError { return }
+                print("Failed to load \(description) for entity \(entity.name): \(error)")
+                loaded = Self.missingVisual()
+            }
+            if(Task.isCancelled) { return }
+            // Re-read: `state` is a value copy from before the await, and a newer Model may
+            // have landed in the meantime.
+            var state = entity.components[AlloModelStateComponent.self] ?? AlloModelStateComponent()
+            state.loadingTask = nil
+            state.entity = loaded
+            entity.components.set(state)
+            entity.addChild(loaded)
+        }
+    }
+
+    /// Stands in for a model that couldn't be loaded. Red and box-shaped so it can't be mistaken
+    /// for content, present so the entity is still findable and still has a size.
+    static func missingVisual() -> RealityKit.Entity
+    {
+        ModelEntity(mesh: .generateBox(size: 0.5), materials: [SimpleMaterial(color: .red, isMetallic: true)])
+    }
+
+    /// The visual an asset file draws as, dispatched on the cached file's path extension —
+    /// `AssetStore` derives that from the publisher's media type precisely so a loader that only
+    /// takes a URL (RealityKit has no data-based USDZ loader) can be picked without sniffing bytes.
+    static func visual(ofAssetAt url: URL) async throws -> RealityKit.Entity
+    {
+        switch url.pathExtension.lowercased()
+        {
+        case "glb", "gltf":
+            // Split load: parsing is cheap but synchronous (measured: 9 ms for 12.7 MB) so it runs
+            // off the main actor, while conversion to RealityKit entities is main-actor-only and
+            // expensive (3.1 s for that same 12.7 MB / 86k-tri scene, 35 ms for a 1.4 MB object) —
+            // which is why rooms ship as one asset per part rather than one asset per room.
+            let parsed = try await Task.detached(priority: .userInitiated) { try ParsedGLTF(url: url) }.value
+            guard let scene = parsed.asset.defaultScene ?? parsed.asset.scenes.first else
+            {
+                throw AssetVisualError.gltfHasNoScene(url)
+            }
+            return GLTFRealityKitLoader.convert(scene: scene, asset: parsed.asset)
+        case "usdz", "usda", "usdc", "usd", "reality":
+            return try await Entity(contentsOf: url)
+        default:
+            throw AssetVisualError.unloadableFormat(url)
+        }
+    }
+
+    /// A parsed glTF crossing back from the parsing task. `GLTFAsset` is an Objective-C class and
+    /// not `Sendable`; the handoff is safe because the parse task is the only reference until it
+    /// returns, and nothing touches the asset afterwards but the conversion on the main actor.
+    private struct ParsedGLTF: @unchecked Sendable
+    {
+        let asset: GLTFAsset
+        init(url: URL) throws { asset = try GLTFAsset(url: url, options: [:]) }
+    }
+
     private var warnedAboutMissingAssetResolver = false
 
-    /// A `.image` material's texture, or magenta if it can't be had: a logo nobody wired up must be
-    /// impossible to miss, and one failed fetch must not become a retry loop.
-    private func imageMaterial(asset: AssetID, for entityName: String) async -> RealityKit.Material
+    /// Where an asset's bytes are, or nil if nobody wired up `assetResolver`. That is a deployment
+    /// mistake rather than a per-asset failure, so it's said once and then drawn as a placeholder;
+    /// neither case retries.
+    private func resolvedAssetURL(_ asset: AssetID, for entityName: String) async throws -> URL?
     {
         guard let assetResolver else
         {
             if !warnedAboutMissingAssetResolver
             {
                 warnedAboutMissingAssetResolver = true
-                print("RealityViewMapper.assetResolver is nil, so image materials cannot load (first: \(asset) on entity \(entityName))")
+                print("RealityViewMapper.assetResolver is nil, so assets cannot load (first: \(asset) on entity \(entityName))")
             }
-            return SimpleMaterial(color: .magenta, isMetallic: false)
+            return nil
         }
+        return try await assetResolver(asset)
+    }
+
+    /// A `.image` material's texture, or magenta if it can't be had: a logo nobody wired up must be
+    /// impossible to miss, and one failed fetch must not become a retry loop.
+    private func imageMaterial(asset: AssetID, for entityName: String) async -> RealityKit.Material
+    {
         do
         {
-            let url = try await assetResolver(asset)
+            guard let url = try await resolvedAssetURL(asset, for: entityName) else
+            {
+                return SimpleMaterial(color: .magenta, isMetallic: false)
+            }
             let texture = try await TextureResource(contentsOf: url, options: .init(semantic: .color))
             // Measured (RealityKit, macOS 26): a base colour texture alone renders its transparent
             // texels black; `.transparent(opacity: .init(scale: 1))` is what makes RealityKit read
@@ -399,6 +478,26 @@ public class RealityViewMapper
     }
 }
 
+
+/// Why a fetched asset couldn't become a visual. The bytes are already on disk and hash-checked at
+/// this point, so what's left is a file this renderer has no loader for.
+enum AssetVisualError: Error, Equatable, CustomStringConvertible
+{
+    /// The extension isn't one `visual(ofAssetAt:)` has a loader for — most likely a publisher that
+    /// named the wrong media type, since the extension is derived from it.
+    case unloadableFormat(URL)
+    /// Valid glTF, but with nothing in it to draw.
+    case gltfHasNoScene(URL)
+
+    var description: String
+    {
+        switch self
+        {
+        case .unloadableFormat(let url): return "No mesh loader for \(url.pathExtension.isEmpty ? "a file without an extension" : "." + url.pathExtension) (\(url.lastPathComponent))"
+        case .gltfHasNoScene(let url): return "glTF \(url.lastPathComponent) contains no scene"
+        }
+    }
+}
 
 extension allonet2.Model.Mesh
 {
