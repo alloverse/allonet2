@@ -6,17 +6,20 @@
 import PackageDescription
 
 #if canImport(Darwin)
-// Everything that cannot exist on Linux: AVFoundation capture/playout, the googlewebrtc
-// client transport, RealityKit rendering, and the voice demo. Declared only on Apple hosts,
+// Everything that cannot exist on Linux: AVFoundation capture/playout, RealityKit
+// rendering, and the voice demo. Declared only on Apple hosts,
 // because a target referencing an Apple-only dependency breaks the *manifest* on Linux -
 // even when only the server product is being built.
 let applePlatformTargets: [Target] = [
     .target(name: "AlloAudio", dependencies: ["allonet2"]),
+    // Was the googlewebrtc client transport; now the user-facing client on top of the same
+    // libdatachannel transport the server uses. Apple-only for its audio, not its network.
     .target(name: "alloclient", dependencies: [
-        .product(name: "LiveKitWebRTC", package: "webrtc-xcframework"),
         .product(name: "OpenCombineShim", package: "opencombine"),
         "allonet2",
+        "alloheadless",
         "AlloAudio",
+        "AlloOpus",
     ]),
     .target(name: "AlloReality", dependencies: [
         .product(name: "OpenCombineShim", package: "opencombine"),
@@ -67,7 +70,6 @@ let package = Package(
     dependencies: [
           .package(url: "https://github.com/outfoxx/PotentCodables.git", from: "3.5.3"),
 
-        .package(url: "https://github.com/livekit/webrtc-xcframework.git", exact: "137.7151.07"),
         // 0.26.0 introduced HTTPHeaders, which the asset endpoint uses. Our own Package.resolved
         // pins something newer, so nothing here catches a build that honours the lower bound —
         // KojaApp resolved 0.25.0 and failed to compile allonet2.
