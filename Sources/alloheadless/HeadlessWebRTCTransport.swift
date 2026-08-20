@@ -81,7 +81,11 @@ public class HeadlessWebRTCTransport: Transport
         self.connectionStatus = status
         peer = AlloWebRTCPeer(portRange: connectionOptions.portRange, ipOverride: connectionOptions.ipOverride?.adc)
         
-        peer.$state.sink { state in
+        // Both capture lists are load-bearing. An inner `[weak self]` alone leaves the closure
+        // Combine stores holding self strongly, and its publisher lives in `peer`, which this
+        // class owns: that cycle kept every transport, peer connection and ICE agent alive for
+        // the rest of the process, one per connection attempt.
+        peer.$state.sink { [weak self] state in
             onMain { [weak self] in
                 guard let self else { return }
                 logger.info("peer state changed to \(state)")
@@ -99,7 +103,7 @@ public class HeadlessWebRTCTransport: Transport
                 }
             }
         }.store(in: &cancellables)
-        peer.$signalingState.sink { state in
+        peer.$signalingState.sink { [weak self] state in
             onMain { [weak self] in
                 guard let self else { return }
                 logger.info("signalling state changed to \(state)")
@@ -107,7 +111,7 @@ public class HeadlessWebRTCTransport: Transport
             }
         }.store(in: &cancellables)
 
-        peer.$gatheringState.sink { gathering in
+        peer.$gatheringState.sink { [weak self] gathering in
             onMain { [weak self] in
                 self?.connectionStatus.iceGathering = switch gathering
                 {
@@ -117,7 +121,7 @@ public class HeadlessWebRTCTransport: Transport
                 }
             }
         }.store(in: &cancellables)
-        peer.$iceState.sink { ice in
+        peer.$iceState.sink { [weak self] ice in
             onMain { [weak self] in
                 self?.connectionStatus.iceConnection = switch ice
                 {
@@ -130,12 +134,12 @@ public class HeadlessWebRTCTransport: Transport
         }.store(in: &cancellables)
 
 
-        peer.$tracks.sinkChanges(added: { track in
+        peer.$tracks.sinkChanges(added: { [weak self] track in
             onMain { [weak self] in
                 guard let self else { return }
                 delegate?.transport(self, didReceiveMediaStream: track)
             }
-        }, removed: { track in
+        }, removed: { [weak self] track in
             onMain { [weak self] in
                 guard let self else { return }
                 delegate?.transport(self, didRemoveMediaStream: track)
@@ -288,7 +292,7 @@ public class HeadlessWebRTCTransport: Transport
             guard let self, let channel, let message else { return }
             self.dataDelegate?.transport(self, didReceiveData: message, on: channel)
         }.store(in: &cancellables)
-        channel.$isOpen.sink { [weak channel] isOpen in
+        channel.$isOpen.sink { [weak self, weak channel] isOpen in
             onMain { [weak self, weak channel] in
                 guard let self, let channel else { return }
                 connectionStatus.data = isOpen ? .connected : (channel.lastError != nil) ? .failed : .idle
