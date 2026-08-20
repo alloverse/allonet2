@@ -92,8 +92,11 @@ public class AlloSession : NSObject, TransportDelegate
         self.side = side
         self.transport = transport
         super.init()
-        self.logger = Logger(labelSuffix: "session", metadataProvider: Logger.MetadataProvider {
-            guard let cid = self.clientId else { return [:] }
+        // Weakly: the logger is stored on self, so a provider that captures self strongly is a
+        // cycle, and it kept every session -- and the transport and peer connection it owns --
+        // alive for the rest of the process.
+        self.logger = Logger(labelSuffix: "session", metadataProvider: Logger.MetadataProvider { [weak self] in
+            guard let self, let cid = self.clientId else { return [:] }
             return ["clientId": .stringConvertible(cid)]
         })
         transport.delegate = self
