@@ -264,11 +264,16 @@ public class RealityViewMapper
         var loadingTask: Task<Void, Never>?
     }
 
+    /// Entities whose `Text` we've already complained about. Bounding the text is pointless if an
+    /// unbounded log takes its place: a peer can rewrite a component as fast as it likes.
+    private var complainedAboutText: Set<EntityID> = []
+
     private func startSyncingOfText()
     {
         startSyncingOf(networkComponentType: allonet2.Text.self)
         { (entity, _, text) in
             entity.children.first { $0.name == Self.textChildName }?.removeFromParent()
+            self.complainAboutText(text, on: entity.name)
             var state = entity.components[AlloTextStateComponent.self] ?? AlloTextStateComponent()
             state.loadingTask?.cancel()
             state.loadingTask = nil
@@ -298,7 +303,10 @@ public class RealityViewMapper
     /// bounds exactly as it treats a text mesh's, so alignment and fit come out the same.
     static func rasterizedText(for text: allonet2.Text) async -> RealityKit.Entity?
     {
-        guard let raster = TextRaster.render(text) else { return nil }
+        // Bounded the same way as the mesh path: this string comes off the wire too.
+        var text = text
+        text.string = String(text.string.prefix(allonet2.Text.maxRenderedCharacters))
+        guard text.hasLayoutBox, let raster = TextRaster.render(text) else { return nil }
         do
         {
             let texture = try await TextureResource(image: raster.image, withName: nil, options: .init(semantic: .color))
@@ -307,7 +315,7 @@ public class RealityViewMapper
             // As for image materials: this is what makes RealityKit honour the texture's own alpha.
             material.blending = .transparent(opacity: .init(scale: 1))
             let half = SIMD3<Float>(raster.width / 2, raster.height / 2, 0)
-            let placement = text.placement(ofBlockFrom: -half, to: half)
+            guard let placement = text.placement(ofBlockFrom: -half, to: half) else { return nil }
             let child = ModelEntity(mesh: .generatePlane(width: raster.width, height: raster.height), materials: [material])
             child.name = textChildName
             child.transform.scale = .init(repeating: placement.scale)
@@ -322,13 +330,29 @@ public class RealityViewMapper
             }
             return nil
         }
+
+    private func complainAboutText(_ text: allonet2.Text, on eid: EntityID)
+    {
+        let problem: String
+        if text.string.count > allonet2.Text.maxRenderedCharacters {
+            problem = "\(text.string.count) characters; rendering the first \(allonet2.Text.maxRenderedCharacters)"
+        } else if !text.string.isEmpty && !text.hasLayoutBox {
+            problem = "a \(text.width) x \(text.height) m box, which is not a size; rendering nothing"
+        } else { return }
+        guard complainedAboutText.insert(eid).inserted else { return }
+        print("Entity \(eid) has a Text with \(problem)")
     }
 
     /// Build the child entity for a `Text`, or nil if there is nothing to draw. Regenerated from
     /// scratch on every change: text meshes are cheap and diffing glyphs is not.
     static func realityText(for text: allonet2.Text) -> RealityKit.Entity?
     {
-        guard !text.string.isEmpty else { return nil } // generateText("") returns infinite bounds
+        // Everything here comes from a peer. Tessellation is synchronous on the main actor and its
+        // cost is per glyph, so cap the string; a size that isn't a size gets no mesh at all,
+        // rather than a NaN point size handed to Core Text.
+        let string = String(text.string.prefix(allonet2.Text.maxRenderedCharacters))
+        guard !string.isEmpty else { return nil } // generateText("") returns infinite bounds
+        guard text.hasLayoutBox else { return nil }
 
         // Measured: RealityKit lays text out at one metre per point, so the font's own line height
         // (ascender - descender + leading, 1.178 x point size for the system font) is what has to
@@ -345,18 +369,18 @@ public class RealityViewMapper
         var frame = CGRect.zero
         if text.wrap
         {
-            let height = CGFloat(text.height) * CGFloat(text.string.count + 1)
+            let height = CGFloat(text.height) * CGFloat(string.count + 1)
             frame = CGRect(x: 0, y: -height, width: CGFloat(text.width), height: height)
         }
         let mesh = MeshResource.generateText(
-            text.string,
+            string,
             extrusionDepth: 0, // flat, and already facing +Z
             font: font,
             containerFrame: frame,
             alignment: text.halign.realityAlignment,
             lineBreakMode: .byWordWrapping
         )
-        let placement = text.placement(ofBlockFrom: mesh.bounds.min, to: mesh.bounds.max)
+        guard let placement = text.placement(ofBlockFrom: mesh.bounds.min, to: mesh.bounds.max) else { return nil }
 
         let child = ModelEntity(mesh: mesh, materials: [UnlitMaterial(color: text.color.realityColor)])
         child.name = textChildName

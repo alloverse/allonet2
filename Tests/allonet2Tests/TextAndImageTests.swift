@@ -64,12 +64,32 @@ struct TextAndImageTests
         #expect(placed(.right, .bottom, width: 4, height: 4, fit: .box).translation == [-2, -2, 0])
     }
 
+    /// A size is a peer's word. Anything that isn't one has no placement — the renderer must be
+    /// told not to draw, rather than handed a NaN scale that poisons a transform.
+    @Test func aBoxThatIsNotASizeHasNoPlacement()
+    {
+        for bad: Float in [0, -1, .nan, .infinity]
+        {
+            #expect(placement(width: bad, height: 1) == nil, "width \(bad) placed something")
+            #expect(placement(width: 1, height: bad) == nil, "height \(bad) placed something")
+        }
+        #expect(placement(width: 1, height: 1) != nil)
+        // Nor may a block the renderer failed to measure become one: generateText("") is infinite.
+        #expect(Text(string: "x", height: 1, width: 1).placement(ofBlockFrom: .init(repeating: -.infinity), to: .init(repeating: .infinity)) == nil)
+    }
+
+    private func placement(width: Float, height: Float) -> (scale: Float, translation: SIMD3<Float>)?
+    {
+        Text(string: "x", height: height, width: width, fit: .box)
+            .placement(ofBlockFrom: SIMD3<Float>(0, 0, 0), to: SIMD3<Float>(2, 1, 0))
+    }
+
     /// A 2x1 block with its origin at its own bottom-left corner, as the renderer measured it.
     private func placed(_ h: Text.HorizontalAlignment, _ v: Text.VerticalAlignment,
                         width: Float = 4, height: Float = 1, fit: Text.Fit = .lineHeight) -> (scale: Float, translation: SIMD3<Float>)
     {
         Text(string: "x", height: height, width: width, fit: fit, halign: h, valign: v)
-            .placement(ofBlockFrom: SIMD3<Float>(0, 0, 0), to: SIMD3<Float>(2, 1, 0))
+            .placement(ofBlockFrom: SIMD3<Float>(0, 0, 0), to: SIMD3<Float>(2, 1, 0))!
     }
 
     /// Emoji have no outlines; a renderer needs to know before it reaches for a text mesh.
