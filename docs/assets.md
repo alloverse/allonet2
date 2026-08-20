@@ -81,10 +81,17 @@ Version 0.26.2. Each of these ships as a bug if you don't handle it:
 ## Consuming mesh assets
 
 `RealityViewMapper` turns a `Model.mesh == .asset(id:)` into an entity's visual by dispatching on
-the cached file's extension: `glb`/`gltf` through [GLTFKit2](https://github.com/warrenm/GLTFKit2)
-(MIT, pinned exactly — a binary drop can change behaviour without changing an API), USD and
-`.reality` through `Entity(contentsOf:)`, anything else a typed `AssetVisualError`. This is why the
-store bothers to name files by media type: neither loader takes bytes.
+the cached file's extension: `glb` through [GLTFKit2](https://github.com/warrenm/GLTFKit2)
+(MIT, pinned exactly — a binary drop can change behaviour without changing an API), `usdz`/`usda`
+through `Entity(contentsOf:)`, anything else a typed `AssetVisualError`. This is why the store
+bothers to name files by media type: neither loader takes bytes.
+
+**`.gltf` has no loader on purpose**, even though `model/gltf+json` is a media type the store
+accepts. Two reasons, either sufficient: a JSON glTF names its buffers and textures as relative
+URIs, and a store holding one file per content address has no siblings to resolve them against; and
+cgltf percent-decodes those URIs *after* joining them to the base directory, so an encoded `../`
+walks out of the cache and reads whatever local file a peer names straight into a vertex buffer
+(probed, confirmed). Publishers ship `.glb`, which is self-contained by construction.
 
 glTF loads in the split form — `GLTFAsset(url:options:)` off the main actor, then
 `GLTFRealityKitLoader.convert(scene:asset:)` on it — because the two halves cost wildly different
@@ -92,12 +99,25 @@ amounts. Measured on an M-series Mac: parsing 12.7 MB takes 9 ms, converting tha
 scene takes 3.1 s; a 1.4 MB single object converts in 35 ms. Conversion is main-actor-only, so it
 is frame time, which is the argument for one asset per part rather than one per room.
 
-`convert` calls `fatalError` on internal conversion failure (upstream, known). Everything that can
-be rejected must therefore be rejected by the parse step, which throws normally — that is where a
-truncated or malformed file dies, and it's the case that actually happens. Upstream also ignores
-`KHR_texture_transform` and `TEXCOORD_1`, and makes one `PhysicallyBasedMaterial` per primitive with
-no dedup. Base colour, normal, metallic-roughness, occlusion, emissive, alpha modes and
-double-sidedness all arrive correctly.
+`convert` calls `fatalError` on internal conversion failure (upstream, known), and it has no error
+path of any kind — so everything must be rejected *before* it. The parse step throws normally and
+catches truncated or malformed containers, which is the common case. It is not enough on its own:
+GLTFKit2 never runs `cgltf_validate`, so a file that parses can still contradict itself, and
+`MeshResource` then asserts below Swift where no `catch` can reach. Measured: a primitive with
+`POSITION` count 3 and `NORMAL` count 1 kills the process with SIGTRAP. Hence `validate` before
+`convert` — every attribute of a primitive must describe the same vertex count, and every accessor's
+window must fit its buffer view. Still unchecked: index *values* pointing past the vertex count,
+which would need a walk of the whole index buffer, and where it's unmeasured whether RealityKit
+traps at all.
+
+Upstream also ignores `KHR_texture_transform` and `TEXCOORD_1`, and makes one
+`PhysicallyBasedMaterial` per primitive with no dedup. Base colour, normal, metallic-roughness,
+occlusion, emissive, alpha modes and double-sidedness all arrive correctly.
+
+A malformed *id* is a different trust boundary and is handled in the protocol layer: `AnyComponent`
+force-tries its decode, so `Model` hand-writes `init(from:)` and degrades an unparseable `AssetID`
+to `Model.unrenderable` (the same red box) instead of throwing. A throw there would trap every
+client rendering the entity, which makes one bad string from any peer a way to empty a room.
 
 ## Not done yet
 

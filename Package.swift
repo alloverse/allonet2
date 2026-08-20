@@ -115,8 +115,9 @@ let package = Package(
                 .product(name: "FlyingSocks", package: "FlyingFox") // reading back an ephemeral port
             ]
         ),
-        // RealityKit, so Darwin-only — `swift test` on Linux would not build this. CI only builds
-        // the AlloPlace product there, and the merge gate runs the tests on macOS.
+        // RealityKit, so Darwin-only: SwiftPM would happily try to build this on Linux and fail.
+        // What saves CI is the Dockerfile asking for `--product AlloPlace`, which pulls in neither
+        // this nor AlloReality. The merge gate runs the tests on macOS.
         .testTarget(
             name: "AlloRealityTests",
             dependencies: ["AlloReality"]
