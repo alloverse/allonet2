@@ -85,11 +85,36 @@ public struct Model: Component
 
     public var mesh: Mesh
     public var material: Material
-    
+
     public init(mesh: Mesh, material: Material = .standard)
     {
         self.mesh = mesh
         self.material = material
+    }
+
+    /// What a Model with an unparseable asset id decodes to: the same red box a renderer shows for
+    /// a model it failed to load, which is what this is.
+    public static let unrenderable = Model(
+        mesh: .box(size: .init(repeating: 0.5), cornerRadius: 0),
+        material: .color(color: .rgb(red: 1, green: 0, blue: 0, alpha: 1), metallic: true))
+
+    /// A component is whatever a peer put there, and `AnyComponent.decoded()` force-tries — so a
+    /// throwing decode here traps *every* client that renders that entity, which makes one bad id
+    /// a way to kill a room. An id that isn't a content address can never name bytes, so there is
+    /// nothing to wait for and nothing to retry: the model becomes visibly broken instead. Only
+    /// `AssetError` degrades; anything else is a payload we don't understand at all.
+    public init(from decoder: any Decoder) throws
+    {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        do
+        {
+            mesh = try c.decode(Mesh.self, forKey: .mesh)
+            material = try c.decode(Material.self, forKey: .material)
+        }
+        catch is AssetError
+        {
+            self = Self.unrenderable
+        }
     }
 }
 
