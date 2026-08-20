@@ -330,6 +330,7 @@ public class RealityViewMapper
             }
             return nil
         }
+    }
 
     private func complainAboutText(_ text: allonet2.Text, on eid: EntityID)
     {
