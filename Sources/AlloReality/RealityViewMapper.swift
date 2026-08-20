@@ -44,6 +44,11 @@ public class RealityViewMapper
         }.store(in: &cancellables)
         netstate.observers.entityRemoved.sink { netent in
             guard let guient = self.guiForEid(netent.id) else { return }
+            // Nothing else will: the component removers only run for a component that goes away,
+            // not for an entity that does, so an in-flight load would keep the entity alive and
+            // then decorate something already off-screen.
+            guient.components[AlloModelStateComponent.self]?.loadingTask?.cancel()
+            guient.components[AlloTextStateComponent.self]?.loadingTask?.cancel()
             guient.removeFromParent()
         }.store(in: &cancellables)
         
@@ -222,8 +227,10 @@ public class RealityViewMapper
             do { loaded = try await load() }
             catch
             {
-                // A newer Model landed and cancelled us; nothing failed.
-                if Task.isCancelled || error is CancellationError { return }
+                // Only our own cancellation means "a newer Model landed, drop this". A
+                // CancellationError raised anywhere else is a load that failed, and swallowing it
+                // would leave the entity blank forever.
+                if Task.isCancelled { return }
                 print("Failed to load \(description) for entity \(entity.name): \(error)")
                 loaded = Self.missingVisual()
             }
@@ -248,22 +255,29 @@ public class RealityViewMapper
     /// The visual an asset file draws as, dispatched on the cached file's path extension —
     /// `AssetStore` derives that from the publisher's media type precisely so a loader that only
     /// takes a URL (RealityKit has no data-based USDZ loader) can be picked without sniffing bytes.
+    /// Only the extensions `AssetStore.filenameExtension(for:)` can actually produce are handled;
+    /// `.gltf` deliberately isn't one of them (see `unloadableFormat`).
     public static func visual(ofAssetAt url: URL) async throws -> RealityKit.Entity
     {
         switch url.pathExtension.lowercased()
         {
-        case "glb", "gltf":
+        case "glb":
             // Split load: parsing is cheap but synchronous (measured: 9 ms for 12.7 MB) so it runs
             // off the main actor, while conversion to RealityKit entities is main-actor-only and
             // expensive (3.1 s for that same 12.7 MB / 86k-tri scene, 35 ms for a 1.4 MB object) —
             // which is why rooms ship as one asset per part rather than one asset per room.
+            // The detached task is unstructured, so cancelling us doesn't cancel it; at 9 ms per
+            // 12.7 MB that's cheaper to let finish than to plumb, and the check below is what
+            // keeps a cancelled load from paying the expensive half.
             let parsed = try await Task.detached(priority: .userInitiated) { try ParsedGLTF(url: url) }.value
+            try Task.checkCancellation()
             guard let scene = parsed.asset.defaultScene ?? parsed.asset.scenes.first else
             {
                 throw AssetVisualError.gltfHasNoScene(url)
             }
+            try validate(parsed.asset, from: url)
             return GLTFRealityKitLoader.convert(scene: scene, asset: parsed.asset)
-        case "usdz", "usda", "usdc", "usd", "reality":
+        case "usdz", "usda":
             return try await Entity(contentsOf: url)
         default:
             throw AssetVisualError.unloadableFormat(url)
@@ -272,11 +286,63 @@ public class RealityViewMapper
 
     /// A parsed glTF crossing back from the parsing task. `GLTFAsset` is an Objective-C class and
     /// not `Sendable`; the handoff is safe because the parse task is the only reference until it
-    /// returns, and nothing touches the asset afterwards but the conversion on the main actor.
+    /// returns, and nothing touches the asset afterwards but validation and conversion, both on
+    /// the main actor.
     private struct ParsedGLTF: @unchecked Sendable
     {
         let asset: GLTFAsset
         init(url: URL) throws { asset = try GLTFAsset(url: url, options: [:]) }
+    }
+
+    /// glTF that parses but doesn't hold together. GLTFKit2 never runs `cgltf_validate`, and
+    /// `MeshResource` asserts *below Swift* on inconsistent vertex data — an uncatchable trap
+    /// reachable from a peer's bytes, since `convert` has no error path either. So the invariants
+    /// RealityKit assumes get checked here, while a throw still means something: every attribute of
+    /// a primitive must describe the same vertices, and every accessor's window must fit the buffer
+    /// view it reads through.
+    ///
+    /// Not covered: index *values* pointing past the vertex count, which would mean walking the
+    /// whole index buffer. Unmeasured whether RealityKit traps on that; see docs/assets.md.
+    private static func validate(_ asset: GLTFAsset, from url: URL) throws
+    {
+        for mesh in asset.meshes
+        {
+            for primitive in mesh.primitives
+            {
+                let counts = Set(primitive.attributes.map { $0.accessor.count })
+                guard counts.count <= 1 else
+                {
+                    throw AssetVisualError.inconsistentGeometry(url, "attributes of one primitive describe \(counts.sorted()) vertices")
+                }
+                for attribute in primitive.attributes
+                {
+                    try validate(accessor: attribute.accessor, named: attribute.name ?? "an attribute", from: url)
+                }
+                if let indices = primitive.indices
+                {
+                    try validate(accessor: indices, named: "indices", from: url)
+                }
+            }
+        }
+    }
+
+    private static func validate(accessor: GLTFAccessor, named name: String, from url: URL) throws
+    {
+        // A sparse accessor with no buffer view is all zeroes by definition — nothing to overrun.
+        guard let view = accessor.bufferView else { return }
+        let element = Int(GLTFBytesPerComponentForComponentType(accessor.componentType))
+                    * Int(GLTFComponentCountForDimension(accessor.dimension))
+        guard element > 0 else
+        {
+            throw AssetVisualError.inconsistentGeometry(url, "\(name) has no usable component type")
+        }
+        let stride = view.stride > 0 ? view.stride : element
+        let needed = accessor.count > 0 ? accessor.offset + (accessor.count - 1) * stride + element : 0
+        guard accessor.offset >= 0, accessor.count >= 0, needed <= view.length,
+              view.offset >= 0, view.length >= 0, view.offset + view.length <= view.buffer.length else
+        {
+            throw AssetVisualError.inconsistentGeometry(url, "\(name) reads \(needed) bytes from a \(view.length)-byte buffer view")
+        }
     }
 
     private var warnedAboutMissingAssetResolver = false
@@ -323,8 +389,8 @@ public class RealityViewMapper
         catch
         {
             // A newer Model landed and cancelled us: the caller throws away whatever we return, so
-            // this is not a failure to report.
-            if !(Task.isCancelled || error is CancellationError)
+            // this is not a failure to report. A CancellationError without that is a real failure.
+            if !Task.isCancelled
             {
                 print("Failed to load image asset \(asset) for entity \(entityName): \(error)")
             }
@@ -481,20 +547,28 @@ public class RealityViewMapper
 
 /// Why a fetched asset couldn't become a visual. The bytes are already on disk and hash-checked at
 /// this point, so what's left is a file this renderer has no loader for.
-enum AssetVisualError: Error, Equatable, CustomStringConvertible
+public enum AssetVisualError: Error, Equatable, CustomStringConvertible
 {
     /// The extension isn't one `visual(ofAssetAt:)` has a loader for — most likely a publisher that
-    /// named the wrong media type, since the extension is derived from it.
+    /// named the wrong media type, since the extension is derived from it. `.gltf` lands here on
+    /// purpose: a JSON glTF references its buffers and textures by relative URI, which a store that
+    /// holds one file per content address can never resolve, and cgltf percent-decodes those URIs
+    /// *after* joining them to the base directory — so an encoded `../` reads whatever local file a
+    /// peer names straight into a vertex buffer. Publishers ship `.glb`, which is self-contained.
     case unloadableFormat(URL)
     /// Valid glTF, but with nothing in it to draw.
     case gltfHasNoScene(URL)
+    /// Parseable glTF whose vertex data contradicts itself. Rejected here because RealityKit
+    /// asserts below Swift rather than throwing; the string says which invariant broke.
+    case inconsistentGeometry(URL, String)
 
-    var description: String
+    public var description: String
     {
         switch self
         {
         case .unloadableFormat(let url): return "No mesh loader for \(url.pathExtension.isEmpty ? "a file without an extension" : "." + url.pathExtension) (\(url.lastPathComponent))"
         case .gltfHasNoScene(let url): return "glTF \(url.lastPathComponent) contains no scene"
+        case .inconsistentGeometry(let url, let what): return "glTF \(url.lastPathComponent) is inconsistent: \(what)"
         }
     }
 }
