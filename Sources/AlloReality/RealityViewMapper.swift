@@ -257,6 +257,13 @@ public class RealityViewMapper
     /// touching the entity's own `Model`.
     static let textChildName = "allo.text"
 
+    /// A rasterized `Text` uploads its texture asynchronously; this is the in-flight upload, so a
+    /// newer `Text` can cancel it rather than race it.
+    private struct AlloTextStateComponent: RealityKit.Component
+    {
+        var loadingTask: Task<Void, Never>?
+    }
+
     /// Entities whose `Text` we've already complained about. Bounding the text is pointless if an
     /// unbounded log takes its place: a peer can rewrite a component as fast as it likes.
     private var complainedAboutText: Set<EntityID> = []
@@ -267,11 +274,63 @@ public class RealityViewMapper
         { (entity, _, text) in
             entity.children.first { $0.name == Self.textChildName }?.removeFromParent()
             self.complainAboutText(text, on: entity.name)
-            guard let child = Self.realityText(for: text) else { return }
-            entity.addChild(child)
+            var state = entity.components[AlloTextStateComponent.self] ?? AlloTextStateComponent()
+            state.loadingTask?.cancel()
+            state.loadingTask = nil
+            if text.hasColorGlyphs
+            {
+                let input = TextRaster.Input(of: text)
+                state.loadingTask = Task {
+                    guard let child = await Self.rasterizedText(for: text, rendering: input), !Task.isCancelled else { return }
+                    entity.children.first { $0.name == Self.textChildName }?.removeFromParent()
+                    entity.addChild(child)
+                }
+            }
+            else if let child = Self.realityText(for: text)
+            {
+                entity.addChild(child)
+            }
+            entity.components.set(state)
         }
         remover: { (entity, _, _) in
+            entity.components[AlloTextStateComponent.self]?.loadingTask?.cancel()
+            entity.components.remove(AlloTextStateComponent.self)
             entity.children.first { $0.name == Self.textChildName }?.removeFromParent()
+        }
+    }
+
+    /// A `Text` with emoji in it: drawn to a texture on a plane, since no outline font has those
+    /// glyphs (see docs/realitykit-rendering.md). The plane is the block; `placement` treats its
+    /// bounds exactly as it treats a text mesh's, so alignment and fit come out the same.
+    static func rasterizedText(for text: allonet2.Text, rendering input: TextRaster.Input) async -> RealityKit.Entity?
+    {
+        // The input snapshot is already bounded; the CPU work happens detached — layout plus a
+        // bitmap must not stall the frame.
+        guard text.hasLayoutBox else { return nil }
+        guard let raster = await Task.detached(priority: .userInitiated, operation: { TextRaster.render(input) }).value
+        else { return nil }
+        do
+        {
+            let texture = try await TextureResource(image: raster.image, withName: nil, options: .init(semantic: .color))
+            var material = UnlitMaterial()
+            material.color = .init(texture: .init(texture))
+            // As for image materials: this is what makes RealityKit honour the texture's own alpha.
+            material.blending = .transparent(opacity: .init(scale: 1))
+            let half = SIMD3<Float>(raster.width / 2, raster.height / 2, 0)
+            guard let placement = text.placement(ofBlockFrom: -half, to: half) else { return nil }
+            let child = ModelEntity(mesh: .generatePlane(width: raster.width, height: raster.height), materials: [material])
+            child.name = textChildName
+            child.transform.scale = .init(repeating: placement.scale)
+            child.transform.translation = placement.translation
+            return child
+        }
+        catch
+        {
+            if !(Task.isCancelled || error is CancellationError)
+            {
+                print("Failed to rasterize text \"\(text.string)\": \(error)")
+            }
+            return nil
         }
     }
 

@@ -28,6 +28,24 @@ afternoon to find.
 * `extrusionDepth: 0` gives a flat mesh in the XY plane with all normals `+Z` — no rotation needed
   to satisfy the component's "faces +Z" contract.
 
+## Emoji are drawn, not meshed
+
+* **`generateText` returns an empty mesh for emoji.** Measured: "🛠️", "🛋️", "🧪", "⌚" all come
+  back with zero extents, and "A🛠️" is just the A. Apple Color Emoji has no glyph outlines, so
+  there is nothing to extrude. `Text.hasColorGlyphs` is the renderer-independent test for this.
+* **Such a `Text` is rasterized instead** (`TextRaster`): CoreText draws the whole string into a
+  bitmap at 256 px per line height, and the image goes on a `generatePlane` of the size the block
+  would have had, with the same transparent-blending material as `.image`. `placement` is handed
+  the plane's bounds, so `fit`, `halign`, `valign` and `wrap` mean what they mean on the mesh path.
+  `color` tints the letters; emoji keep their own colours. The upload is async, so the child
+  appears a frame or two later than a mesh would, and a newer `Text` cancels an older upload.
+  A block bigger than the 4096 px texture cap loses density, never content or layout. Known
+  difference: the raster block's bounds are typographic (ascent to descent), the mesh block's are
+  the visible outlines, so `.box`/top/bottom land a few percent apart between the paths.
+* **The whole string goes one way or the other.** A string that mixes emoji and letters is drawn
+  flat, so its letters look like a label rather than extruded type next to an all-letter sibling.
+  If that ever matters, make it a `Text` field rather than guessing per glyph.
+
 ## Texture alpha
 
 For a PNG with fully transparent texels:

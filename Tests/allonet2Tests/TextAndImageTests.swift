@@ -92,6 +92,26 @@ struct TextAndImageTests
             .placement(ofBlockFrom: SIMD3<Float>(0, 0, 0), to: SIMD3<Float>(2, 1, 0))!
     }
 
+    /// Emoji have no outlines; a renderer needs to know before it reaches for a text mesh.
+    @Test func emojiCountAsColorGlyphsAndLettersDont()
+    {
+        func text(_ s: String) -> Text { Text(string: s, height: 1, width: 1) }
+        #expect(text("Ambi AB").hasColorGlyphs == false)
+        #expect(text("1 (c) * # (tm)").hasColorGlyphs == false)
+        #expect(text("\u{00A9}").hasColorGlyphs == false) // bare copyright sign: emoji-capable, not emoji
+        #expect(text("\u{2605}").hasColorGlyphs == false) // black star: an outline glyph
+        // Text-presentation emoji-capable symbols have outlines too (measured); vector path.
+        #expect(text("\u{2600}").hasColorGlyphs == false) // sun
+        #expect(text("\u{26A0}").hasColorGlyphs == false) // warning sign
+        #expect(text("\u{26A0}\u{FE0F}").hasColorGlyphs) // ...but VS16 makes it colour
+        #expect(text("🛠️").hasColorGlyphs)
+        #expect(text("Builds 🚦").hasColorGlyphs)
+        #expect(text("⌚").hasColorGlyphs)           // emoji presentation by default
+        #expect(text("1️⃣").hasColorGlyphs)          // keycap sequence
+        #expect(text("👩‍💻").hasColorGlyphs)          // ZWJ sequence
+        #expect(text("🇸🇪").hasColorGlyphs)          // flag
+    }
+
     @Test func imageMaterialRoundTripsThroughTheRegistry() throws
     {
         Model.register()
