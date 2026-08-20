@@ -240,7 +240,7 @@ public class RealityViewMapper
 
     /// Stands in for a model that couldn't be loaded. Red and box-shaped so it can't be mistaken
     /// for content, present so the entity is still findable and still has a size.
-    static func missingVisual() -> RealityKit.Entity
+    public static func missingVisual() -> RealityKit.Entity
     {
         ModelEntity(mesh: .generateBox(size: 0.5), materials: [SimpleMaterial(color: .red, isMetallic: true)])
     }
@@ -248,7 +248,7 @@ public class RealityViewMapper
     /// The visual an asset file draws as, dispatched on the cached file's path extension —
     /// `AssetStore` derives that from the publisher's media type precisely so a loader that only
     /// takes a URL (RealityKit has no data-based USDZ loader) can be picked without sniffing bytes.
-    static func visual(ofAssetAt url: URL) async throws -> RealityKit.Entity
+    public static func visual(ofAssetAt url: URL) async throws -> RealityKit.Entity
     {
         switch url.pathExtension.lowercased()
         {
