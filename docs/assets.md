@@ -78,10 +78,29 @@ Version 0.26.2. Each of these ships as a bug if you don't handle it:
   compiling zero C, so BoringSSL is only ever built in the Linux image — which also means a
   crypto-side Linux break is invisible to the macOS merge gate.
 
+## Consuming mesh assets
+
+`RealityViewMapper` turns a `Model.mesh == .asset(id:)` into an entity's visual by dispatching on
+the cached file's extension: `glb`/`gltf` through [GLTFKit2](https://github.com/warrenm/GLTFKit2)
+(MIT, pinned exactly — a binary drop can change behaviour without changing an API), USD and
+`.reality` through `Entity(contentsOf:)`, anything else a typed `AssetVisualError`. This is why the
+store bothers to name files by media type: neither loader takes bytes.
+
+glTF loads in the split form — `GLTFAsset(url:options:)` off the main actor, then
+`GLTFRealityKitLoader.convert(scene:asset:)` on it — because the two halves cost wildly different
+amounts. Measured on an M-series Mac: parsing 12.7 MB takes 9 ms, converting that same 86k-triangle
+scene takes 3.1 s; a 1.4 MB single object converts in 35 ms. Conversion is main-actor-only, so it
+is frame time, which is the argument for one asset per part rather than one per room.
+
+`convert` calls `fatalError` on internal conversion failure (upstream, known). Everything that can
+be rejected must therefore be rejected by the parse step, which throws normally — that is where a
+truncated or malformed file dies, and it's the case that actually happens. Upstream also ignores
+`KHR_texture_transform` and `TEXCOORD_1`, and makes one `PhysicallyBasedMaterial` per primitive with
+no dedup. Base colour, normal, metallic-roughness, occlusion, emissive, alpha modes and
+double-sidedness all arrive correctly.
+
 ## Not done yet
 
-`Model.mesh == .asset(id:)` still traps in `RealityViewMapper`; nothing renders a fetched asset.
-There is no GC and no quota, so a connected
-agent can still fill the place's disk — the token bounds *who* can write, not how much. A consumer
-download is likewise uncapped: a malicious place can hand a client more bytes than it asked for, and
-the hash is only checked once the file has landed.
+There is no GC and no quota, so a connected agent can still fill the place's disk — the token bounds
+*who* can write, not how much. A consumer download is likewise uncapped: a malicious place can hand
+a client more bytes than it asked for, and the hash is only checked once the file has landed.
