@@ -407,7 +407,7 @@ extension allonet2.Model.Mesh
         switch self
         {
         case .builtin(name: let name): fatalError("Must use Model's factory to also load material")
-        case .asset(id: let id): fatalError("not implemented")
+        case .asset: fatalError("Must use Model's factory to also load material")
         case .box(size: let size, cornerRadius: let cornerRadius):
             return .generateBox(size: size, cornerRadius: cornerRadius)
         case .plane(width: let width, depth: let depth, cornerRadius: let cornerRadius):

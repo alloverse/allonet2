@@ -62,7 +62,10 @@ public struct Model: Component
     public enum Mesh: Equatable, Codable
     {
         case builtin(name: String) // A mesh loaded from a client-provided file. This is a hack and will be replaced by Asset-based meshes
-        case asset(id: String) // A mesh loaded by requesting it over the network from the agent that publishes it
+        /// A mesh fetched from the place by content address. The loaded file's whole node tree
+        /// becomes this entity's visual, opaquely: nothing addresses inside it. Ship one asset
+        /// per thing that needs its own entity.
+        case asset(id: AssetID)
         // The rest or basic geometric meshes
         case box(size: SIMD3<Float>, cornerRadius: Float)
         case plane(width: Float, depth: Float, cornerRadius: Float)

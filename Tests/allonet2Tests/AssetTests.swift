@@ -48,6 +48,16 @@ struct AssetIDTests
         #expect(String(data: encoded, encoding: .utf8) == "{\"id\":\"\(id)\"}")
         #expect(try JSONDecoder().decode(AssetUploadResponse.self, from: encoded).id == id)
     }
+
+    /// `Mesh.asset` used to carry a bare `String`; the `AssetID` retype must encode identically or
+    /// the component breaks across the version gap.
+    @Test @MainActor func meshAssetCodesLikeItsStringPredecessor() throws
+    {
+        let id = AssetID(hashing: Data("mesh".utf8))
+        let encoded = try JSONEncoder().encode(Model.Mesh.asset(id: id))
+        #expect(String(data: encoded, encoding: .utf8) == "{\"asset\":{\"id\":\"\(id)\"}}")
+        #expect(try JSONDecoder().decode(Model.Mesh.self, from: encoded) == .asset(id: id))
+    }
 }
 
 // MARK: - Announce compatibility

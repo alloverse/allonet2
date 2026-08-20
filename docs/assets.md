@@ -81,7 +81,7 @@ Version 0.26.2. Each of these ships as a bug if you don't handle it:
 ## Not done yet
 
 `Model.mesh == .asset(id:)` still traps in `RealityViewMapper`; nothing renders a fetched asset.
-`Model.Mesh.asset` carries a `String`, not an `AssetID`. There is no GC and no quota, so a connected
+There is no GC and no quota, so a connected
 agent can still fill the place's disk — the token bounds *who* can write, not how much. A consumer
 download is likewise uncapped: a malicious place can hand a client more bytes than it asked for, and
 the hash is only checked once the file has landed.
