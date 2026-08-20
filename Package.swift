@@ -6,14 +6,29 @@
 import PackageDescription
 
 #if canImport(Darwin)
-// AVFoundation capture/playout and the demo that uses it. Declared only on Apple hosts so
-// the Linux server build never sees them.
+// Everything that cannot exist on Linux: AVFoundation capture/playout, the googlewebrtc
+// client transport, RealityKit rendering, and the voice demo. Declared only on Apple hosts,
+// because a target referencing an Apple-only dependency breaks the *manifest* on Linux -
+// even when only the server product is being built.
 let applePlatformTargets: [Target] = [
     .target(name: "AlloAudio", dependencies: ["allonet2"]),
+    .target(name: "alloclient", dependencies: [
+        .product(name: "LiveKitWebRTC", package: "webrtc-xcframework"),
+        .product(name: "OpenCombineShim", package: "opencombine"),
+        "allonet2",
+        "AlloAudio",
+    ]),
+    .target(name: "AlloReality", dependencies: [
+        .product(name: "OpenCombineShim", package: "opencombine"),
+        "alloclient",
+        "AlloAudio",
+    ]),
     .executableTarget(name: "voicedemo", dependencies: ["alloheadless", "AlloAudio", "AlloOpus"]),
 ]
 let applePlatformProducts: [Product] = [
     .library(name: "AlloAudio", targets: ["AlloAudio"]),
+    .library(name: "alloclient", targets: ["alloclient"]),
+    .library(name: "AlloReality", targets: ["AlloReality"]),
     .executable(name: "voicedemo", targets: ["voicedemo"]),
 ]
 #else
@@ -35,16 +50,8 @@ let package = Package(
             targets: ["allonet2"],
         ),
         .library(
-            name: "alloclient",
-            targets: ["alloclient"]
-        ),
-        .library(
             name: "alloheadless",
             targets: ["alloheadless"]
-        ),
-        .library(
-            name: "AlloReality",
-            targets: ["AlloReality"]
         ),
         .library(
             name: "AlloOpus",
@@ -99,28 +106,11 @@ let package = Package(
             ]
         ),
         .target(
-            name: "alloclient",
-            dependencies: [
-                .product(name: "LiveKitWebRTC", package: "webrtc-xcframework"),
-                .product(name: "OpenCombineShim", package: "opencombine"),
-                "allonet2",
-                "AlloAudio"
-            ]
-        ),
-        .target(
             name: "alloheadless",
             dependencies: [
                 .product(name: "OpenCombineShim", package: "opencombine"),
                 "AlloDataChannel",
                 "allonet2"
-            ]
-        ),
-        .target(
-            name: "AlloReality",
-            dependencies: [
-                .product(name: "OpenCombineShim", package: "opencombine"),
-                "alloclient",
-                "AlloAudio",
             ]
         ),
         // Vendored libopus (BSD-3). Built from source rather than linked from the system so
