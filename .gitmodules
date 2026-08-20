@@ -1,3 +1,6 @@
 [submodule "Packages/AlloDataChannel"]
 	path = Packages/AlloDataChannel
 	url = https://github.com/alloverse/AlloDataChannel.git
+[submodule "Packages/opus"]
+	path = Packages/opus
+	url = https://github.com/xiph/opus.git

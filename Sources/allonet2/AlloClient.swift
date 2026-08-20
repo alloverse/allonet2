@@ -392,13 +392,13 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
     private var shortLivedConnections = 0
     private var reconnectWasRequested = false
     
-    public func session(_: AlloSession, didReceiveMediaStream: MediaStream)
+    open func session(_: AlloSession, didReceiveMediaStream: MediaStream)
     {
         // Playback is handled in SpatialAudioPlayer
         // TODO: If I expose incomingTracks through Combine, why even have this callback?
     }
     
-    public func session(_: AlloSession, didRemoveMediaStream: MediaStream)
+    open func session(_: AlloSession, didRemoveMediaStream: MediaStream)
     {}
     
     // MARK: - Interactions, intent and place state
@@ -465,7 +465,7 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
         }
     }
     
-    public func session(_: AlloSession, didReceivePlaceChangeSet changeset: PlaceChangeSet)
+    open func session(_: AlloSession, didReceivePlaceChangeSet changeset: PlaceChangeSet)
     {
         //logger.trace("Received place change for revision \(changeset.fromRevision) -> \(changeset.toRevision)")
         // The ack path owns only ackStateRev; other intent fields (movement etc) belong to app

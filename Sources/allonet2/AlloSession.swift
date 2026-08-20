@@ -313,8 +313,13 @@ public class AlloSession : NSObject, TransportDelegate
         }
     }
     
+    /// How many times this session has had to renegotiate since it connected. Voice over
+    /// data channels should never add to this: a media channel opens in-band.
+    public private(set) var renegotiationCount = 0
+
     public func transport(requestsRenegotiation transport: Transport)
     {
+        renegotiationCount += 1
         Task
         {
             do

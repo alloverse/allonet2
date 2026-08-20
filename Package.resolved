@@ -1,5 +1,5 @@
 {
-  "originHash" : "ea6557436a7258c9100656ebb3f094db3b54bbb9dc79921f255535762939e164",
+  "originHash" : "4638afae474c0f723815322d6b0bc23f562945744410a78a9e654da82789f5e9",
   "pins" : [
     {
       "identity" : "bigint",
@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/swhitty/FlyingFox.git",
       "state" : {
-        "revision" : "4e246d3fb515bd2069e5c169abdc75808b90548f",
-        "version" : "0.27.1"
+        "revision" : "de38230104cf63ef4843cb569ba11c13f8165685",
+        "version" : "0.26.2"
       }
     },
     {
@@ -161,15 +161,6 @@
       "state" : {
         "revision" : "67ce582bb9de70e1eb2ee41fd71aad3b5f86d97b",
         "version" : "2.2.0"
-      }
-    },
-    {
-      "identity" : "webrtc-xcframework",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/livekit/webrtc-xcframework.git",
-      "state" : {
-        "revision" : "94ce1c95b1e865ab7857a2a33eec24290e1579a7",
-        "version" : "137.7151.7"
       }
     }
   ],

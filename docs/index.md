@@ -6,3 +6,4 @@ build quirks, gotchas worth keeping between sessions. Add a one-line pointer per
 - [memory.md](memory.md) — running notes: architecture overview, build quirks, and pitfalls.
 - [realitykit-rendering.md](realitykit-rendering.md) — measured text geometry and texture-alpha behaviour behind the `Text` component and `.image` material.
 - [assets.md](assets.md) — content-addressed assets over HTTP: store layout, FlyingFox pitfalls, Linux constraints.
+- [voice-over-datachannels.md](voice-over-datachannels.md) — Opus frames on unreliable data channels: wire format, jitter buffer, SFU routing without renegotiation, threading gotchas.

@@ -49,6 +49,7 @@ public class HeadlessWebRTCTransport: Transport
     
     private var peer: AlloWebRTCPeer
     private var channels: [String: AlloWebRTCPeer.DataChannel] = [:]
+    private var mediaStreams: [MediaStreamId: DataChannelMediaStream] = [:]
     private var connectionStatus: ConnectionStatus
     private var cancellables = Set<AnyCancellable>()
     let connectionState = StateMachine<TransportConnectionState>(.idle, label: "HeadlessTransport")
@@ -146,6 +147,12 @@ public class HeadlessWebRTCTransport: Transport
             }
         }).store(in: &cancellables)
 
+        peer.$dataChannels.sinkChanges(added: { [weak self] channel in
+            // Deliberately not marshalled: see `adopt`.
+            self?.adopt(remote: channel)
+        }, removed: { [weak self] channel in
+            onMain { [weak self] in self?.forget(remote: channel) }
+        }).store(in: &cancellables)
     }
 
     /// Wait for ICE gathering to finish, or give up on it.
@@ -285,7 +292,14 @@ public class HeadlessWebRTCTransport: Transport
     
     public func createDataChannel(label: DataChannelLabel, reliable: Bool) -> DataChannel?
     {
-        let channel = try! peer.createDataChannel(label: label.rawValue, reliable: reliable, streamId: UInt16(label.channelId), negotiated: true)
+        guard let channelId = label.channelId else
+        {
+            // Media: opened in-band so the far side discovers it without an offer/answer,
+            // and unreliable because a retransmitted voice frame arrives too late to play.
+            return createMediaChannel(label: label)
+        }
+
+        let channel = try! peer.createDataChannel(label: label.rawValue, reliability: reliable ? .reliable : .unreliable, streamId: UInt16(channelId), negotiated: true)
         channels[label.rawValue] = channel
         
         channel.$lastMessage.sink { [weak self, weak channel] message in
@@ -301,6 +315,78 @@ public class HeadlessWebRTCTransport: Transport
         }.store(in: &cancellables)
 
         return channel
+    }
+
+    private func createMediaChannel(label: DataChannelLabel) -> DataChannel?
+    {
+        do
+        {
+            let channel = try peer.createDataChannel(label: label.rawValue, reliability: .unreliable)
+            channels[label.rawValue] = channel
+            return channel
+        }
+        catch
+        {
+            logger.error("Failed to open media channel \(label.rawValue): \(error)")
+            return nil
+        }
+    }
+
+    /// Open an outgoing voice stream. No m-line, no offer/answer: the channel is the stream,
+    /// and the far side learns about it in-band.
+    public func createOutgoingMediaStream(mediaId: MediaStreamId) throws -> DataChannelMediaStream
+    {
+        let label = DataChannelLabel.media(mediaId)
+        guard let channel = createMediaChannel(label: label) as? AlloWebRTCPeer.DataChannel else
+        {
+            throw AlloverseError(code: AlloverseErrorCode.internalServerError, description: "Could not open media channel for \(mediaId)")
+        }
+        let stream = DataChannelMediaStream(mediaId: mediaId, direction: .sendonly) { [weak channel] data in
+            guard let channel, channel.isOpen else { return false }
+            do { try channel.send(data: data); return true }
+            catch { return false }
+        }
+        mediaStreams[mediaId] = stream
+        return stream
+    }
+
+    /// Adopt a media channel the far side opened in-band.
+    ///
+    /// Runs on libdatachannel's thread, and the message subscription is attached *there*
+    /// rather than after marshalling: that thread starts delivering frames immediately, and
+    /// hopping first would drop the leading ones. Only the bookkeeping goes to the main actor.
+    private nonisolated func adopt(remote channel: AlloWebRTCPeer.DataChannel)
+    {
+        guard let label = DataChannelLabel(rawValue: channel.label), case .media(let mediaId) = label else { return }
+
+        let stream = DataChannelMediaStream(mediaId: mediaId, direction: .recvonly) { [weak channel] data in
+            guard let channel, channel.isOpen else { return false }
+            do { try channel.send(data: data); return true }
+            catch { return false }
+        }
+        let subscription = channel.$lastMessage.sink { [weak stream] message in
+            guard let stream, let message else { return }
+            stream.deliver(message)
+        }
+
+        onMain { [weak self] in
+            guard let self else { return subscription.cancel() }
+            guard mediaStreams[mediaId] == nil else { return subscription.cancel() }
+            mediaStreams[mediaId] = stream
+            channels[channel.label] = channel
+            cancellables.insert(subscription)
+            logger.info("Adopted incoming media stream \(mediaId)")
+            delegate?.transport(self, didReceiveMediaStream: stream)
+        }
+    }
+
+    private func forget(remote channel: AlloWebRTCPeer.DataChannel)
+    {
+        guard let label = DataChannelLabel(rawValue: channel.label), case .media(let mediaId) = label,
+              let stream = mediaStreams.removeValue(forKey: mediaId) else { return }
+        channels[channel.label] = nil
+        logger.info("Lost media stream \(mediaId)")
+        delegate?.transport(self, didRemoveMediaStream: stream)
     }
     
     public func send(data: Data, on channelLabel: DataChannelLabel)
@@ -329,6 +415,17 @@ public class HeadlessWebRTCTransport: Transport
     {
         var logger = Logger(labelSuffix: "transport.libdatachannel").forClient(receiver.clientId!)
         logger.info("Forwarding media stream \(mediaStream.mediaId) from \(sender.clientId) to \(receiver.clientId)")
+
+        if let source = mediaStream as? DataChannelMediaStream
+        {
+            let receiverHeadless = (receiver as! HeadlessWebRTCTransport)
+            let placeStreamId = PlaceStreamId(shortClientId: sender.clientId!.shortClientId, incomingMediaId: source.mediaId)
+            let destination = try receiverHeadless.createOutgoingMediaStream(mediaId: placeStreamId.outgoingMediaId)
+            // Deliberately no scheduleRenegotiation(): opening a data channel in-band needs
+            // no offer/answer, which is the churn this whole path exists to delete.
+            return DataChannelForwarder(from: source, to: destination)
+        }
+
         let track = mediaStream as! AlloWebRTCPeer.Track
         let receiverHeadless = (receiver as! HeadlessWebRTCTransport)
         let peer = receiverHeadless.peer
