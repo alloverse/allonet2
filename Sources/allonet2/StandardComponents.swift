@@ -158,15 +158,15 @@ public struct Text: Component
 
     /// Whether the string has glyphs that exist only as colour bitmaps (emoji), which no outline
     /// font can draw. A renderer that builds text from glyph outlines has to rasterize such a
-    /// string instead, and `color` then tints only the letters in it. The test is the usual one:
-    /// emoji-presentation scalars, or an emoji-capable scalar that isn't a bare digit or symbol
-    /// dressed up by a variation selector or joined into a sequence.
+    /// string instead, and `color` then tints only the letters in it. Emoji-presentation scalars,
+    /// and sequences (VS16, ZWJ, keycaps, flags); a bare text-presentation symbol like a sun or a
+    /// warning sign has outlines (measured) and stays on the vector path.
     public var hasColorGlyphs: Bool
     {
         string.contains { character in
             guard let first = character.unicodeScalars.first else { return false }
             return first.properties.isEmojiPresentation
-                || (first.properties.isEmoji && (character.unicodeScalars.count > 1 || first.value > 0x238C))
+                || (first.properties.isEmoji && character.unicodeScalars.count > 1)
         }
     }
 

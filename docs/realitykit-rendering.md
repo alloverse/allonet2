@@ -39,6 +39,9 @@ afternoon to find.
   the plane's bounds, so `fit`, `halign`, `valign` and `wrap` mean what they mean on the mesh path.
   `color` tints the letters; emoji keep their own colours. The upload is async, so the child
   appears a frame or two later than a mesh would, and a newer `Text` cancels an older upload.
+  A block bigger than the 4096 px texture cap loses density, never content or layout. Known
+  difference: the raster block's bounds are typographic (ascent to descent), the mesh block's are
+  the visible outlines, so `.box`/top/bottom land a few percent apart between the paths.
 * **The whole string goes one way or the other.** A string that mixes emoji and letters is drawn
   flat, so its letters look like a label rather than extruded type next to an all-letter sibling.
   If that ever matters, make it a `Text` field rather than guessing per glyph.

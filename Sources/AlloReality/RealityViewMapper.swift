@@ -279,8 +279,9 @@ public class RealityViewMapper
             state.loadingTask = nil
             if text.hasColorGlyphs
             {
+                let input = TextRaster.Input(of: text)
                 state.loadingTask = Task {
-                    guard let child = await Self.rasterizedText(for: text), !Task.isCancelled else { return }
+                    guard let child = await Self.rasterizedText(for: text, rendering: input), !Task.isCancelled else { return }
                     entity.children.first { $0.name == Self.textChildName }?.removeFromParent()
                     entity.addChild(child)
                 }
@@ -301,12 +302,13 @@ public class RealityViewMapper
     /// A `Text` with emoji in it: drawn to a texture on a plane, since no outline font has those
     /// glyphs (see docs/realitykit-rendering.md). The plane is the block; `placement` treats its
     /// bounds exactly as it treats a text mesh's, so alignment and fit come out the same.
-    static func rasterizedText(for text: allonet2.Text) async -> RealityKit.Entity?
+    static func rasterizedText(for text: allonet2.Text, rendering input: TextRaster.Input) async -> RealityKit.Entity?
     {
-        // Bounded the same way as the mesh path: this string comes off the wire too.
-        var text = text
-        text.string = String(text.string.prefix(allonet2.Text.maxRenderedCharacters))
-        guard text.hasLayoutBox, let raster = TextRaster.render(text) else { return nil }
+        // The input snapshot is already bounded; the CPU work happens detached — layout plus a
+        // bitmap must not stall the frame.
+        guard text.hasLayoutBox else { return nil }
+        guard let raster = await Task.detached(priority: .userInitiated, operation: { TextRaster.render(input) }).value
+        else { return nil }
         do
         {
             let texture = try await TextureResource(image: raster.image, withName: nil, options: .init(semantic: .color))

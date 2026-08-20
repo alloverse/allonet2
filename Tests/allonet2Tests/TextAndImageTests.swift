@@ -100,6 +100,10 @@ struct TextAndImageTests
         #expect(text("1 (c) * # (tm)").hasColorGlyphs == false)
         #expect(text("\u{00A9}").hasColorGlyphs == false) // bare copyright sign: emoji-capable, not emoji
         #expect(text("\u{2605}").hasColorGlyphs == false) // black star: an outline glyph
+        // Text-presentation emoji-capable symbols have outlines too (measured); vector path.
+        #expect(text("\u{2600}").hasColorGlyphs == false) // sun
+        #expect(text("\u{26A0}").hasColorGlyphs == false) // warning sign
+        #expect(text("\u{26A0}\u{FE0F}").hasColorGlyphs) // ...but VS16 makes it colour
         #expect(text("🛠️").hasColorGlyphs)
         #expect(text("Builds 🚦").hasColorGlyphs)
         #expect(text("⌚").hasColorGlyphs)           // emoji presentation by default
