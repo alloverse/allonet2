@@ -58,6 +58,7 @@ let package = Package(
     dependencies: [
           .package(url: "https://github.com/outfoxx/PotentCodables.git", from: "3.5.3"),
 
+        .package(url: "https://github.com/livekit/webrtc-xcframework.git", exact: "137.7151.07"),
         .package(url: "https://github.com/swhitty/FlyingFox.git", .upToNextMajor(from: "0.25.0")),
 
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
@@ -87,16 +88,13 @@ let package = Package(
                 .plugin(name: "PackageBuildInfoPlugin", package: "PackageBuildInfo")
             ]
         ),
-        // Was the googlewebrtc client transport; now just the user-facing client on top of
-        // the same libdatachannel transport the server uses.
         .target(
             name: "alloclient",
             dependencies: [
+                .product(name: "LiveKitWebRTC", package: "webrtc-xcframework"),
                 .product(name: "OpenCombineShim", package: "opencombine"),
                 "allonet2",
-                "alloheadless",
-                "AlloAudio",
-                "AlloOpus"
+                "AlloAudio"
             ]
         ),
         .target(
