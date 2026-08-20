@@ -51,7 +51,10 @@ public enum InteractionBody : Codable
 {
     // - Agent to Place
     case announce(version: String, identity: Identity, avatar: EntityDescription) // -> .announceResponse
-    case announceResponse(avatarId: String, placeName: String)
+    /// `assetToken` authorizes this agent to publish assets for as long as it stays connected.
+    /// Optional so an older place that doesn't issue one still decodes; a client without a token
+    /// simply can't publish.
+    case announceResponse(avatarId: String, placeName: String, assetToken: String? = nil)
     
     case createEntity(EntityDescription) // -> .createEntityResponse
     case createEntityResponse(entityId: EntityID)
@@ -69,7 +72,10 @@ public enum InteractionBody : Codable
     case custom(value: [String: AnyValue])
     
     // - Generic responses
-    case error(domain: String, code: Int, description: String)
+    /// `isFatal` is the raiser's word on whether retrying could ever work: only it knows what its
+    /// own domain's codes mean. Optional so an error from a peer that predates it still decodes,
+    /// in which case the receiver falls back to classifying the code itself.
+    case error(domain: String, code: Int, description: String, isFatal: Bool? = nil)
     case success // generic request-was-successful
     
     // - Internal, do not use
@@ -100,18 +106,32 @@ public struct Identity: Equatable, Hashable, Codable, Sendable
         case app // This is an app that will connect using a per-place shared secret token
     }
 
-    public init(expectation: Identity.Expectation, displayName: String, emailAddress: String, authenticationToken: String)
+    public init(expectation: Identity.Expectation, displayName: String, emailAddress: String, authenticationToken: String, invitation: String? = nil, color: Color = .white, profileImage: AssetID? = nil)
     {
         self.expectation = expectation
         self.displayName = displayName
         self.emailAddress = emailAddress
         self.authenticationToken = authenticationToken
+        self.invitation = invitation
+        self.color = color
+        self.profileImage = profileImage
     }
-    
+
     public let expectation: Expectation
     public let displayName: String
     public let emailAddress: String
     public let authenticationToken: String // Could be a password, a passkey token, etc.
+    /// Proof that the user is allowed to register at all, for places that don't accept
+    /// open signups. Only meaningful for `.newUser`. Nil from clients that predate it.
+    public let invitation: String?
+    /// How this user wants to be recognized, on their avatar and wherever else they appear.
+    public let color: Color
+    /// Asset id of the picture this user goes by, or nil for none. Unlike `color`, this is a
+    /// reference rather than a value: the bytes have to reach the place before anyone can resolve
+    /// it, and the place only lets an agent publish once it has announced. So this is the user's
+    /// standing choice, carried across sessions — it is *not* what a visor copies onto its avatar
+    /// at announce time. Publish first, then set `VisorInfo.profileImage`.
+    public let profileImage: AssetID?
 }
 
 @MainActor

@@ -15,6 +15,9 @@ struct PlaceServerApp: AsyncParsableCommand
     @Option(name: [.customShort("t"), .long], help: "Authentication token which lets an AlloApp connect without a registered user. Not providing it allows any app to connect unauthenticated.")
     var alloAppAuthToken: String = ""
     
+    @Flag(help: "Refuse users until an app has registered as authentication provider. Without it, a place admits anyone during the window between starting up and its provider connecting.")
+    var requireAuth: Bool = false
+
     @Option(name: [.customShort("l"), .long], help: "WebRTC IP override, e g for replacing a Docker internal IP with the host's public IP in WebRTC's published SDP candidates. Format: from_ip-to_ip. Example: 172.0.0.3-35.34.72.23")
     var ipOverride: IPOverride? = nil
     
@@ -32,7 +35,21 @@ struct PlaceServerApp: AsyncParsableCommand
     
     @Option(help: "Together with client-name, use this to specify the URL protocol to use to launch the custom client.")
     var appURLProtocol: String = "alloplace2"
-    
+
+    @Option(help: "Directory to keep published assets in. Point this at a volume to keep them across restarts; the default is under the temp directory, so they're re-uploaded after a restart.")
+    var assetsDir: String?
+
+    mutating func validate() throws
+    {
+        // An empty app token authenticates every app that asks, and the first app to ask becomes
+        // the place's authentication provider — so requiring authentication without a token just
+        // hands the gate to whoever connects first.
+        if requireAuth && alloAppAuthToken.isEmpty
+        {
+            throw ValidationError("--require-auth needs an app token (-t) as well: without one, any app that connects can become this place's authentication provider.")
+        }
+    }
+
     mutating func run() async throws
     {
         configurePrintBuffering()
@@ -47,7 +64,9 @@ struct PlaceServerApp: AsyncParsableCommand
             customApp: app,
             transportClass: HeadlessWebRTCTransport.self,
             options: TransportConnectionOptions(routing: .direct, ipOverride: ipOverride, portRange: webrtcPortRange),
-            alloAppAuthToken: alloAppAuthToken
+            alloAppAuthToken: alloAppAuthToken,
+            requiresAuthentication: requireAuth,
+            assetsDirectory: assetsDir.map { URL(fileURLWithPath: $0) } ?? PlaceServer.defaultAssetsDirectory
         )
         
         signal(SIGINT, SIG_IGN)

@@ -1,4 +1,6 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.1
+// 6.1 rather than 6.0 because swift-crypto 4.5's own manifest is 6.1: a 6.0 toolchain fails to
+// resolve it, so declaring 6.0 here would promise support we don't have.
 // The swift-tools-version declares the minimum version of Swift required to build this package.
 
 import PackageDescription
@@ -59,7 +61,10 @@ let package = Package(
           .package(url: "https://github.com/outfoxx/PotentCodables.git", from: "3.5.3"),
 
         .package(url: "https://github.com/livekit/webrtc-xcframework.git", exact: "137.7151.07"),
-        .package(url: "https://github.com/swhitty/FlyingFox.git", .upToNextMajor(from: "0.25.0")),
+        // 0.26.0 introduced HTTPHeaders, which the asset endpoint uses. Our own Package.resolved
+        // pins something newer, so nothing here catches a build that honours the lower bound —
+        // KojaApp resolved 0.25.0 and failed to compile allonet2.
+        .package(url: "https://github.com/swhitty/FlyingFox.git", .upToNextMajor(from: "0.26.0")),
 
         .package(url: "https://github.com/apple/swift-argument-parser", from: "1.5.0"),
         .package(url: "https://github.com/alloverse/OpenCombine.git", branch: "fix/vision-support"), // So we can use Combine on Linux.
@@ -70,6 +75,10 @@ let package = Package(
         .package(url: "https://github.com/mxcl/Version.git", from: "2.0.0"),
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.2.0"),
         .package(url: "https://github.com/apple/swift-log", from: "1.6.0"),
+        // SHA-256 for content-addressed assets. On Apple platforms `Crypto` is a CryptoKit
+        // re-export, so the BoringSSL build cost is Linux-only. Pinned to the minor: the Docker
+        // image is Swift 6.1.2 and swift-crypto 4.5 is already tools-version 6.1.
+        .package(url: "https://github.com/apple/swift-crypto.git", .upToNextMinor(from: "4.5.1")),
     ],
     targets: [
         .target(
@@ -82,7 +91,8 @@ let package = Package(
                 .product(name: "SIMDTools", package:"simd-tools"),
                 .product(name: "OpenCombineShim", package: "opencombine"),
                 .product(name: "Atomics", package: "swift-atomics"),
-                .product(name: "Logging", package: "swift-log")
+                .product(name: "Logging", package: "swift-log"),
+                .product(name: "Crypto", package: "swift-crypto")
             ],
             plugins: [
                 .plugin(name: "PackageBuildInfoPlugin", package: "PackageBuildInfo")
@@ -160,7 +170,12 @@ let package = Package(
     ] + applePlatformTargets + [
         .testTarget(
             name: "allonet2Tests",
-            dependencies: ["allonet2"]
+            dependencies: [
+                "allonet2",
+                "alloheadless",
+                "FlyingFox",
+                .product(name: "FlyingSocks", package: "FlyingFox") // reading back an ephemeral port
+            ]
         ),
         .testTarget(
             name: "AlloOpusTests",

@@ -16,6 +16,9 @@ public class AlloUserClient : AlloClient
     {
         didSet { userTransport.microphoneEnabled = micEnabled }
     }
+    /// Whether to play back others' audio. Off = deafened: SpatialAudioPlayer asks the
+    /// place to stop forwarding streams entirely, so this also stops inbound audio traffic.
+    @Published public var speakerEnabled: Bool = true
     private var micTrack: AudioTrack? = nil
     public func createMicrophoneTrackIfNeeded() -> AudioTrack
     {

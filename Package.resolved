@@ -1,5 +1,5 @@
 {
-  "originHash" : "7d7e9faa89cfdc79414868773b099c96f94140b36438ee000f05c21d25be3b68",
+  "originHash" : "ea6557436a7258c9100656ebb3f094db3b54bbb9dc79921f255535762939e164",
   "pins" : [
     {
       "identity" : "bigint",
@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/swhitty/FlyingFox.git",
       "state" : {
-        "revision" : "de38230104cf63ef4843cb569ba11c13f8165685",
-        "version" : "0.26.2"
+        "revision" : "4e246d3fb515bd2069e5c169abdc75808b90548f",
+        "version" : "0.27.1"
       }
     },
     {
@@ -92,6 +92,15 @@
       }
     },
     {
+      "identity" : "swift-asn1",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-asn1.git",
+      "state" : {
+        "revision" : "a9a5efd40eaf558a2bcd48d64b1d1646be686008",
+        "version" : "1.7.1"
+      }
+    },
+    {
       "identity" : "swift-atomics",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-atomics.git",
@@ -107,6 +116,15 @@
       "state" : {
         "revision" : "7b847a3b7008b2dc2f47ca3110d8c782fb2e5c7e",
         "version" : "1.3.0"
+      }
+    },
+    {
+      "identity" : "swift-crypto",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-crypto.git",
+      "state" : {
+        "revision" : "47d3869a7291f085c1fb9fb1e6d3b97a793f45c6",
+        "version" : "4.5.1"
       }
     },
     {

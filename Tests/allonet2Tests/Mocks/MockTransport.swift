@@ -89,7 +89,14 @@ final class MockTransport: Transport {
 
     func disconnect() {
         disconnectCallCount += 1
+        // The real transport calls the delegate back synchronously from here (see
+        // HeadlessWebRTCTransport.disconnect), which is what makes reentrancy during teardown
+        // possible at all. A mock that stays quiet can't catch a regression in that.
+        guard !isDisconnected else { return }
+        isDisconnected = true
+        delegate?.transport(didDisconnect: self)
     }
+    private var isDisconnected = false
 
     func createDataChannel(label: DataChannelLabel, reliable: Bool) -> DataChannel? {
         let ch = MockDataChannel(label: label, isOpen: true)
@@ -107,7 +114,7 @@ final class MockTransport: Transport {
 
     static func forward(mediaStream: MediaStream, from sender: any Transport,
                         to receiver: any Transport) throws -> MediaStreamForwarder {
-        fatalError("MockTransport does not support media forwarding")
+        MockMediaStreamForwarder()
     }
 
     // --- Test helpers ---
@@ -115,6 +122,13 @@ final class MockTransport: Transport {
     /// Simulate transport disconnect (as if ICE failed)
     func simulateDisconnect() {
         delegate?.transport(didDisconnect: self)
+    }
+
+    /// Hand an interaction back to the session as if the peer had sent it.
+    func deliver(_ interaction: Interaction) {
+        guard let data = try? CBOREncoder().encode(interaction) else { return }
+        let channel = channels[.interactions] ?? MockDataChannel(label: .interactions, isOpen: true)
+        delegate?.transport(self, didReceiveData: data, on: channel)
     }
 
     /// Simulate receiving data on a channel

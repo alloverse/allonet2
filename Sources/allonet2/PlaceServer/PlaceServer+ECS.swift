@@ -16,7 +16,9 @@ extension PlaceServer
         // a teleport becomes the new base to move from (not just invalidation - a sim tick can
         // run before the heartbeat commits the queued teleport, and must not resurrect the old
         // position), and a removed avatar stops moving, or the next tick would queue an update
-        // for a nonexistent component and make the whole changeset inapplicable.
+        // for a nonexistent component and make the whole changeset inapplicable. Removing an
+        // entity involved in a grab ends the grab, and an external transform on the actuated
+        // entity rebases it, for the same reasons.
         for change in changes
         {
             switch change
@@ -26,10 +28,29 @@ extension PlaceServer
                 {
                     client.simulatedTransform = component.decoded() as? Transform
                 }
+                for client in clients.values where client.grabBase?.actuated == eid
+                {
+                    // The teleport becomes the new base grab constraints measure from,
+                    // or the next tick would overwrite it from the old one.
+                    if let transform = component.decoded() as? Transform { client.grabBase = (eid, transform) }
+                    else { client.stopGrabbing() }
+                    client.grabSimulated = nil
+                }
             case .entityRemoved(let edata):
-                for client in clients.values where client.avatar == edata.id { client.stopMoving() }
+                pendingRemovals.insert(edata.id)
+                for client in clients.values
+                {
+                    if client.avatar == edata.id { client.stopMoving() }
+                    let grab = client.latestIntent?.grab
+                    if grab?.entity == edata.id || grab?.grabber == edata.id || client.grabBase?.actuated == edata.id { client.stopGrabbing() }
+                }
             case .componentRemoved(let edata, let component) where component.componentTypeId == Transform.componentTypeId:
-                for client in clients.values where client.avatar == edata.id { client.stopMoving() }
+                pendingRemovals.insert(edata.id)
+                for client in clients.values
+                {
+                    if client.avatar == edata.id { client.stopMoving() }
+                    if client.grabBase?.actuated == edata.id { client.stopGrabbing() }
+                }
             default: break
             }
         }
@@ -42,6 +63,7 @@ extension PlaceServer
         let success = place.applyChangeSet(PlaceChangeSet(changes: outstandingPlaceChanges, fromRevision: place.current.revision, toRevision: place.current.revision + 1))
         assert(success) // bug if this doesn't succeed
         outstandingPlaceChanges.removeAll()
+        pendingRemovals.removeAll()
         for client in clients.values {
             let lastContents = client.ackdRevision.flatMap { place.getHistory(at: $0) } ?? PlaceContents(logger: logger)
             let changeSet = place.current.changeSet(from: lastContents)
@@ -82,6 +104,9 @@ extension PlaceServer
             let direction = client.latestIntent?.moveDirection ?? .zero
             guard direction != .zero || client.velocity != .zero,
                   let avatarId = client.avatar,
+                  // A fresh intent can re-arm movement between a queued removal and its apply;
+                  // the queue-time stopMoving hook alone can't prevent the poisoned update.
+                  !pendingRemovals.contains(avatarId),
                   // Integrate from our own last simulated transform: several ticks can run before the
                   // heartbeat commits them, and re-reading committed state would make each of those
                   // ticks start from the same base, so all but the last displacement is overwritten.
@@ -99,6 +124,12 @@ extension PlaceServer
             client.simulatedTransform = moved
             changes.append(.componentUpdated(avatarId, AnyComponent(moved)))
         }
+        // Grabs run after movement, so a carried entity follows this tick's avatar transform.
+        for client in clients.values
+        {
+            guard let change = stepGrab(for: client) else { continue }
+            changes.append(change)
+        }
         guard !changes.isEmpty else { return false }
         // Deliberately not appendChanges: that invalidates the cache these changes just filled.
         outstandingPlaceChanges.append(contentsOf: changes)
@@ -106,6 +137,114 @@ extension PlaceServer
         return true
     }
     
+    /// One grab tick for one client. Everything in the intent is untrusted: the grabbed
+    /// entity must be Grabbable, the grabber must be the client's avatar or a descendant,
+    /// an actuation target must really be an ancestor. Returns nil when nothing (new) should move.
+    private func stepGrab(for client: ConnectedClient) -> PlaceChange?
+    {
+        guard let grab = client.latestIntent?.grab else {
+            client.grabBase = nil
+            client.grabSimulated = nil
+            return nil
+        }
+        let contents = place.current
+        guard let grabbable = contents.components[Grabbable.self][grab.entity] else {
+            client.logger.warning("Ignoring grab of \(grab.entity): not Grabbable")
+            return nil
+        }
+        guard let avatarId = client.avatar, isEntity(grab.grabber, selfOrDescendantOf: avatarId, in: contents) else {
+            client.logger.warning("Ignoring grab by \(grab.grabber): not the grabbing client's avatar or a descendant")
+            return nil
+        }
+
+        // The grabber may hang off the client's avatar; feed the sim this tick's
+        // uncommitted avatar transform so carrying doesn't lag a walking avatar.
+        var overrides: [EntityID: Transform] = [:]
+        if let simulated = client.simulatedTransform
+        {
+            overrides[avatarId] = simulated
+        }
+
+        guard let (actuated, actuatedFromEntity) = resolveActuation(of: grab.entity, as: grabbable.actuateOn, in: contents, overrides: overrides) else {
+            client.logger.warning("Ignoring grab of \(grab.entity): actuation target \(grabbable.actuateOn) is not among its ancestors")
+            return nil
+        }
+        // Revalidated every tick: the actuated entity can lose its Transform mid-grab, and a
+        // fresh intent can re-arm the grab between a queued removal and its apply — the
+        // queue-time stopGrabbing hook alone can't prevent the poisoned update.
+        guard !pendingRemovals.contains(actuated),
+              let actuatedTransform = contents.components[Transform.self][actuated] else {
+            client.grabBase = nil
+            client.grabSimulated = nil
+            return nil
+        }
+        if client.grabBase?.actuated != actuated
+        {
+            client.grabBase = (actuated, actuatedTransform)
+            client.grabSimulated = nil
+        }
+
+        let parentToWorld: simd_float4x4
+        if let parent = contents.components[Relationships.self][actuated]?.parent
+        {
+            guard let composed = contents.transformToWorld(of: parent, overrides: overrides) else { return nil }
+            parentToWorld = composed
+        }
+        else { parentToWorld = .identity }
+        guard
+            let grabberToWorld = contents.transformToWorld(of: grab.grabber, overrides: overrides),
+            let moved = GrabSimulation.step(grab: grab, grabbable: grabbable, base: client.grabBase!.transform,
+                                            grabberToWorld: grabberToWorld, parentToWorld: parentToWorld,
+                                            actuatedFromEntity: actuatedFromEntity),
+            moved != client.grabSimulated
+        else { return nil }
+
+        client.grabSimulated = moved
+        return .componentUpdated(actuated, AnyComponent(moved))
+    }
+
+    /// Resolves which entity a grab moves, verifying ancestry, and composes the transform
+    /// from the grabbed entity's space into the actuated entity's space along the way.
+    private func resolveActuation(of eid: EntityID, as actuateOn: Grabbable.ActuateOn, in contents: PlaceContents, overrides: [EntityID: Transform])
+        -> (actuated: EntityID, actuatedFromEntity: simd_float4x4)?
+    {
+        let target: EntityID?
+        switch actuateOn
+        {
+        case .entity: return (eid, .identity)
+        case .parent: target = contents.components[Relationships.self][eid]?.parent
+        case .ancestor(let ancestor): target = ancestor
+        }
+        guard let target else { return nil }
+        var composed = simd_float4x4.identity
+        var current = eid
+        var visited = Set<EntityID>()
+        while current != target
+        {
+            // Like transformToWorld, a missing Transform rejects the path rather than
+            // silently posing the node at its parent's origin.
+            guard visited.insert(current).inserted,
+                  let parent = contents.components[Relationships.self][current]?.parent,
+                  let local = overrides[current]?.matrix ?? contents.components[Transform.self][current]?.matrix
+            else { return nil }
+            composed = local * composed
+            current = parent
+        }
+        return (target, composed)
+    }
+
+    private func isEntity(_ eid: EntityID, selfOrDescendantOf ancestorId: EntityID, in contents: PlaceContents) -> Bool
+    {
+        var current: EntityID? = eid
+        var visited = Set<EntityID>()
+        while let id = current, visited.insert(id).inserted
+        {
+            if id == ancestorId { return true }
+            current = contents.components[Relationships.self][id]?.parent
+        }
+        return false
+    }
+
     func createEntity(from description:EntityDescription, for client: ConnectedClient) async -> EntityData
     {
         let (ent, changes) = description.changes(for: client.cid)

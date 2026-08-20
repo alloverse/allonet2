@@ -123,6 +123,15 @@ class PlaceServerSFU
         reconcile()
     }
     
+    /// Forget every forwarding this client receives, ahead of its LiveMediaListener components
+    /// disappearing: those only clean up on the next heartbeat, and a condemned client shouldn't
+    /// keep hearing the room even for that beat.
+    internal func drop(target cid: ClientId)
+    {
+        desired = desired.filter { $0.target != cid }
+        reconcile()
+    }
+
     /// Either the client disconnected, or at least its stream was lost. Stop forwarding it.
     internal func handle(lost stream: MediaStream, from sender: ConnectedClient)
     {
@@ -149,7 +158,10 @@ class PlaceServerSFU
         let placestream = available[fid.source]! // !: precondition that it's avilable from reconcile()
         var clogger = self.logger.forClient(fid.target)
         assert(placestream.stream.streamDirection.isRecv, "Can only forward incoming streams")
-        let target = self.server.clients[fid.target]! // !: client must exist for the component that generated the `desired` entry to exist
+        // The component that generated the `desired` entry normally guarantees its client exists —
+        // except for a client condemned moments ago, whose components are torn out on the next
+        // heartbeat but whose desires linger until then. Only clients in good standing get streams.
+        guard let target = self.server.clients[fid.target] else { return }
         
         clogger.info("START forwarding \(fid)")
         do {
