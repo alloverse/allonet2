@@ -44,9 +44,9 @@ with an `alloplace2://host:port` URL). The WebRTC session then carries three dat
 (reliable) — all CBOR-encoded, plus SRTP media tracks for voice. Renegotiation (needed every
 time the SFU forwards a new track) runs in-band as an `internal_renegotiate` interaction,
 client-polite/server-impolite. Two things deliberately do *not* ride the data channels:
-**assets** (content-addressed blobs, `sha256:<hex>`, published and fetched over the place's
-HTTP server with a per-session bearer token — see [docs/assets.md](docs/assets.md)) and
-**voice** (media tracks above).
+**assets** (content-addressed blobs, `sha256:<hex>`, on the place's HTTP server — published
+with a per-session bearer token, fetched unauthenticated and cacheable — see
+[docs/assets.md](docs/assets.md)) and **voice** (media tracks above).
 
 Announce is the application-level handshake: the client presents an `Identity` and an avatar
 `EntityDescription`, protocol versions must match on major+minor, and authentication happens
@@ -67,12 +67,24 @@ swift build                               # first build downloads a large webrtc
 swift run AlloPlace -n "Local Place"
 ```
 
-`AlloPlace` is the place server. Useful flags: `-p` HTTP signalling port (default
-9080), `-t` token that AlloApps must present (omit to allow any app), `--require-auth` to
-refuse users until an authentication provider has registered, `-u` UDP port range for WebRTC,
-`--assets-dir` to keep published assets across restarts, `--app-name`/`--app-url-protocol` to
-brand the landing page for a custom client. Signalling is over HTTP for localhost and HTTPS
-when a TLS proxy fronts the place.
+`AlloPlace` is the place server. Useful flags:
+
+* `-n <name>` — human-facing name of the place.
+* `-p <port>` — TCP port for the HTTP listener (signalling, assets, dashboard; default 9080).
+* `-u <min-max>` — UDP port range for WebRTC (default 10000-11000).
+* `-t <token>` — token an AlloApp must present to be granted app privileges; omitted, any app
+  that asks is authenticated. It is a role credential, not a connection gate: clients
+  announcing as users are only gated by `--require-auth` + an authentication provider.
+* `--require-auth` — refuse users until an authentication provider has registered. Without it,
+  a place admits anyone in the window between starting up and its provider connecting.
+* `--assets-dir <path>` — keep published assets across restarts (default is under the temp
+  directory).
+* `-l <from_ip-to_ip>` — rewrite a Docker-internal IP to the host's public one in published
+  SDP candidates.
+* `--app-name`, `--app-download-url`, `--app-url-protocol` — brand the landing page for a
+  custom client.
+
+Signalling is over HTTP for localhost and HTTPS when a TLS proxy fronts the place.
 
 Also runnable from Xcode: open the package, pick the AlloPlace scheme, set the same
 flags as Run arguments.
@@ -86,5 +98,13 @@ transport; `alloclient` and `AlloReality` are Apple-only. See `Dockerfile`.
 
 ## Documentation
 
-Start at [docs/index.md](docs/index.md) — architecture, the asset protocol, rendering
-measurements, gotchas, history.
+Start at [docs/index.md](docs/index.md) — architecture, the asset protocol, writing your own
+alloapp, rendering measurements, gotchas, history.
+
+Building a widget or extension for a place — your own, or a hosted one like a Koja workplace?
+[docs/writing-an-alloapp.md](docs/writing-an-alloapp.md) is the guide.
+
+Alloverse 1's conceptual documentation at [docs.alloverse.com](https://docs.alloverse.com)
+(e.g. [the architecture overview](https://docs.alloverse.com/concepts/architecture)) is still
+useful background: places, visors, alloapps, and the entity/component model carry over, but
+allonet2's protocol details (this README, this repo's docs/) differ throughout.
