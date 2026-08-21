@@ -66,10 +66,12 @@ links. Swift tools 6.1, language mode 5, platforms macOS 15 / iOS 18 / visionOS 
 - Announce (`PlaceServer+PlaceInteractions.swift`): version gate (major+minor must match),
   authentication, avatar creation from `EntityDescription`, spawn at a `SpawnPoint`, reply
   with `avatarId` + `placeName` + the asset publish token.
-- Authentication: apps present the shared `-t` token; user auth is delegated to an alloapp
-  that sent `registerAsAuthenticationProvider` — the place forwards each user's
-  `authenticationRequest` to it with a 10 s timeout. `--require-auth` keeps the place closed
-  until a provider exists.
+- Authentication: an announce with `expectation: .app` is always checked against the shared
+  `-t` token (an empty token authenticates any app) — this is the only path that grants app
+  privileges. Users are only authenticated when a provider is registered (or `--require-auth`
+  demands one): auth is delegated to the alloapp that sent
+  `registerAsAuthenticationProvider`, and the place forwards each user's
+  `authenticationRequest` to it with a 10 s timeout.
 - Fatally-refused clients are condemned to a third roster (`waitingToDisconnect`) rather than
   disconnected — see gotchas for why, and for what "iterate all clients" must include.
 - Errors: `AlloverseError` carries whether it is fatal *on the wire* (the raiser resolves it;
@@ -77,9 +79,12 @@ links. Swift tools 6.1, language mode 5, platforms macOS 15 / iOS 18 / visionOS 
 
 ## Threading
 
-Everything above the transports is `@MainActor`. Both transports marshal their callbacks onto
-main, with one deliberate exception: the incoming-data decode path is `nonisolated` so CBOR
-parsing can't queue behind the main thread. Real-time audio I/O goes through `AudioRingBuffer`
+Everything above the transports is `@MainActor`, with two deliberate exceptions. Both
+transports marshal their callbacks onto main, except the incoming-data decode path, which is
+`nonisolated` so CBOR parsing can't queue behind the main thread. And `PlaceServerAssets` is
+explicitly *not* `@MainActor`: asset hashing and file I/O run in FlyingFox's own task tree,
+with only the publish-token set actor-isolated — don't hang shared mutable state off it
+assuming the main actor protects it. Real-time audio I/O goes through `AudioRingBuffer`
 (lock-free SPSC, swift-atomics). Details and traps in [gotchas.md](gotchas.md).
 
 ## What is not here
@@ -89,5 +94,6 @@ parsing can't queue behind the main thread. Real-time audio I/O goes through `Au
   an alloapp (KojaServ does exactly this).
 - **No clock sync**: sequencing is `ackStateRev`; simulation runs on the server's own 20 ms
   tick.
-- **No schema negotiation**: components are runtime-registered Codables; unknown ones decode
-  as `CustomComponent`.
+- **No schema negotiation**: components are runtime-registered Codables. An unknown component
+  survives on the wire as `AnyComponent`; `decodeCustom()` turns it into a `CustomComponent`,
+  while plain `decoded()` **traps** on any unregistered type.
