@@ -99,9 +99,9 @@ A peer opens voice channels in-band, before it has announced anything, so both e
 channel are a trust boundary and both are bounded:
 
 - **Sixty-four adopted streams per transport** (`HeadlessWebRTCTransport.maximumMediaStreams`).
-  The ninth channel a peer opens is closed rather than adopted, with a warning naming the
-  media id. Outgoing streams don't count, so a place forwarding to a listener is unaffected -
-  but a listener hearing more than eight speakers at once is not yet possible.
+  The sixty-fifth channel a peer opens is closed rather than adopted, with a warning naming
+  the media id. Outgoing streams don't count, so a place forwarding to a listener is
+  unaffected; the cap is also the most speakers one listener can hear at once.
 - **`maximumFrameBytes` per message** - one uncompressed Float32 frame, the most verbose
   kind the format has. Anything larger counts as `malformed` and is dropped before the
   fan-out, so no forwarder re-emits it and no jitter buffer holds it.
