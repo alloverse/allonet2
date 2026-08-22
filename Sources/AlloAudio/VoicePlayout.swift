@@ -38,6 +38,7 @@ public final class VoicePlayout
         let ring = stream.render()
         let source = AVAudioSourceNode(format: format) { _, _, frameCount, audioBufferList in
             let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
+            stream.notePlayout(of: ring)   // which frame this is, before the read moves the head
             ring.readOrSilence(into: buffers, frames: Int(frameCount))
             return noErr
         }
@@ -51,6 +52,11 @@ public final class VoicePlayout
         }
         logger.info("Playing \(stream.mediaId)")
     }
+
+    /// What the output device adds after the render callback: buffering, conversion and the
+    /// hardware itself. Not included in a render-callback-to-capture measurement, so report it
+    /// alongside one rather than pretending it is not there.
+    public var outputLatency: TimeInterval { engine.outputNode.presentationLatency }
 
     public func stop(_ mediaId: MediaStreamId)
     {
