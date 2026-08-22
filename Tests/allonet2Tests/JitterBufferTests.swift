@@ -133,16 +133,34 @@ struct JitterBufferTests
         _ = buffer.nextStep(codecSupportsFEC: true)
         _ = buffer.nextStep(codecSupportsFEC: true)
 
-        for _ in 0..<buffer.configuration.concealmentLimit
-        {
-            #expect(buffer.nextStep(codecSupportsFEC: true) == .conceal)
-        }
-        #expect(buffer.nextStep(codecSupportsFEC: true) == .priming, "gives up rather than concealing forever")
+        #expect(buffer.nextStep(codecSupportsFEC: true) == .conceal, "one slot of concealment covers the gap")
+        #expect(buffer.nextStep(codecSupportsFEC: true) == .priming, "then it waits rather than running ahead")
 
         // A sender that comes back is played from wherever it resumes.
         buffer.insert(Self.frame(500), arrival: Self.arrival(500))
         buffer.insert(Self.frame(501), arrival: Self.arrival(501))
         #expect(buffer.nextStep(codecSupportsFEC: true) == .decode(Self.frame(500)))
+    }
+
+    /// Seen live: one side dropped 73% of a lossless stream as "late". Playout had caught up
+    /// with arrival once, advanced past the empty slot, and from then on every frame arrived
+    /// one slot behind a playhead that kept concealing its way forward.
+    @Test func resumesFromTheNextFrameAfterAnUnderrun()
+    {
+        let counters = VoiceCountersBox()
+        let buffer = Self.makeBuffer(counters: counters)
+        buffer.insert(Self.frame(0), arrival: Self.arrival(0))
+        buffer.insert(Self.frame(1), arrival: Self.arrival(1))
+        _ = buffer.nextStep(codecSupportsFEC: true)
+        _ = buffer.nextStep(codecSupportsFEC: true)
+        #expect(buffer.nextStep(codecSupportsFEC: true) == .conceal, "underrun")
+
+        // The frames the playhead would have run past.
+        buffer.insert(Self.frame(2), arrival: Self.arrival(2))
+        buffer.insert(Self.frame(3), arrival: Self.arrival(3))
+        #expect(buffer.nextStep(codecSupportsFEC: true) == .decode(Self.frame(2)))
+        #expect(buffer.nextStep(codecSupportsFEC: true) == .decode(Self.frame(3)))
+        #expect(counters.snapshot.late == 0, "nothing that arrived after the underrun is late")
     }
 
     @Test func growsTheTargetDepthWithObservedJitter()

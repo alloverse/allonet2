@@ -170,7 +170,17 @@ public final class JitterBuffer: @unchecked Sendable
 
         consecutiveConcealments += 1
         counters.update { $0.concealed += 1 }
-        if consecutiveConcealments >= configuration.concealmentLimit
+        if frames.isEmpty
+        {
+            // Underrun: playout caught up with arrival. Advancing here would put the playhead
+            // one slot ahead of every frame still to come, so each arrives "late" and is
+            // dropped while the slot it missed is concealed - a lock that never releases.
+            // Re-prime instead; the jitter estimate has grown, so the depth comes back larger.
+            playhead = nil
+            consecutiveConcealments = 0
+            seenHighestSequence = nil
+        }
+        else if consecutiveConcealments >= configuration.concealmentLimit
         {
             // Nothing has arrived for a long time. Re-prime so playout restarts cleanly
             // rather than concealing indefinitely against a playhead that ran away.
