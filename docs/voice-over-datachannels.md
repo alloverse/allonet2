@@ -109,8 +109,40 @@ blocker once the client uses it:
 simulator, and iOS later) is real work there first. That is the single prerequisite for
 deleting googlewebrtc.
 
+- **Voice processing hands out a `DiscreteInOrder` input layout** (four identical 16 kHz
+  channels on a Mac mini with a USB webcam mic), and `AVAudioConverter` has no downmix rule for
+  discrete channels: without an explicit `channelMap` it maps none and emits silence. Every
+  counter said voice was flowing; nothing was captured. The raw-tap peak log in `VoiceCapture`
+  exists to tell a silent microphone from a conversion that drops the signal.
+- **Voice processing ducks audio it did not render itself**, which includes playout on a second
+  `AVAudioEngine`. `voiceProcessingOtherAudioDuckingConfiguration` is set to the minimum; one
+  engine for capture and playout is the real fix and also gives AEC its reference.
+- **An empty jitter buffer is an underrun, not a loss.** Advancing the playhead on an empty slot
+  put it one frame ahead of arrival for good: every frame "late", every slot concealed. It
+  re-primes instead, and the regression test is `resumesFromTheNextFrameAfterAnUnderrun`.
+- **A stopped forwarder must close its channel.** Otherwise the receiver keeps an adopted stream
+  that never carries another frame - a listener who joined while a crashed speaker's media was
+  still advertised (ICE consent expiry is ~20 s) played silence for the rest of the session.
+  This also needed AlloDataChannel to drop *remotely* closed channels from `dataChannels`, and
+  exposed that every channel's closed callback fires when a peer connection goes down, after
+  disconnect has already reported those streams: `AlloSession` reports each removal once.
+
+## Heard live
+
+2026-08-22, two `voicedemo` instances on one Mac mini through speakers, webcam microphone:
+mouth-to-speaker delay felt like 200-500 ms (a guess, not a measurement), no howling - though
+with mic and speakers that far apart, feedback is hard to provoke. Zero `late` frames in either
+direction over minutes. A real latency number needs a loopback measurement, not ears.
+
 ## Running it
 
     swift test --filter VoiceE2ETests     # real server + real clients over loopback
     ./Scripts/soak-e2e.sh 20              # the same, 20 times, with a hang watchdog
     swift run voicedemo                   # mic in, voice out (needs a human for the mic prompt)
+    VOICEDEMO_TONE=440 swift run voicedemo # a sine instead of the mic: headless, no VPIO, no prompt
+    VOICEDEMO_NO_VPIO=1 swift run voicedemo # capture in the device's native format
+
+Other agents run places on this machine: give yours its own HTTP port *and* UDP range
+(`AlloPlace -p 9180 -u 12000-13000`), or media collides on the default 10000-11000 and
+looks like a voice bug. Counters print every 5 s: `capPeak`/`playPeak` are the loudest sample
+in that window, so a stream with frames but no peak is silent, not slow.
