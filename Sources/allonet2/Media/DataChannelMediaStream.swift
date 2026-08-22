@@ -24,6 +24,9 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     public static let frameDuration = 960
     /// The one sample rate this path runs at, capture through playout.
     public static let sampleRate = 48000.0
+    /// Largest message this stream will take off the wire: one frame of the most verbose kind
+    /// the format has, uncompressed Float32. Opus at its maximum bitrate is a third of it.
+    public static let maximumFrameBytes = frameDuration * MemoryLayout<Float>.size + VoiceFrame.headerSize
 
     private let sendFrame: (Data) -> Bool
     private let closeChannel: () -> Void
@@ -42,12 +45,14 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     /// - Parameter sendFrame: writes one encoded frame to the underlying channel, returning
     ///   false when the channel is gone - which on an unreliable channel simply means the
     ///   frame is lost.
+    /// - Parameter monotonicNow: seconds on a clock that only moves forward, used to measure
+    ///   arrival jitter. Override it to drive the jitter buffer from a test's own clock.
     public init(
         mediaId: MediaStreamId,
         direction: MediaStreamDirection,
         counters: VoiceCountersBox = VoiceCountersBox(),
         jitterBuffer: JitterBuffer? = nil,
-        monotonicNow: @escaping () -> Double = { Date().timeIntervalSinceReferenceDate },
+        monotonicNow: @escaping () -> Double = { Double(DispatchTime.now().uptimeNanoseconds) / 1e9 },
         closeChannel: @escaping () -> Void = {},
         sendFrame: @escaping (Data) -> Bool
     )
@@ -79,10 +84,19 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     public func deliver(_ data: Data)
     {
         counters.update { $0.received += 1 }
+        // Before the fan-out: every forwarder would re-emit an oversized frame, and every
+        // jitter buffer downstream would hold on to it.
+        guard data.count <= Self.maximumFrameBytes else
+        {
+            counters.update { $0.malformed += 1 }
+            logger.debug("Dropped oversized voice frame: \(data.count) bytes")
+            return
+        }
         observers.emit(data)
 
         // The server routes without parsing; only a receiver needs the frame itself.
-        guard ringBuffer != nil else { return }
+        lock.lock(); let receiving = ringBuffer != nil; lock.unlock()
+        guard receiving else { return }
         do
         {
             let frame = try VoiceFrame(decoding: data)
@@ -115,13 +129,14 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     public func send(samples: UnsafePointer<Float>, frameCount: Int) -> UInt32?
     {
         let peak = Self.peak(of: samples, count: frameCount)
-        lock.lock()
+        // One Opus encoder and one sequence, so the whole frame is one critical section:
+        // two callers interleaving would corrupt the codec's state, not just the numbering.
+        lock.lock(); defer { lock.unlock() }
         counters.update { $0.captured += 1; $0.capturedPeak = max($0.capturedPeak, peak) }
         if encoder == nil
         {
             guard let make = VoiceCodecs.makeEncoder else
             {
-                lock.unlock()
                 logger.error("Cannot send voice: \(VoiceCodecError.noCodecInstalled)")
                 counters.update { $0.sendFailed += 1 }
                 return nil
@@ -129,7 +144,6 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
             do { encoder = try make() }
             catch
             {
-                lock.unlock()
                 logger.error("Cannot create voice encoder: \(error)")
                 counters.update { $0.sendFailed += 1 }
                 return nil
@@ -140,7 +154,6 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         let timestamp = nextTimestamp
         nextSequence &+= 1
         nextTimestamp &+= UInt32(frameCount)
-        lock.unlock()
 
         do
         {

@@ -135,17 +135,12 @@ public class HeadlessWebRTCTransport: Transport
         }.store(in: &cancellables)
 
 
+        // Only a legacy googlewebrtc peer still opens an RTP track, and nothing on this side
+        // can render one - reporting it upwards reaches Track.render(), which traps.
         peer.$tracks.sinkChanges(added: { [weak self] track in
-            onMain { [weak self] in
-                guard let self else { return }
-                delegate?.transport(self, didReceiveMediaStream: track)
-            }
-        }, removed: { [weak self] track in
-            onMain { [weak self] in
-                guard let self else { return }
-                delegate?.transport(self, didRemoveMediaStream: track)
-            }
-        }).store(in: &cancellables)
+            let mediaId = track.mediaId
+            onMain { [weak self] in self?.logger.warning("legacy RTP track \(mediaId) ignored") }
+        }, removed: { _ in }).store(in: &cancellables)
 
         peer.$dataChannels.sinkChanges(added: { [weak self] channel in
             // Deliberately not marshalled: see `adopt`.
@@ -333,21 +328,45 @@ public class HeadlessWebRTCTransport: Transport
 
     /// Open an outgoing voice stream. No m-line, no offer/answer: the channel is the stream,
     /// and the far side learns about it in-band.
+    ///
+    /// - Parameter mediaId: names the stream inside this client's own namespace, and must
+    ///   contain no period; the place prefixes it with the sender's short client id to build
+    ///   the id listeners see.
+    /// - Throws: `MediaStreamIdError.containsPeriod` for an id the place could not encode.
     public func createOutgoingMediaStream(mediaId: MediaStreamId) throws -> DataChannelMediaStream
+    {
+        guard !mediaId.contains(".") else { throw MediaStreamIdError.containsPeriod(mediaId) }
+        return try openOutgoingMediaStream(mediaId: mediaId)
+    }
+
+    /// The place's own outgoing ids are already two-component, so forwarding skips the check
+    /// the client-facing API makes.
+    private func openOutgoingMediaStream(mediaId: MediaStreamId) throws -> DataChannelMediaStream
     {
         let label = DataChannelLabel.media(mediaId)
         guard let channel = createMediaChannel(label: label) as? AlloWebRTCPeer.DataChannel else
         {
             throw AlloverseError(code: AlloverseErrorCode.internalServerError, description: "Could not open media channel for \(mediaId)")
         }
+        // Captured by value: this closure runs on whichever thread produced the frame.
+        let logger = self.logger
         let stream = DataChannelMediaStream(mediaId: mediaId, direction: .sendonly, closeChannel: { [weak channel] in channel?.close() }) { [weak channel] data in
             guard let channel, channel.isOpen else { return false }
             do { try channel.send(data: data); return true }
-            catch { return false }
+            catch
+            {
+                logger.error("Failed to send voice frame on \(mediaId): \(error)")
+                return false
+            }
         }
         mediaStreams[mediaId] = stream
         return stream
     }
+
+    /// How many voice channels a remote peer may open on one transport. A peer can open them
+    /// in-band before it has announced, so nothing else bounds what it costs us to keep.
+    static let maximumMediaStreams = 64
+    private var adoptedMediaStreams: Int { mediaStreams.values.count { $0.streamDirection == .recvonly } }
 
     /// Adopt a media channel the far side opened in-band. Subscribes on libdatachannel's
     /// thread - see docs/voice-implementation.md, Threads.
@@ -368,6 +387,13 @@ public class HeadlessWebRTCTransport: Transport
         onMain { [weak self] in
             guard let self else { return subscription.cancel() }
             guard mediaStreams[mediaId] == nil else { return subscription.cancel() }
+            guard adoptedMediaStreams < Self.maximumMediaStreams else
+            {
+                logger.warning("Refusing media stream \(mediaId): already carrying \(Self.maximumMediaStreams) incoming streams")
+                subscription.cancel()
+                channel.close()
+                return
+            }
             mediaStreams[mediaId] = stream
             channels[channel.label] = channel
             cancellables.insert(subscription)
@@ -378,8 +404,10 @@ public class HeadlessWebRTCTransport: Transport
 
     private func forget(remote channel: AlloWebRTCPeer.DataChannel)
     {
-        guard let label = DataChannelLabel(rawValue: channel.label), case .media(let mediaId) = label,
-              let stream = mediaStreams.removeValue(forKey: mediaId) else { return }
+        guard let label = DataChannelLabel(rawValue: channel.label), case .media(let mediaId) = label else { return }
+        // A stale close for a channel we already replaced must not take its successor with it.
+        guard channels[channel.label] === channel else { return }
+        guard let stream = mediaStreams.removeValue(forKey: mediaId) else { return }
         channels[channel.label] = nil
         // Outgoing channels close through here too; only incoming ones were streams to the session.
         guard stream.streamDirection != .sendonly else { return }
@@ -416,9 +444,11 @@ public class HeadlessWebRTCTransport: Transport
 
         if let source = mediaStream as? DataChannelMediaStream
         {
+            // The sender named this one, so it is checked here rather than trusted.
+            guard !source.mediaId.contains(".") else { throw MediaStreamIdError.containsPeriod(source.mediaId) }
             let receiverHeadless = (receiver as! HeadlessWebRTCTransport)
             let placeStreamId = PlaceStreamId(shortClientId: sender.clientId!.shortClientId, incomingMediaId: source.mediaId)
-            let destination = try receiverHeadless.createOutgoingMediaStream(mediaId: placeStreamId.outgoingMediaId)
+            let destination = try receiverHeadless.openOutgoingMediaStream(mediaId: placeStreamId.outgoingMediaId)
             // No scheduleRenegotiation(): an in-band data channel needs no offer/answer.
             return DataChannelForwarder(from: source, to: destination)
         }

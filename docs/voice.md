@@ -93,6 +93,23 @@ libopus 1.4 is vendored (`Packages/opus`, BSD-3-Clause, see `LICENSES.md`) and b
 SwiftPM C target, so every platform gets the same codec with no per-machine setup. The place
 server links no codec: it never decodes.
 
+## Limits
+
+A peer opens voice channels in-band, before it has announced anything, so both ends of the
+channel are a trust boundary and both are bounded:
+
+- **Sixty-four adopted streams per transport** (`HeadlessWebRTCTransport.maximumMediaStreams`).
+  The ninth channel a peer opens is closed rather than adopted, with a warning naming the
+  media id. Outgoing streams don't count, so a place forwarding to a listener is unaffected -
+  but a listener hearing more than eight speakers at once is not yet possible.
+- **`maximumFrameBytes` per message** - one uncompressed Float32 frame, the most verbose
+  kind the format has. Anything larger counts as `malformed` and is dropped before the
+  fan-out, so no forwarder re-emits it and no jitter buffer holds it.
+- **A media id may not contain a period.** The place names a forwarded stream
+  `<shortClientId>.<mediaId>` and parses it back as exactly two components.
+  `createOutgoingMediaStream` throws `MediaStreamIdError.containsPeriod` rather than opening
+  a stream every listener would ignore.
+
 ## Known limitations
 
 - **Echo cancellation does not cover our own playout.** Capture uses Apple's voice processor

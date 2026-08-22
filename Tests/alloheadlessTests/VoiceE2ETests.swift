@@ -219,6 +219,38 @@ final class VoiceE2ETests: XCTestCase
         try await waitUntil(timeout: 10) { listener.client.streams[placeStreamId] == nil }
         }
     }
+
+    /// A peer opens voice channels in-band, before it has announced anything: without a cap it
+    /// can make the place hold as many streams, subscriptions and channels as it likes.
+    func testAPeerCannotOpenUnboundedMediaStreams() async throws
+    {
+        try await withPlace { place in
+        let cap = HeadlessWebRTCTransport.maximumMediaStreams
+        let speaker = try await place.connectClient(named: "speaker")
+        for i in 0..<(cap + 3) { _ = try speaker.startSpeaking(mediaId: "voice-\(i)") }
+
+        try await waitUntil(timeout: 15) { place.server.sfu.available.count >= cap }
+        // The channels past the cap are refused, not merely slow; give them time to prove it.
+        try await Task.sleep(nanoseconds: 1_000_000_000)
+        XCTAssertEqual(place.server.sfu.available.count, cap, "place adopted past its cap")
+        }
+    }
+
+    /// A period would land inside the place's "<shortClientId>.<mediaId>", which parses into
+    /// two components: listeners would ignore the stream and never say why.
+    @MainActor
+    func testAMediaIdWithAPeriodIsRefused() throws
+    {
+        let transport = HeadlessWebRTCTransport(
+            with: TransportConnectionOptions(routing: .direct, portRange: 21400..<21500),
+            status: ConnectionStatus())
+        defer { transport.disconnect() }
+
+        XCTAssertThrowsError(try transport.createOutgoingMediaStream(mediaId: "voice.mic")) { error in
+            XCTAssertEqual(error as? MediaStreamIdError, .containsPeriod("voice.mic"))
+        }
+        XCTAssertNoThrow(try transport.createOutgoingMediaStream(mediaId: "voice-mic"))
+    }
 }
 
 // MARK: - Harness

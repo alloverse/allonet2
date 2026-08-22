@@ -90,9 +90,12 @@ public final class VoiceCapture
             if inputFormat.channelCount != outputFormat.channelCount { converter.channelMap = [0] }
             self.converter = converter
         }
+        else { converter = nil }
         logger.info("Capturing from \(inputFormat) (\(inputFormat.channelLayout?.layoutTag.description ?? "no layout")), sending as \(outputFormat), voice processing: \(voiceProcessingEnabled)")
 
-        input.installTap(onBus: 0, bufferSize: AVAudioFrameCount(DataChannelMediaStream.frameDuration), format: inputFormat)
+        // 20 ms at the *input* rate, which is not the 48 kHz the frame duration counts in.
+        let tapFrames = AVAudioFrameCount(inputFormat.sampleRate * 0.02)
+        input.installTap(onBus: 0, bufferSize: tapFrames, format: inputFormat)
         { [weak self] buffer, _ in
             guard let self else { return }
             let capturedAt = Date()   // the hop to the main actor below is not part of capture

@@ -5,6 +5,21 @@
 
 import Foundation
 
+/// A receiver's channel refused a forwarded frame. The transport logs why; this is what the
+/// status endpoint reports, since the Bool the channel hands back carries no cause.
+public enum ForwardingError: Error, Equatable, CustomStringConvertible
+{
+    case sendFailed(MediaStreamId)
+
+    public var description: String
+    {
+        switch self
+        {
+        case .sendFailed(let mediaId): "send failed for \(mediaId)"
+        }
+    }
+}
+
 /// Forwards one voice stream to one receiver by copying frames between channels.
 ///
 /// This is the whole SFU media path. Nothing is decoded, re-encoded, renumbered or
@@ -29,10 +44,11 @@ public final class DataChannelForwarder: MediaStreamForwarder, @unchecked Sendab
         token = source.observeFrames { [weak self] frame in
             guard let self else { return }
             destination.counters.update { $0.forwardedIn += 1 }
-            if destination.forward(frame)
-            {
-                lock.lock(); messageCount += 1; lock.unlock()
-            }
+            let sent = destination.forward(frame)
+            lock.lock()
+            if sent { messageCount += 1 }
+            else { error = ForwardingError.sendFailed(destination.mediaId); errorAt = Date() }
+            lock.unlock()
         }
     }
 
