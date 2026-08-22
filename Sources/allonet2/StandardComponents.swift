@@ -62,7 +62,9 @@ public struct Model: Component
     public enum Mesh: Equatable, Codable
     {
         case builtin(name: String) // A mesh loaded from a client-provided file. This is a hack and will be replaced by Asset-based meshes
-        case asset(id: String) // A mesh loaded by requesting it over the network from the agent that publishes it
+        /// A mesh fetched from the place by content address; the whole file is the visual, and
+        /// nothing addresses inside it. One asset per thing that needs its own entity.
+        case asset(id: AssetID)
         // The rest or basic geometric meshes
         case box(size: SIMD3<Float>, cornerRadius: Float)
         case plane(width: Float, depth: Float, cornerRadius: Float)
@@ -82,11 +84,32 @@ public struct Model: Component
 
     public var mesh: Mesh
     public var material: Material
-    
+
     public init(mesh: Mesh, material: Material = .standard)
     {
         self.mesh = mesh
         self.material = material
+    }
+
+    /// What a Model with an unparseable asset id decodes to: the renderer's red placeholder box.
+    public static let unrenderable = Model(
+        mesh: .box(size: .init(repeating: 0.5), cornerRadius: 0),
+        material: .color(color: .rgb(red: 1, green: 0, blue: 0, alpha: 1), metallic: true))
+
+    /// `AnyComponent.decoded()` force-tries, so throwing here would trap every client rendering the
+    /// entity. A bad id can never name bytes, so degrade to `unrenderable` instead.
+    public init(from decoder: any Decoder) throws
+    {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        do
+        {
+            mesh = try c.decode(Mesh.self, forKey: .mesh)
+            material = try c.decode(Material.self, forKey: .material)
+        }
+        catch is AssetError
+        {
+            self = Self.unrenderable
+        }
     }
 }
 

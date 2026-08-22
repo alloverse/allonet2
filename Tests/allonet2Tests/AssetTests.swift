@@ -48,6 +48,43 @@ struct AssetIDTests
         #expect(String(data: encoded, encoding: .utf8) == "{\"id\":\"\(id)\"}")
         #expect(try JSONDecoder().decode(AssetUploadResponse.self, from: encoded).id == id)
     }
+
+    /// `Mesh.asset` used to carry a bare `String`; the `AssetID` retype must encode identically or
+    /// the component breaks across the version gap.
+    @Test @MainActor func meshAssetCodesLikeItsStringPredecessor() throws
+    {
+        let id = AssetID(hashing: Data("mesh".utf8))
+        let encoded = try JSONEncoder().encode(Model.Mesh.asset(id: id))
+        #expect(String(data: encoded, encoding: .utf8) == "{\"asset\":{\"id\":\"\(id)\"}}")
+        #expect(try JSONDecoder().decode(Model.Mesh.self, from: encoded) == .asset(id: id))
+    }
+
+    /// Hand-writing `init(from:)` is exactly the change that silently rewrites a wire format.
+    @Test @MainActor func modelStillCodesAsItAlwaysDid() throws
+    {
+        let id = AssetID(hashing: Data("mesh".utf8))
+        let model = Model(mesh: .asset(id: id))
+        // Sorted: JSONEncoder's key order for this type varies between processes.
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        let encoded = try encoder.encode(model)
+        #expect(String(data: encoded, encoding: .utf8) == "{\"material\":{\"standard\":{}},\"mesh\":{\"asset\":{\"id\":\"\(id)\"}}}")
+        #expect(try JSONDecoder().decode(Model.self, from: encoded) == model)
+    }
+
+    /// `AnyComponent.decoded()` force-tries, so one malformed id from any peer would empty a room.
+    @Test @MainActor func aModelWithAnUnparseableAssetIdDegradesInsteadOfTrapping() throws
+    {
+        func model(_ json: String) throws -> Model
+        {
+            try JSONDecoder().decode(Model.self, from: Data(json.utf8))
+        }
+        // Mesh and material reach AssetID through different enums.
+        #expect(try model(#"{"mesh":{"asset":{"id":"placeholder"}},"material":{"standard":{}}}"#) == .unrenderable)
+        #expect(try model(#"{"mesh":{"sphere":{"radius":1}},"material":{"image":{"asset":"../../etc/passwd"}}}"#) == .unrenderable)
+        // Wrong in some other way is still an error: we only know what a bad id means.
+        #expect(throws: (any Error).self) { try model(#"{"mesh":{"sphere":{"radius":"big"}},"material":{"standard":{}}}"#) }
+    }
 }
 
 // MARK: - Announce compatibility

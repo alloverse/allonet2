@@ -9,6 +9,7 @@ import RealityKit
 import OpenCombineShim
 import allonet2
 import SwiftUI
+import GLTFKit2
 
 /// The RealityViewMapper creates and maintains RealityKit entities and components to perfectly match corresponding entities and components inside an Alloverse connection's PlaceContents.
 @MainActor
@@ -43,6 +44,9 @@ public class RealityViewMapper
         }.store(in: &cancellables)
         netstate.observers.entityRemoved.sink { netent in
             guard let guient = self.guiForEid(netent.id) else { return }
+            // Component removers don't run for an entity that merely goes away.
+            guient.components[AlloModelStateComponent.self]?.loadingTask?.cancel()
+            guient.components[AlloTextStateComponent.self]?.loadingTask?.cancel()
             guient.removeFromParent()
         }.store(in: &cancellables)
         
@@ -146,23 +150,17 @@ public class RealityViewMapper
 
             if case .builtin(name: let name) = model.mesh
             {
-                entity.components.remove(ModelComponent.self)
-                state.loadingTask = Task {
-                    var loaded: RealityKit.Entity!
-                    do {
-                        loaded = try await Entity(named: name, in: self.builtinAssetsBundle)
-                    } catch (let e) {
-                        print("Failed to load builtin model \(name) for entity \(entity.id): \(e)")
-                        loaded = ModelEntity(mesh: .generateBox(size: 0.5), materials: [SimpleMaterial(color: .red, isMetallic: true)])
-                    }
-                    if(Task.isCancelled) { return }
-                    // Re-read: `state` is a value copy from before the await, and a newer Model may
-                    // have landed in the meantime.
-                    var state = entity.components[AlloModelStateComponent.self] ?? AlloModelStateComponent()
-                    state.loadingTask = nil
-                    state.entity = loaded
-                    entity.components.set(state)
-                    entity.addChild(loaded)
+                state.loadingTask = self.loadVisual(of: entity, describedAs: "builtin model \(name)")
+                {
+                    try await Entity(named: name, in: self.builtinAssetsBundle)
+                }
+            }
+            else if case .asset(id: let id) = model.mesh
+            {
+                state.loadingTask = self.loadVisual(of: entity, describedAs: "mesh asset \(id)")
+                {
+                    guard let url = try await self.resolvedAssetURL(id, for: entity.name) else { return Self.missingVisual() }
+                    return try await Self.visual(ofAssetAt: url)
                 }
             }
             else if case .image(let asset) = model.material
@@ -211,24 +209,175 @@ public class RealityViewMapper
         }
     }
 
+    /// Load `.builtin`/`.asset` meshes, which draw through a child subtree instead of the entity's
+    /// own `ModelComponent`. A failed load shows `missingVisual()`, never nothing.
+    private func loadVisual(
+        of entity: RealityKit.Entity,
+        describedAs description: String,
+        loading load: @escaping @MainActor () async throws -> RealityKit.Entity
+    ) -> Task<Void, Error>
+    {
+        entity.components.remove(ModelComponent.self)
+        return Task {
+            var loaded: RealityKit.Entity
+            do { loaded = try await load() }
+            catch
+            {
+                // Only our own cancellation means a newer Model replaced us.
+                if Task.isCancelled { return }
+                print("Failed to load \(description) for entity \(entity.name): \(error)")
+                loaded = Self.missingVisual()
+            }
+            if(Task.isCancelled) { return }
+            Self.anonymize(loaded)
+            // Re-read: `state` is a copy from before the await.
+            var state = entity.components[AlloModelStateComponent.self] ?? AlloModelStateComponent()
+            state.loadingTask = nil
+            state.entity = loaded
+            entity.components.set(state)
+            entity.addChild(loaded)
+        }
+    }
+
+    /// Clear a loaded subtree's names, so a peer's node can't answer to another entity's id in
+    /// `guiForEid`. Costs RealityKit's name-based animation binding; see docs/assets-implementation.md.
+    static func anonymize(_ entity: RealityKit.Entity)
+    {
+        entity.name = ""
+        for child in entity.children { anonymize(child) }
+    }
+
+    /// Stands in for a model that couldn't be loaded: red, so it can't be mistaken for content.
+    public static func missingVisual() -> RealityKit.Entity
+    {
+        ModelEntity(mesh: .generateBox(size: 0.5), materials: [SimpleMaterial(color: .red, isMetallic: true)])
+    }
+
+    /// The visual an asset file draws as, dispatched on the extension `AssetStore` derived from its
+    /// media type. `.gltf` is deliberately absent; see docs/assets-implementation.md.
+    public static func visual(ofAssetAt url: URL) async throws -> RealityKit.Entity
+    {
+        switch url.pathExtension.lowercased()
+        {
+        case "glb":
+            // Parse off-main, convert on it; the check keeps a cancelled load from paying for the
+            // expensive half. Costs in docs/assets-implementation.md.
+            let parsed = try await Task.detached(priority: .userInitiated) { try ParsedGLTF(contentsOf: url) }.value
+            try Task.checkCancellation()
+            guard let scene = parsed.asset.defaultScene ?? parsed.asset.scenes.first else
+            {
+                throw AssetVisualError.gltfHasNoScene(url)
+            }
+            try validate(parsed.asset, from: url)
+            return GLTFRealityKitLoader.convert(scene: scene, asset: parsed.asset)
+        case "usdz", "usda":
+            return try await Entity(contentsOf: url)
+        default:
+            throw AssetVisualError.unloadableFormat(url)
+        }
+    }
+
+    /// A parsed glTF handed back from the parse task; `@unchecked` because `GLTFAsset` is an
+    /// Objective-C class that only ever has the one reference.
+    ///
+    /// From bytes, never the URL: a URL gives cgltf a base directory to resolve external buffer
+    /// URIs against, which is a path traversal. See docs/assets-implementation.md.
+    private struct ParsedGLTF: @unchecked Sendable
+    {
+        let asset: GLTFAsset
+        init(contentsOf url: URL) throws { asset = try GLTFAsset(data: Data(contentsOf: url), options: [:]) }
+    }
+
+    /// Reject glTF that parses but contradicts itself, because RealityKit asserts below Swift on it
+    /// rather than throwing. Scope and gaps in docs/assets-implementation.md.
+    private static func validate(_ asset: GLTFAsset, from url: URL) throws
+    {
+        for mesh in asset.meshes
+        {
+            for primitive in mesh.primitives
+            {
+                let counts = Set(primitive.attributes.map { $0.accessor.count })
+                guard counts.count <= 1 else
+                {
+                    throw AssetVisualError.inconsistentGeometry(url, "attributes of one primitive describe \(counts.sorted()) vertices")
+                }
+                for attribute in primitive.attributes
+                {
+                    try validate(accessor: attribute.accessor, named: attribute.name ?? "an attribute", from: url)
+                }
+                if let indices = primitive.indices
+                {
+                    try validate(accessor: indices, named: "indices", from: url)
+                }
+            }
+        }
+    }
+
+    private static func validate(accessor: GLTFAccessor, named name: String, from url: URL) throws
+    {
+        // A sparse accessor with no buffer view is all zeroes; nothing to overrun.
+        guard let view = accessor.bufferView else { return }
+        let element = Int(GLTFBytesPerComponentForComponentType(accessor.componentType))
+                    * Int(GLTFComponentCountForDimension(accessor.dimension))
+        guard element > 0 else
+        {
+            throw AssetVisualError.inconsistentGeometry(url, "\(name) has no usable component type")
+        }
+        guard accessor.offset >= 0, accessor.count >= 0, view.offset >= 0, view.length >= 0 else
+        {
+            throw AssetVisualError.inconsistentGeometry(url, "\(name) has a negative offset, count or length")
+        }
+        let stride = view.stride > 0 ? view.stride : element
+        guard let needed = Self.windowEnd(offset: accessor.offset, count: accessor.count, stride: stride, element: element),
+              let viewEnd = ifNoOverflow(view.offset.addingReportingOverflow(view.length))
+        else
+        {
+            throw AssetVisualError.inconsistentGeometry(url, "\(name) describes a byte range too large to measure")
+        }
+        guard needed <= view.length, viewEnd <= view.buffer.length else
+        {
+            throw AssetVisualError.inconsistentGeometry(url, "\(name) reads \(needed) bytes from a \(view.length)-byte buffer view")
+        }
+    }
+
+    /// `offset + (count - 1) * stride + element`, or nil if it overflows — every term is a peer's,
+    /// and an `Int` overflow traps as hard as the assertion this exists to avoid.
+    private static func windowEnd(offset: Int, count: Int, stride: Int, element: Int) -> Int?
+    {
+        guard count > 0 else { return offset }
+        return ifNoOverflow((count - 1).multipliedReportingOverflow(by: stride))
+            .flatMap { ifNoOverflow(offset.addingReportingOverflow($0)) }
+            .flatMap { ifNoOverflow($0.addingReportingOverflow(element)) }
+    }
+
     private var warnedAboutMissingAssetResolver = false
 
-    /// A `.image` material's texture, or magenta if it can't be had: a logo nobody wired up must be
-    /// impossible to miss, and one failed fetch must not become a retry loop.
-    private func imageMaterial(asset: AssetID, for entityName: String) async -> RealityKit.Material
+    /// Where an asset's bytes are, or nil if nobody wired up `assetResolver` — a deployment mistake,
+    /// so it's said once rather than per asset.
+    private func resolvedAssetURL(_ asset: AssetID, for entityName: String) async throws -> URL?
     {
         guard let assetResolver else
         {
             if !warnedAboutMissingAssetResolver
             {
                 warnedAboutMissingAssetResolver = true
-                print("RealityViewMapper.assetResolver is nil, so image materials cannot load (first: \(asset) on entity \(entityName))")
+                print("RealityViewMapper.assetResolver is nil, so assets cannot load (first: \(asset) on entity \(entityName))")
             }
-            return SimpleMaterial(color: .magenta, isMetallic: false)
+            return nil
         }
+        return try await assetResolver(asset)
+    }
+
+    /// A `.image` material's texture, or magenta if it can't be had: a logo nobody wired up must be
+    /// impossible to miss, and one failed fetch must not become a retry loop.
+    private func imageMaterial(asset: AssetID, for entityName: String) async -> RealityKit.Material
+    {
         do
         {
-            let url = try await assetResolver(asset)
+            guard let url = try await resolvedAssetURL(asset, for: entityName) else
+            {
+                return SimpleMaterial(color: .magenta, isMetallic: false)
+            }
             let texture = try await TextureResource(contentsOf: url, options: .init(semantic: .color))
             // Measured (RealityKit, macOS 26): a base colour texture alone renders its transparent
             // texels black; `.transparent(opacity: .init(scale: 1))` is what makes RealityKit read
@@ -243,9 +392,8 @@ public class RealityViewMapper
         }
         catch
         {
-            // A newer Model landed and cancelled us: the caller throws away whatever we return, so
-            // this is not a failure to report.
-            if !(Task.isCancelled || error is CancellationError)
+            // Cancelled means the caller discards this anyway, so it isn't a failure to report.
+            if !Task.isCancelled
             {
                 print("Failed to load image asset \(asset) for entity \(entityName): \(error)")
             }
@@ -400,6 +548,34 @@ public class RealityViewMapper
 }
 
 
+/// The result of an overflow-reporting operation, or nil if it overflowed, so checks chain.
+private func ifNoOverflow(_ result: (partialValue: Int, overflow: Bool)) -> Int?
+{
+    result.overflow ? nil : result.partialValue
+}
+
+/// Why a fetched asset couldn't become a visual. The bytes are on disk and hash-checked by now, so
+/// what's left is a file this renderer won't open.
+public enum AssetVisualError: Error, Equatable, CustomStringConvertible
+{
+    /// No loader for this extension. `.gltf` included, on purpose; see docs/assets-implementation.md.
+    case unloadableFormat(URL)
+    /// Valid glTF, but with nothing in it to draw.
+    case gltfHasNoScene(URL)
+    /// Parseable glTF whose vertex data contradicts itself; the string says which invariant broke.
+    case inconsistentGeometry(URL, String)
+
+    public var description: String
+    {
+        switch self
+        {
+        case .unloadableFormat(let url): return "No mesh loader for \(url.pathExtension.isEmpty ? "a file without an extension" : "." + url.pathExtension) (\(url.lastPathComponent))"
+        case .gltfHasNoScene(let url): return "glTF \(url.lastPathComponent) contains no scene"
+        case .inconsistentGeometry(let url, let what): return "glTF \(url.lastPathComponent) is inconsistent: \(what)"
+        }
+    }
+}
+
 extension allonet2.Model.Mesh
 {
     var realityMesh: RealityKit.MeshResource
@@ -407,7 +583,7 @@ extension allonet2.Model.Mesh
         switch self
         {
         case .builtin(name: let name): fatalError("Must use Model's factory to also load material")
-        case .asset(id: let id): fatalError("not implemented")
+        case .asset: fatalError("Must use Model's factory to also load material")
         case .box(size: let size, cornerRadius: let cornerRadius):
             return .generateBox(size: size, cornerRadius: cornerRadius)
         case .plane(width: let width, depth: let depth, cornerRadius: let cornerRadius):
