@@ -98,7 +98,7 @@ server links no codec: it never decodes.
 A peer opens voice channels in-band, before it has announced anything, so both ends of the
 channel are a trust boundary and both are bounded:
 
-- **Eight adopted streams per transport** (`HeadlessWebRTCTransport.maximumMediaStreams`).
+- **Sixty-four adopted streams per transport** (`HeadlessWebRTCTransport.maximumMediaStreams`).
   The ninth channel a peer opens is closed rather than adopted, with a warning naming the
   media id. Outgoing streams don't count, so a place forwarding to a listener is unaffected -
   but a listener hearing more than eight speakers at once is not yet possible.

@@ -365,7 +365,7 @@ public class HeadlessWebRTCTransport: Transport
 
     /// How many voice channels a remote peer may open on one transport. A peer can open them
     /// in-band before it has announced, so nothing else bounds what it costs us to keep.
-    static let maximumMediaStreams = 8
+    static let maximumMediaStreams = 64
     private var adoptedMediaStreams: Int { mediaStreams.values.count { $0.streamDirection == .recvonly } }
 
     /// Adopt a media channel the far side opened in-band. Subscribes on libdatachannel's
