@@ -7,6 +7,9 @@
 //
 //  Usage: swift run voicedemo [alloplace2://host:port]
 //
+//  VOICEDEMO_TONE=440 sends a sine at that frequency instead of the microphone. No capture
+//  engine, no voice processing, no permission prompt: a sender an agent can run headless.
+//
 
 import Foundation
 import allonet2
@@ -22,6 +25,7 @@ struct VoiceDemo
 {
     static func main() async throws
     {
+        setvbuf(stdout, nil, _IOLBF, 0)   // counters must reach a redirected log as they happen
         Opus.install()
 
         let url = URL(string: CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "alloplace2://localhost:9080")!
@@ -57,6 +61,7 @@ final class VoiceDemoClient: AlloClient
     private let playout = VoicePlayout()
     private var outgoing: DataChannelMediaStream?
     private var incoming: [MediaStreamId: DataChannelMediaStream] = [:]
+    private var tone: DispatchSourceTimer?
 
     override func reset()
     {
@@ -70,14 +75,39 @@ final class VoiceDemoClient: AlloClient
         let mediaId = "voice-mic"
         let stream = try voiceTransport.createOutgoingMediaStream(mediaId: mediaId)
         outgoing = stream
-        try capture.start(sending: stream)
+        if let hz = ProcessInfo.processInfo.environment["VOICEDEMO_TONE"].flatMap(Double.init)
+        {
+            startTone(hz: hz, into: stream)
+        }
+        else
+        {
+            try capture.start(sending: stream)
+        }
 
         let placeStreamId = PlaceStreamId(shortClientId: cid!.shortClientId, incomingMediaId: mediaId)
         try await changeEntity(entityId: avatarId, addOrChange: [
             LiveMedia(mediaId: placeStreamId.outgoingMediaId,
                       format: .audio(codec: .opus, sampleRate: 48000, channelCount: 1))
         ])
-        print("Sending \(placeStreamId.outgoingMediaId), voice processing: \(capture.voiceProcessingEnabled)")
+        print("Sending \(placeStreamId.outgoingMediaId), " + (tone != nil ? "tone" : "voice processing: \(capture.voiceProcessingEnabled)"))
+    }
+
+    /// 20 ms of sine every 20 ms, on a timer rather than an audio clock: good enough to prove
+    /// the path, and deliberately a little jittery.
+    private func startTone(hz: Double, into stream: DataChannelMediaStream)
+    {
+        let frameCount = DataChannelMediaStream.frameDuration
+        var phase = 0.0
+        let step = 2 * Double.pi * hz / DataChannelMediaStream.sampleRate
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "voicedemo.tone"))
+        timer.schedule(deadline: .now(), repeating: .milliseconds(20), leeway: .milliseconds(2))
+        timer.setEventHandler {
+            var samples = [Float](repeating: 0, count: frameCount)
+            for i in 0..<frameCount { samples[i] = Float(sin(phase)) * 0.25; phase += step }
+            samples.withUnsafeBufferPointer { stream.send(samples: $0.baseAddress!, frameCount: frameCount) }
+        }
+        tone = timer
+        timer.resume()
     }
 
     /// Listen to everything in the place except ourselves.
@@ -115,7 +145,15 @@ final class VoiceDemoClient: AlloClient
 
     func reportCounters()
     {
-        if let outgoing { print("out \(outgoing.mediaId): \(outgoing.counters.snapshot)") }
-        for (mediaId, stream) in incoming { print("in  \(mediaId): \(stream.counters.snapshot)") }
+        if let outgoing
+        {
+            print("out \(outgoing.mediaId): \(outgoing.counters.snapshot)")
+            outgoing.counters.update { $0.resetPeaks() }
+        }
+        for (mediaId, stream) in incoming
+        {
+            print("in  \(mediaId): \(stream.counters.snapshot) ringUnderrun=\(stream.render().underruns)")
+            stream.counters.update { $0.resetPeaks() }
+        }
     }
 }

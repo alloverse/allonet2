@@ -40,7 +40,14 @@ public struct VoiceCounters: Equatable, Sendable, Codable, CustomStringConvertib
     public var concealed = 0
     public var played = 0
 
+    /// Loudest sample seen since the last reset, 0...1. Zero with frames flowing means the
+    /// audio is silent: a muted or unpermitted microphone, or playout that never got samples.
+    public var capturedPeak: Float = 0
+    public var playedPeak: Float = 0
+
     public init() {}
+
+    public mutating func resetPeaks() { capturedPeak = 0; playedPeak = 0 }
 
     public var description: String
     {
@@ -52,6 +59,8 @@ public struct VoiceCounters: Equatable, Sendable, Codable, CustomStringConvertib
         add("overflowed", overflowed)
         add("dup", duplicate); add("reordered", reordered); add("decoded", decoded)
         add("fec", fecRecovered); add("concealed", concealed); add("played", played)
+        if capturedPeak > 0 { parts.append(String(format: "capPeak=%.2f", capturedPeak)) }
+        if playedPeak > 0 { parts.append(String(format: "playPeak=%.2f", playedPeak)) }
         return parts.isEmpty ? "(none)" : parts.joined(separator: " ")
     }
 }

@@ -107,8 +107,9 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     @discardableResult
     public func send(samples: UnsafePointer<Float>, frameCount: Int) -> Bool
     {
+        let peak = Self.peak(of: samples, count: frameCount)
         lock.lock()
-        counters.update { $0.captured += 1 }
+        counters.update { $0.captured += 1; $0.capturedPeak = max($0.capturedPeak, peak) }
         if encoder == nil
         {
             guard let make = VoiceCodecs.makeEncoder else
@@ -260,14 +261,22 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
             }
 
             guard written > 0 else { return }
+            let peak = scratch.withUnsafeBufferPointer { Self.peak(of: $0.baseAddress!, count: written) }
             scratch.withUnsafeMutableBufferPointer { buffer in
                 var channel = buffer.baseAddress!
                 withUnsafeMutablePointer(to: &channel) { channels in
                     ring.writeDeinterleaved(source: channels, frames: written)
                 }
             }
-            counters.update { $0.played += 1 }
+            counters.update { $0.played += 1; $0.playedPeak = max($0.playedPeak, peak) }
         }
+    }
+
+    private static func peak(of samples: UnsafePointer<Float>, count: Int) -> Float
+    {
+        var peak: Float = 0
+        for i in 0..<count { peak = max(peak, abs(samples[i])) }
+        return peak
     }
 }
 
