@@ -91,6 +91,21 @@ struct AssetVisualTests
             try await RealityViewMapper.visual(ofAssetAt: url)
         }
     }
+
+    /// The bounds check is arithmetic on numbers a peer wrote, so it has to survive numbers chosen
+    /// to break the arithmetic itself: `(count - 1) * stride` overflows `Int` long before the
+    /// comparison that was supposed to reject it, and an overflow traps as hard as the assertion
+    /// this all exists to avoid.
+    @Test func anAbsurdVertexCountIsRejectedRatherThanOverflowing() async throws
+    {
+        let url = try cached(TinyGLB.triangle(vertexCount: "9223372036854775807"), as: "glb")
+        defer { try? FileManager.default.removeItem(at: url) }
+        await #expect(throws: AssetVisualError.self) {
+            try await RealityViewMapper.visual(ofAssetAt: url)
+        }
+    }
+
+
 }
 
 private extension RealityKit.Entity
@@ -110,17 +125,20 @@ enum TinyGLB
     /// - Parameters:
     ///   - normals: how many NORMAL vectors the accessor claims; 3 (one per vertex) is correct.
     ///   - normalViewLength: byte length its buffer view claims; nil for the honest 12 per normal.
-    static func triangle(normals: Int = 3, normalViewLength: Int? = nil) -> Data
+    ///   - vertexCount: overrides the count on *both* attribute accessors, so an absurd value gets
+    ///     past the they-must-agree check and reaches the byte-range arithmetic.
+    static func triangle(normals: Int = 3, normalViewLength: Int? = nil, vertexCount: String = "3") -> Data
     {
         let positions: [Float] = [0, 0, 0, 1, 0, 0, 0, 1, 0]
         let normalData: [Float] = (0..<3).flatMap { _ -> [Float] in [0, 0, 1] }
         let normalBytes = normalData.count * 4
         let json = """
-        {"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"mesh":0}],\
+        {"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],\
+        "nodes":[{"mesh":0}],\
         "meshes":[{"primitives":[{"attributes":{"POSITION":0,"NORMAL":1}}]}],\
         "accessors":[\
-        {"bufferView":0,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]},\
-        {"bufferView":1,"componentType":5126,"count":\(normals),"type":"VEC3"}],\
+        {"bufferView":0,"componentType":5126,"count":\(vertexCount),"type":"VEC3","min":[0,0,0],"max":[1,1,0]},\
+        {"bufferView":1,"componentType":5126,"count":\(normals == 3 ? vertexCount : String(normals)),"type":"VEC3"}],\
         "bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36},\
         {"buffer":0,"byteOffset":36,"byteLength":\(normalViewLength ?? normalBytes)}],\
         "buffers":[{"byteLength":\(36 + normalBytes)}]}

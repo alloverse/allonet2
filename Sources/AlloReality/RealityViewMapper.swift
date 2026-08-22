@@ -269,7 +269,7 @@ public class RealityViewMapper
             // The detached task is unstructured, so cancelling us doesn't cancel it; at 9 ms per
             // 12.7 MB that's cheaper to let finish than to plumb, and the check below is what
             // keeps a cancelled load from paying the expensive half.
-            let parsed = try await Task.detached(priority: .userInitiated) { try ParsedGLTF(url: url) }.value
+            let parsed = try await Task.detached(priority: .userInitiated) { try ParsedGLTF(contentsOf: url) }.value
             try Task.checkCancellation()
             guard let scene = parsed.asset.defaultScene ?? parsed.asset.scenes.first else
             {
@@ -291,7 +291,7 @@ public class RealityViewMapper
     private struct ParsedGLTF: @unchecked Sendable
     {
         let asset: GLTFAsset
-        init(url: URL) throws { asset = try GLTFAsset(url: url, options: [:]) }
+        init(contentsOf url: URL) throws { asset = try GLTFAsset(url: url, options: [:]) }
     }
 
     /// glTF that parses but doesn't hold together. GLTFKit2 never runs `cgltf_validate`, and
@@ -336,13 +336,32 @@ public class RealityViewMapper
         {
             throw AssetVisualError.inconsistentGeometry(url, "\(name) has no usable component type")
         }
+        guard accessor.offset >= 0, accessor.count >= 0, view.offset >= 0, view.length >= 0 else
+        {
+            throw AssetVisualError.inconsistentGeometry(url, "\(name) has a negative offset, count or length")
+        }
         let stride = view.stride > 0 ? view.stride : element
-        let needed = accessor.count > 0 ? accessor.offset + (accessor.count - 1) * stride + element : 0
-        guard accessor.offset >= 0, accessor.count >= 0, needed <= view.length,
-              view.offset >= 0, view.length >= 0, view.offset + view.length <= view.buffer.length else
+        guard let needed = Self.windowEnd(offset: accessor.offset, count: accessor.count, stride: stride, element: element),
+              let viewEnd = ifNoOverflow(view.offset.addingReportingOverflow(view.length))
+        else
+        {
+            throw AssetVisualError.inconsistentGeometry(url, "\(name) describes a byte range too large to measure")
+        }
+        guard needed <= view.length, viewEnd <= view.buffer.length else
         {
             throw AssetVisualError.inconsistentGeometry(url, "\(name) reads \(needed) bytes from a \(view.length)-byte buffer view")
         }
+    }
+
+    /// The byte just past an accessor's last element: `offset + (count - 1) * stride + element`.
+    /// Nil when that overflows — every term is a number a peer wrote, and `Int` overflow traps in
+    /// Swift exactly as hard as the RealityKit assertion this whole function exists to avoid.
+    private static func windowEnd(offset: Int, count: Int, stride: Int, element: Int) -> Int?
+    {
+        guard count > 0 else { return offset }
+        return ifNoOverflow((count - 1).multipliedReportingOverflow(by: stride))
+            .flatMap { ifNoOverflow(offset.addingReportingOverflow($0)) }
+            .flatMap { ifNoOverflow($0.addingReportingOverflow(element)) }
     }
 
     private var warnedAboutMissingAssetResolver = false
@@ -547,6 +566,13 @@ public class RealityViewMapper
 
 /// Why a fetched asset couldn't become a visual. The bytes are already on disk and hash-checked at
 /// this point, so what's left is a file this renderer has no loader for.
+/// The result of an overflow-reporting operation, or nil if it overflowed — so overflow checks
+/// chain with `flatMap` instead of unwinding into a ladder of tuple destructuring.
+private func ifNoOverflow(_ result: (partialValue: Int, overflow: Bool)) -> Int?
+{
+    result.overflow ? nil : result.partialValue
+}
+
 public enum AssetVisualError: Error, Equatable, CustomStringConvertible
 {
     /// The extension isn't one `visual(ofAssetAt:)` has a loader for — most likely a publisher that

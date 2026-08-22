@@ -91,7 +91,16 @@ accepts. Two reasons, either sufficient: a JSON glTF names its buffers and textu
 URIs, and a store holding one file per content address has no siblings to resolve them against; and
 cgltf percent-decodes those URIs *after* joining them to the base directory, so an encoded `../`
 walks out of the cache and reads whatever local file a peer names straight into a vertex buffer
-(probed, confirmed). Publishers ship `.glb`, which is self-contained by construction.
+(probed, confirmed). Publishers ship `.glb`, which is self-contained by convention.
+
+Only by convention, though: **a `.glb`'s JSON chunk can carry the same external URIs**, and probing
+confirmed the bytes of a file one directory above the cache arriving in `buffers[1].data` — both
+`../secret.bin` and `..%2Fsecret.bin`. Checking for that after parsing does not work, because
+GLTFKit2 clears `uri` once it has resolved it: by the time there is a `GLTFAsset` to inspect, the
+read has already happened. What closes it is parsing from bytes — `GLTFAsset(data:)` rather than
+`GLTFAsset(url:)` — since a relative URI has no base directory to join against and simply fails to
+resolve. `data:` URIs still work, so embedded textures are unaffected. The cost is holding the file
+in memory for the length of the parse, which is milliseconds.
 
 glTF loads in the split form — `GLTFAsset(url:options:)` off the main actor, then
 `GLTFRealityKitLoader.convert(scene:asset:)` on it — because the two halves cost wildly different
@@ -113,6 +122,13 @@ traps at all.
 Upstream also ignores `KHR_texture_transform` and `TEXCOORD_1`, and makes one
 `PhysicallyBasedMaterial` per primitive with no dedup. Base colour, normal, metallic-roughness,
 occlusion, emissive, alpha modes and double-sidedness all arrive correctly.
+
+Names inside a loaded asset are stripped before the subtree is attached. `guiForEid` resolves an
+`EntityID` through `findEntity(named:)`, which searches the whole tree, so a node named after
+another entity would quietly collect that entity's component updates and its removal. The contract
+already says names inside a glb are cosmetic; the safe reading of cosmetic, for a file a peer wrote,
+is gone. This costs the name-based bindings RealityKit uses for skeletal animation, which nothing we
+ship uses yet.
 
 A malformed *id* is a different trust boundary and is handled in the protocol layer: `AnyComponent`
 force-tries its decode, so `Model` hand-writes `init(from:)` and degrades an unparseable `AssetID`
