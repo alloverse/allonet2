@@ -348,10 +348,16 @@ public class HeadlessWebRTCTransport: Transport
         {
             throw AlloverseError(code: AlloverseErrorCode.internalServerError, description: "Could not open media channel for \(mediaId)")
         }
+        // Captured by value: this closure runs on whichever thread produced the frame.
+        let logger = self.logger
         let stream = DataChannelMediaStream(mediaId: mediaId, direction: .sendonly, closeChannel: { [weak channel] in channel?.close() }) { [weak channel] data in
             guard let channel, channel.isOpen else { return false }
             do { try channel.send(data: data); return true }
-            catch { return false }
+            catch
+            {
+                logger.error("Failed to send voice frame on \(mediaId): \(error)")
+                return false
+            }
         }
         mediaStreams[mediaId] = stream
         return stream
