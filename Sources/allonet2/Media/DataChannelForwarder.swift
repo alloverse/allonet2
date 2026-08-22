@@ -8,8 +8,8 @@ import Foundation
 /// Forwards one voice stream to one receiver by copying frames between channels.
 ///
 /// This is the whole SFU media path. Nothing is decoded, re-encoded, renumbered or
-/// rewritten, and - unlike forwarding an RTP track - opening the outgoing channel needs no
-/// offer/answer, so adding a listener costs no renegotiation.
+/// rewritten, and opening the outgoing channel needs no offer/answer, so adding a listener
+/// costs no renegotiation.
 public final class DataChannelForwarder: MediaStreamForwarder, @unchecked Sendable
 {
     public let source: DataChannelMediaStream
@@ -43,8 +43,7 @@ public final class DataChannelForwarder: MediaStreamForwarder, @unchecked Sendab
         self.token = nil
         lock.unlock()
         if let token { source.removeObserver(token) }
-        // Without this the receiver keeps an adopted channel that will never carry a frame
-        // again - a silent stream it plays forever.
+        // Else the receiver keeps a dead channel and plays silence forever.
         destination.close()
     }
 

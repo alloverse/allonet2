@@ -2,13 +2,14 @@
 //  AudioRingBuffer+CoreAudio.swift
 //  allonet2
 //
+//  Created by Nevyn Bengtsson on 2025-10-16.
+//
 
 import Foundation
 import AVFoundation
 import allonet2
 
-/// Reading into CoreAudio buffers needs no per-instance state, so it works on any ring
-/// buffer - including the plain one the data-channel voice path renders into.
+/// Stateless, so it reads into any AudioRingBuffer, not just an AVFoundation-backed one.
 extension AudioRingBuffer
 {
     /// Read up to `frames` frames into an AudioBufferList (expects non-interleaved Float32).

@@ -11,8 +11,7 @@ import Foundation
 @Suite("Opus voice codec")
 struct OpusVoiceCodecTests
 {
-    /// A 440 Hz tone: a real signal, so the encoder produces a realistic payload rather
-    /// than the degenerate output silence would give.
+    /// A 440 Hz tone; silence would give the encoder a degenerate payload.
     static func tone(frame: Int, count: Int = Int(Opus.frameSize)) -> [Float]
     {
         (0..<count).map { sample in
@@ -79,8 +78,7 @@ struct OpusVoiceCodecTests
         #expect(energy > 0, "packet loss concealment produced pure silence")
     }
 
-    /// The recovery path the jitter buffer relies on: decode frame N's audio out of frame
-    /// N+1's payload, which is what makes dropping a frame survivable without retransmits.
+    /// Decode frame N's audio out of frame N+1's payload.
     @Test func recoversALostFrameFromTheNextPayload() throws
     {
         let encoder = try OpusVoiceEncoder()

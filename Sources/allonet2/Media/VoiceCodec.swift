@@ -8,10 +8,13 @@ import Foundation
 /// Turns 20 ms of mono Float32 into a payload small enough to send every frame.
 public protocol VoiceEncoder: AnyObject
 {
+    /// The kind the frames it produces must be tagged with.
     var kind: VoiceFrame.Kind { get }
     /// Tell the encoder what fraction of frames the far end is losing, so in-band FEC can be
     /// spent where it helps. Ignored by codecs without FEC.
     func setExpectedPacketLoss(percent: Int)
+    /// Encode exactly `frameCount` mono Float32 samples into one payload. Throws
+    /// `VoiceCodecError.failed` if the codec rejects the frame; the caller owns pacing.
     func encode(_ samples: UnsafePointer<Float>, frameCount: Int) throws -> Data
 }
 
@@ -19,6 +22,7 @@ public protocol VoiceEncoder: AnyObject
 /// only the codec knows how to reconstruct or conceal.
 public protocol VoiceDecoder: AnyObject
 {
+    /// The frame kind this decoder accepts; a frame of any other kind must not reach it.
     var kind: VoiceFrame.Kind { get }
     /// Whether a payload carries recovery data for the frame *before* it.
     var supportsFEC: Bool { get }

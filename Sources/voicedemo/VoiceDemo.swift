@@ -2,8 +2,7 @@
 //  VoiceDemo.swift
 //  allonet2
 //
-//  Mic in, voice out, over data channels. The morning's live check: run two of these against
-//  one place and talk between them.
+//  Mic in, voice out, over data channels. Run two against one place and talk between them.
 //
 //  Usage: swift run voicedemo [alloplace2://host:port]
 //
@@ -40,8 +39,7 @@ struct VoiceDemo
         )
         client.stayConnected()
 
-        // macOS prompts for microphone access the first time this runs, and the prompt has to
-        // be answered by a human - which is why the live check is morning work.
+        // macOS prompts for microphone access on first run; a human has to answer it.
         while client.avatarId == nil { try await Task.sleep(nanoseconds: 100_000_000) }
         try await client.startVoice()
 
@@ -93,8 +91,7 @@ final class VoiceDemoClient: AlloClient
         print("Sending \(placeStreamId.outgoingMediaId), " + (tone != nil ? "tone" : "voice processing: \(capture.voiceProcessingEnabled)"))
     }
 
-    /// 20 ms of sine every 20 ms, on a timer rather than an audio clock: good enough to prove
-    /// the path, and deliberately a little jittery.
+    /// Sine on a timer, not an audio clock - deliberately a little jittery.
     private func startTone(hz: Double, into stream: DataChannelMediaStream)
     {
         let frameCount = DataChannelMediaStream.frameDuration
@@ -127,7 +124,11 @@ final class VoiceDemoClient: AlloClient
     override func session(_ session: AlloSession, didReceivePlaceChangeSet changeset: PlaceChangeSet)
     {
         super.session(session, didReceivePlaceChangeSet: changeset)
-        Task { try? await updateListeners() }
+        Task
+        {
+            do { try await updateListeners() }
+            catch { FileHandle.standardError.write(Data("Failed to update listeners: \(error)\n".utf8)) }
+        }
     }
 
     override func session(_ session: AlloSession, didReceiveMediaStream stream: MediaStream)

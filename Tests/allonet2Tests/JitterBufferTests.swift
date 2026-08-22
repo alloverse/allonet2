@@ -10,15 +10,13 @@ import Foundation
 @Suite("Jitter buffer")
 struct JitterBufferTests
 {
-    /// Loss, reordering and duplication are injected here, at the framing layer, rather than
-    /// by mangling a real network - which keeps these deterministic.
+    /// Loss and reordering are injected at the framing layer, so these stay deterministic.
     static func frame(_ sequence: UInt32) -> VoiceFrame
     {
         VoiceFrame(kind: .opus, sequence: sequence, timestamp: sequence &* 960, payload: Data([UInt8(sequence & 0xFF)]))
     }
 
-    /// Arrival time for a frame sent on a perfect clock, so the jitter estimate stays at 0
-    /// and the target depth stays at the minimum.
+    /// Perfect-clock arrival: jitter stays 0 and target depth stays at the minimum.
     static func arrival(_ sequence: UInt32) -> Double { Double(sequence) * 0.02 }
 
     static func makeBuffer(counters: VoiceCountersBox = VoiceCountersBox()) -> JitterBuffer
@@ -83,8 +81,7 @@ struct JitterBufferTests
         #expect(counters.snapshot.concealed == 1)
     }
 
-    /// Two frames lost back to back: FEC only reaches one frame back, so the older slot has
-    /// to be concealed.
+    /// FEC reaches one frame back, so the older of two consecutive losses is concealed.
     @Test func concealsWhenFECCannotReachBackFarEnough()
     {
         let buffer = Self.makeBuffer()
@@ -178,8 +175,7 @@ struct JitterBufferTests
         #expect(buffer.targetDepth <= buffer.configuration.maximumDepth)
     }
 
-    /// Every playout slot must be exactly one decision, decoded frames must come out in
-    /// order, and nothing may vanish unaccounted for.
+    /// Every slot is exactly one decision, decoded frames come out in order, nothing vanishes.
     @Test func accountsForEveryFrameUnderHostileConditions()
     {
         let counters = VoiceCountersBox()

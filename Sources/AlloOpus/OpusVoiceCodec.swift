@@ -8,9 +8,8 @@ import COpus
 import COpusShim
 import allonet2
 
-/// What libwebrtc used to provide for voice, provided directly: Opus with in-band FEC for
-/// loss recovery and PLC for what FEC cannot reach. There is no retransmission because a
-/// retransmitted voice frame arrives too late to play.
+/// Opus for voice: in-band FEC for loss recovery, PLC for what FEC cannot reach, and no
+/// retransmission - a retransmitted voice frame arrives too late to play.
 public enum Opus
 {
     public static let sampleRate: Int32 = 48000
@@ -49,8 +48,7 @@ public final class OpusVoiceEncoder: VoiceEncoder
         // FEC costs bitrate only when the far end reports loss, so it is on from the start.
         try check(allo_opus_encoder_set_inband_fec(encoder, 1), "set fec")
         try check(allo_opus_encoder_set_packet_loss(encoder, 5), "set expected loss")
-        // DTX off for now: silence suppression interacts with the jitter buffer's idea of a
-        // continuous stream, and that pairing has not been measured yet.
+        // DTX off: unmeasured against the jitter buffer's continuous-stream assumption.
         try check(allo_opus_encoder_set_dtx(encoder, 0), "set dtx")
     }
 
@@ -89,8 +87,7 @@ public final class OpusVoiceDecoder: VoiceDecoder
 
     public func decode(_ payload: Data?, fec: Bool, into output: UnsafeMutablePointer<Float>, capacity: Int) throws -> Int
     {
-        // Nil payload with fec=0 is Opus's own concealment: it extrapolates from what it has
-        // already decoded rather than inserting silence.
+        // Nil payload, fec=0 is Opus PLC: extrapolate rather than insert silence.
         guard let payload else
         {
             let written = opus_decode_float(decoder, nil, 0, output, Int32(capacity), 0)

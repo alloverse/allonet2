@@ -294,8 +294,7 @@ public class HeadlessWebRTCTransport: Transport
     {
         guard let channelId = label.channelId else
         {
-            // Media: opened in-band so the far side discovers it without an offer/answer,
-            // and unreliable because a retransmitted voice frame arrives too late to play.
+            // Media: in-band (no offer/answer), unreliable - a retransmitted voice frame is too late.
             return createMediaChannel(label: label)
         }
 
@@ -350,11 +349,8 @@ public class HeadlessWebRTCTransport: Transport
         return stream
     }
 
-    /// Adopt a media channel the far side opened in-band.
-    ///
-    /// Runs on libdatachannel's thread, and the message subscription is attached *there*
-    /// rather than after marshalling: that thread starts delivering frames immediately, and
-    /// hopping first would drop the leading ones. Only the bookkeeping goes to the main actor.
+    /// Adopt a media channel the far side opened in-band. Subscribes on libdatachannel's
+    /// thread - see docs/voice-implementation.md, Threads.
     private nonisolated func adopt(remote channel: AlloWebRTCPeer.DataChannel)
     {
         guard let label = DataChannelLabel(rawValue: channel.label), case .media(let mediaId) = label else { return }
@@ -385,8 +381,7 @@ public class HeadlessWebRTCTransport: Transport
         guard let label = DataChannelLabel(rawValue: channel.label), case .media(let mediaId) = label,
               let stream = mediaStreams.removeValue(forKey: mediaId) else { return }
         channels[channel.label] = nil
-        // Our own outgoing channels pass through here too when closed; only incoming ones are
-        // a stream the session was listening to.
+        // Outgoing channels close through here too; only incoming ones were streams to the session.
         guard stream.streamDirection != .sendonly else { return }
         logger.info("Lost media stream \(mediaId)")
         delegate?.transport(self, didRemoveMediaStream: stream)
@@ -424,8 +419,7 @@ public class HeadlessWebRTCTransport: Transport
             let receiverHeadless = (receiver as! HeadlessWebRTCTransport)
             let placeStreamId = PlaceStreamId(shortClientId: sender.clientId!.shortClientId, incomingMediaId: source.mediaId)
             let destination = try receiverHeadless.createOutgoingMediaStream(mediaId: placeStreamId.outgoingMediaId)
-            // Deliberately no scheduleRenegotiation(): opening a data channel in-band needs
-            // no offer/answer, which is the churn this whole path exists to delete.
+            // No scheduleRenegotiation(): an in-band data channel needs no offer/answer.
             return DataChannelForwarder(from: source, to: destination)
         }
 

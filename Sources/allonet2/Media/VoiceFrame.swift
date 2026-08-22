@@ -56,6 +56,8 @@ public struct VoiceFrame: Equatable, Sendable
         return data
     }
 
+    /// Parse a frame off the wire; `data` may be a slice. Throws `VoiceFrameError.tooShort`
+    /// or `.unknownKind`. The payload aliases `data` rather than copying it.
     public init(decoding data: Data) throws
     {
         guard data.count >= Self.headerSize else
@@ -109,8 +111,7 @@ extension Data
     }
 }
 
-/// Sequence numbers wrap. Comparing them as plain integers breaks once every 2.7 years of
-/// continuous 20 ms frames; comparing the signed difference never does.
+/// Sequence comparison that survives wraparound; plain `<` does not.
 extension UInt32
 {
     /// True when `self` is newer than `other`, tolerating wraparound (RFC 1982 §3.2).

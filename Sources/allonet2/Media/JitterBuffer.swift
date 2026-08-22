@@ -20,6 +20,7 @@ public final class JitterBuffer: @unchecked Sendable
         /// Frames to buffer before starting playout, and the bounds the adaptive target
         /// stays within. Two frames is 40 ms, about the smallest that survives a LAN.
         public var minimumDepth: Int = 2
+        /// Also bounds the buffer itself: twice this many frames and the oldest is dropped.
         public var maximumDepth: Int = 20
         /// Give up and re-prime after this many consecutive empty ticks, rather than
         /// concealing forever when a sender goes away.
@@ -77,8 +78,7 @@ public final class JitterBuffer: @unchecked Sendable
     private var unsafeTargetDepth: Int
     {
         let frameSeconds = Double(configuration.frameDuration) / 48000.0
-        // Two frames of headroom over the jitter estimate: one for the frame in flight,
-        // one so a single late arrival does not immediately underrun.
+        // Two frames of headroom: one in flight, one for a single late arrival.
         let needed = Int((jitter / frameSeconds).rounded(.up)) + configuration.minimumDepth
         return min(max(needed, configuration.minimumDepth), configuration.maximumDepth)
     }
@@ -125,8 +125,7 @@ public final class JitterBuffer: @unchecked Sendable
 
         frames[frame.sequence] = frame
 
-        // Overfull: the consumer is not draining (or stopped). Drop the oldest rather than
-        // grow without bound.
+        // Consumer not draining: drop the oldest rather than grow without bound.
         while frames.count > configuration.maximumDepth * 2, let oldest = frames.keys.min(by: { $1.isNewerSequence(than: $0) })
         {
             frames.removeValue(forKey: oldest)
@@ -172,18 +171,15 @@ public final class JitterBuffer: @unchecked Sendable
         counters.update { $0.concealed += 1 }
         if frames.isEmpty
         {
-            // Underrun: playout caught up with arrival. Advancing here would put the playhead
-            // one slot ahead of every frame still to come, so each arrives "late" and is
-            // dropped while the slot it missed is concealed - a lock that never releases.
-            // Re-prime instead; the jitter estimate has grown, so the depth comes back larger.
+            // Advancing here locks every later frame into "late"; re-prime instead.
+            // See docs/voice-implementation.md, Jitter buffer.
             playhead = nil
             consecutiveConcealments = 0
             seenHighestSequence = nil
         }
         else if consecutiveConcealments >= configuration.concealmentLimit
         {
-            // Nothing has arrived for a long time. Re-prime so playout restarts cleanly
-            // rather than concealing indefinitely against a playhead that ran away.
+            // Silent sender: re-prime rather than conceal forever.
             playhead = nil
             consecutiveConcealments = 0
             frames.removeAll()

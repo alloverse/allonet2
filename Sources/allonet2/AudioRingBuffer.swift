@@ -162,6 +162,8 @@ open class AudioRingBuffer: Cancellable, CustomStringConvertible
     /// growing during steady playout means the producer is not keeping up.
     public var underruns: Int { underrunFrames.load(ordering: .relaxed) }
 
+    /// Record frames a consumer asked for and did not get. Lock-free and real-time safe;
+    /// call from the render thread after zero-filling the shortfall.
     public func noteUnderrun(frames: Int) { underrunFrames.wrappingIncrement(by: frames, ordering: .relaxed) }
 
     var canceller: () -> ()

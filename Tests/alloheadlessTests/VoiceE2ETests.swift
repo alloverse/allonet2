@@ -2,10 +2,7 @@
 //  VoiceE2ETests.swift
 //  allonet2
 //
-//  A real PlaceServer and real clients, over real libdatachannel loopback. The pure
-//  components are covered by unit tests; what this proves is that the pieces actually meet:
-//  a client opens a voice channel in-band, the SFU routes its frames to a listener that
-//  asked for them, and no part of that renegotiates.
+//  A real PlaceServer and real clients over libdatachannel loopback: proves the pieces meet.
 //
 
 import XCTest
@@ -16,8 +13,7 @@ import Foundation
 @MainActor
 final class VoiceE2ETests: XCTestCase
 {
-    /// Marker audio: every sample of frame N is N, so a receiver can tell which frame it is
-    /// holding and whether playout skipped one.
+    /// Marker audio: every sample of frame N is N, so a receiver can name the frame it holds.
     static func markerSamples(frame: Int, count: Int = DataChannelMediaStream.frameDuration) -> [Float]
     {
         [Float](repeating: Float(frame), count: count)
@@ -119,8 +115,7 @@ final class VoiceE2ETests: XCTestCase
         }
     }
 
-    /// Closes the loop: samples handed to the sender come back out of `render()` on the
-    /// receiver, through the jitter buffer, decoder and ring buffer. Every other test here
+    /// Closes the loop: sent samples come back out of `render()`; every other test here
     /// stops at the wire.
     func testDecodedAudioComesOutOfTheRenderSeam() async throws
     {
@@ -156,8 +151,7 @@ final class VoiceE2ETests: XCTestCase
         }
         XCTAssertEqual(read, frameSize)
 
-        // Marker audio: every sample of a frame carries that frame's index, so a whole frame
-        // of a single value means nothing was torn, shifted or interleaved on the way.
+        // A whole frame of one value means nothing was torn, shifted or interleaved.
         XCTAssertEqual(Set(decoded).count, 1, "a decoded frame must hold one marker value, got \(Set(decoded).sorted().prefix(4))")
         XCTAssertGreaterThanOrEqual(decoded[0], 0, "decoded silence rather than audio")
         XCTAssertLessThan(decoded[0], 60)
@@ -169,8 +163,7 @@ final class VoiceE2ETests: XCTestCase
         }
     }
 
-    /// Listeners joining and leaving is the churn that used to trigger a renegotiation per
-    /// stream per receiver. It must now cost none, and the speaker must survive it.
+    /// Listeners joining and leaving must cost no renegotiation, and must not disturb the speaker.
     func testJoinLeaveChurnCostsNoRenegotiation() async throws
     {
         try await withPlace { place in
@@ -246,8 +239,7 @@ final class TestPlace
             name: "Voice E2E",
             httpPort: port,
             transportClass: HeadlessWebRTCTransport.self,
-            // Loopback only: this host gathers no candidates otherwise, and a test has no
-            // business touching the network.
+            // Loopback only: this host gathers no candidates otherwise.
             options: TransportConnectionOptions(routing: .direct, bindAddress: "127.0.0.1"),
             alloAppAuthToken: ""
         )
@@ -262,9 +254,7 @@ final class TestPlace
         return client
     }
 
-    /// Teardown has to be awaited, not fired off. libdatachannel calls back into these
-    /// objects from its own threads, so letting a test return while peers are still closing
-    /// deallocates them out from under those callbacks.
+    /// Awaited, not fired off - see docs/voice-implementation.md, Tests.
     func stop() async
     {
         for client in clients { client.client.disconnect() }
@@ -346,8 +336,8 @@ final class TestClient
         try await waitUntil(timeout: 20) { self.client.avatarId != nil }
     }
 
-    /// Open an outgoing voice channel. Uncompressed PCM, so the assertions can be about the
-    /// transport rather than about a codec.
+    /// Open an outgoing voice channel. Uncompressed PCM, so assertions are about the
+    /// transport, not a codec.
     func startSpeaking(mediaId: MediaStreamId) throws -> DataChannelMediaStream
     {
         VoiceCodecs.makeEncoder = { RawPCMVoiceCodec() }

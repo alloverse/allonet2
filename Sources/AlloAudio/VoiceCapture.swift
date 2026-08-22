@@ -8,15 +8,10 @@ import AVFoundation
 import allonet2
 import Logging
 
-/// Microphone capture for one outgoing voice stream.
+/// Microphone capture for one outgoing voice stream, with the OS voice processor's echo
+/// cancellation, noise suppression and automatic gain.
 ///
-/// Apple's voice-processing I/O unit replaces what libwebrtc's audio device module used to
-/// provide: echo cancellation, noise suppression and automatic gain, done by the OS.
-///
-/// Caveat worth knowing before trusting the echo canceller: it can only cancel audio it
-/// renders itself. Voice played back through some other graph - RealityKit's spatial audio,
-/// say - is not part of its reference signal, so speaker-to-mic echo will survive. Verify
-/// with speakers before assuming otherwise.
+/// AEC only cancels what this unit renders; see docs/voice.md, Known limitations.
 @MainActor
 public final class VoiceCapture
 {
@@ -71,8 +66,7 @@ public final class VoiceCapture
         {
             try input.setVoiceProcessingEnabled(voiceProcessing)
             voiceProcessingEnabled = voiceProcessing
-            // Voice processing ducks every sound it did not render itself, and playout runs
-            // on a separate engine, so by default it ducks the very voices we're listening to.
+            // Voice processing ducks audio it didn't render - i.e. the voices we're playing back.
             input.voiceProcessingOtherAudioDuckingConfiguration = .init(enableAdvancedDucking: false, duckingLevel: .min)
         }
         catch
@@ -88,9 +82,8 @@ public final class VoiceCapture
             {
                 throw Failure.cannotConvert(from: inputFormat, to: outputFormat)
             }
-            // The voice processor hands out a DiscreteInOrder layout (four identical copies on
-            // this machine), and the converter has no downmix rule for discrete channels: left
-            // to itself it maps none of them and emits silence. Take the first.
+            // Discrete channel layout has no downmix rule; without a map the converter emits
+            // silence. See docs/voice-implementation.md, Capture.
             if inputFormat.channelCount != outputFormat.channelCount { converter.channelMap = [0] }
             self.converter = converter
         }
@@ -120,17 +113,15 @@ public final class VoiceCapture
         isRunning = false
     }
 
-    /// Accumulate captured audio and emit whole frames. The tap's buffer size is a hint, not
-    /// a promise, so frames are cut here rather than assumed.
     private var acceptedBuffers = 0
+    /// Accumulate captured audio into whole frames; the tap's buffer size is a hint, not a promise.
     private func accept(_ buffer: AVAudioPCMBuffer)
     {
         guard let stream else { return }
         acceptedBuffers += 1
         if acceptedBuffers % 250 == 1, let channels = buffer.floatChannelData
         {
-            // Per-channel peak of the raw tap, before any conversion: a silent microphone
-            // reads zero on every channel; a conversion dropping the signal does not.
+            // Raw tap peaks: separates a silent mic from a conversion that drops the signal.
             let peaks = (0..<Int(buffer.format.channelCount)).map { c -> String in
                 var peak: Float = 0
                 for i in 0..<Int(buffer.frameLength) { peak = max(peak, abs(channels[c][i])) }

@@ -21,6 +21,7 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
 
     /// Samples per frame. 20 ms at 48 kHz.
     public static let frameDuration = 960
+    /// The one sample rate this path runs at, capture through playout.
     public static let sampleRate = 48000.0
 
     private let sendFrame: (Data) -> Bool
@@ -37,6 +38,9 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     private var ringBuffer: AudioRingBuffer?
     private var pump: DispatchSourceTimer?
 
+    /// - Parameter sendFrame: writes one encoded frame to the underlying channel, returning
+    ///   false when the channel is gone - which on an unreliable channel simply means the
+    ///   frame is lost.
     public init(
         mediaId: MediaStreamId,
         direction: MediaStreamDirection,
@@ -98,6 +102,8 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         observers.add(observer)
     }
 
+    /// Stop delivering frames to the observer behind `token`. Safe from any thread,
+    /// including from inside an observer.
     public func removeObserver(_ token: FrameObservers.Token) { observers.remove(token) }
 
     // MARK: - Sending
@@ -186,9 +192,8 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         return ring
     }
 
-    /// How much decoded audio to keep queued ahead of the audio device. The device drains
-    /// at the true hardware rate, so refilling to a level rather than decoding on a fixed
-    /// schedule keeps playout locked to that clock instead of drifting against it.
+    /// Decoded audio kept queued ahead of the device; refilling to a level self-clocks.
+    /// See docs/voice-implementation.md, Playout is self-clocking.
     private static let targetBufferedFrames = frameDuration * 3
 
     private func startPump(filling ring: AudioRingBuffer)
@@ -233,8 +238,7 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         while ring.availableToRead() < Self.targetBufferedFrames, ring.availableToWrite() >= frameCount
         {
             let step = jitterBuffer.nextStep(codecSupportsFEC: decoder.supportsFEC)
-            // Priming: leave the ring empty. Its own underrun path emits silence, and
-            // writing silence here would only push the real audio further behind.
+            // Priming: leave the ring empty; its underrun path already emits silence.
             if step == .priming { return }
 
             let written: Int
@@ -291,6 +295,7 @@ public final class FrameObservers: @unchecked Sendable
 
     public init() {}
 
+    /// Start delivering every emitted frame to `observer`, until the returned token is removed.
     public func add(_ observer: @escaping (Data) -> Void) -> Token
     {
         let token = Token(id: UUID())
@@ -298,18 +303,20 @@ public final class FrameObservers: @unchecked Sendable
         return token
     }
 
+    /// Stop delivering to the observer behind `token`. Safe from inside an observer.
     public func remove(_ token: Token)
     {
         lock.lock(); observers[token] = nil; lock.unlock()
     }
 
+    /// Deliver `data` to every current observer. Observers are called outside the lock, so
+    /// one may remove itself or take other locks.
     public func emit(_ data: Data)
     {
         lock.lock()
         let current = Array(observers.values)
         lock.unlock()
-        // Outside the lock: an observer that forwards may take other locks, and one that
-        // removes itself would deadlock a non-recursive one.
+        // Emit outside the lock: observers take other locks, or remove themselves.
         for observer in current { observer(data) }
     }
 }

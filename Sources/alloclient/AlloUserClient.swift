@@ -62,8 +62,7 @@ public class AlloUserClient : AlloClient
         self.connectionStatus.$reconnection.sink { [weak self] in
             guard let self else { return }
             if $0 == .connected {
-                // Capture only once there is a channel to send on, so muted-but-connected
-                // is the only state that ever drops frames.
+                // Capture only once a channel exists to send on.
                 micTrack?.transportConnected()
                 task = Task {
                      for await log in await LogStore.shared.stream() {
@@ -80,8 +79,7 @@ public class AlloUserClient : AlloClient
     }
 }
 
-/// The microphone as the app sees it: a thing with an on/off switch. Underneath it is a
-/// voice stream on its own data channel plus Apple's voice-processing capture unit.
+/// A mutable on/off switch over a voice stream on its own data channel.
 @MainActor
 final class MicrophoneTrack: AudioTrack
 {
