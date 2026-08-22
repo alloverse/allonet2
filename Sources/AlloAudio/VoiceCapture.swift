@@ -131,7 +131,7 @@ public final class VoiceCapture
                 for i in 0..<Int(buffer.frameLength) { peak = max(peak, abs(channels[c][i])) }
                 return String(format: "%.3f", peak)
             }
-            logger.info("raw input peaks per channel: \(peaks.joined(separator: " "))")
+            logger.trace("raw input peaks per channel: \(peaks.joined(separator: " "))")
         }
         guard let mono = convert(buffer), let samples = mono.floatChannelData?[0] else { return }
 
