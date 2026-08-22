@@ -11,6 +11,7 @@
 //  engine, no voice processing, no permission prompt: a sender an agent can run headless.
 //  VOICEDEMO_NO_VPIO=1 captures without the OS voice processor, in the device's native format.
 //  VOICEDEMO_LATENCY_LOG=<path> measures mouth-to-speaker latency; see Latency.swift.
+//  VOICEDEMO_BIND=127.0.0.1 gathers ICE on loopback only, to match `AlloPlace -b 127.0.0.1`.
 //
 
 import Foundation
@@ -37,7 +38,7 @@ struct VoiceDemo
             url: url,
             identity: Identity(expectation: .none, displayName: "VoiceDemo", emailAddress: "", authenticationToken: ""),
             avatarDescription: EntityDescription(),
-            connectionOptions: TransportConnectionOptions(routing: .direct)
+            connectionOptions: TransportConnectionOptions(routing: .direct, bindAddress: ProcessInfo.processInfo.environment["VOICEDEMO_BIND"])
         )
         if let path = ProcessInfo.processInfo.environment["VOICEDEMO_LATENCY_LOG"]
         {

@@ -26,6 +26,9 @@ struct PlaceServerApp: AsyncParsableCommand
     
     @Option(name: [.customShort("u"), .long], help: "UDP port range to open WebRTC listeners on (express as `min-max`).")
     var webrtcPortRange: Range = 10000..<11000
+
+    @Option(name: [.customShort("b"), .long], help: "Gather ICE candidates on this address only. `127.0.0.1` for a place and its clients on one machine: on a host with many interfaces, checking every one of them is how a local connection times out.")
+    var bindAddress: String? = nil
     
     @Option(help: "If this Alloverse Place is designed to be used with another client app than the offical Alloverse app, specify the name of that client here.")
     var appName: String = "Alloverse"
@@ -63,7 +66,7 @@ struct PlaceServerApp: AsyncParsableCommand
             httpPort: httpPort,
             customApp: app,
             transportClass: HeadlessWebRTCTransport.self,
-            options: TransportConnectionOptions(routing: .direct, ipOverride: ipOverride, portRange: webrtcPortRange),
+            options: TransportConnectionOptions(routing: .direct, ipOverride: ipOverride, portRange: webrtcPortRange, bindAddress: bindAddress),
             alloAppAuthToken: alloAppAuthToken,
             requiresAuthentication: requireAuth,
             assetsDirectory: assetsDir.map { URL(fileURLWithPath: $0) } ?? PlaceServer.defaultAssetsDirectory
