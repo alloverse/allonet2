@@ -207,6 +207,25 @@ final class VoiceE2ETests: XCTestCase
         XCTAssertEqual(outgoing.counters.snapshot.sendFailed, 0, "speaker's channel survived the churn")
         }
     }
+
+    /// Seen live: a listener that joined while a dead speaker's media was still advertised kept
+    /// playing that stream - silence, forever - after the server had stopped forwarding it.
+    /// Stopping a forwarder must close its channel, and the listener must notice.
+    func testStoppingAForwarderRemovesTheStreamFromTheListener() async throws
+    {
+        try await withPlace { place in
+        let speaker = try await place.connectClient(named: "speaker")
+        _ = try speaker.startSpeaking(mediaId: "voice-mic")
+        let placeStreamId = try await speaker.advertise(mediaId: "voice-mic")
+
+        let listener = try await place.connectClient(named: "listener")
+        try await listener.listen(to: [placeStreamId])
+        _ = try await listener.awaitStream(placeStreamId)
+
+        try await listener.listen(to: [])
+        try await waitUntil(timeout: 10) { listener.client.streams[placeStreamId] == nil }
+        }
+    }
 }
 
 // MARK: - Harness

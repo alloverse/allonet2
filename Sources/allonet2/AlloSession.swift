@@ -428,8 +428,10 @@ public class AlloSession : NSObject, TransportDelegate
     
     public func transport(_ transport: Transport, didRemoveMediaStream stream: MediaStream)
     {
+        // Every channel's closed callback fires when the peer connection goes down, after
+        // disconnect has already reported (and dropped) these streams. Report each once.
+        guard incomingStreams.removeValue(forKey: stream.mediaId) != nil else { return }
         logger.info("Removing stream \(stream.mediaId)")
-        incomingStreams[stream.mediaId] = nil
         delegate?.session(self, didRemoveMediaStream: stream)
     }
     

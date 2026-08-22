@@ -241,17 +241,16 @@ public class PlaceServer : AlloSessionDelegate
     // clear the roster before this lookup ran, stranding the stream in the SFU forever.
     public func session(_ sess: AlloSession, didReceiveMediaStream stream: any MediaStream)
     {
-        let cid = sess.clientId!
-        guard let client = self.clients[cid] ?? self.unannouncedClients[cid] else { return }
+        guard let cid = sess.clientId, let client = self.clients[cid] ?? self.unannouncedClients[cid] else { return }
         sfu.handle(incoming: stream, from: client)
     }
 
     public func session(_ sess: AlloSession, didRemoveMediaStream stream: any MediaStream)
     {
-        let cid = sess.clientId!
         // Condemned clients included: they gain no new streams, but any still registered have to
         // leave `available` when the session finally closes.
-        guard let client = self.clients[cid] ?? self.unannouncedClients[cid] ?? self.waitingToDisconnect[cid] else { return }
+        guard let cid = sess.clientId,
+              let client = self.clients[cid] ?? self.unannouncedClients[cid] ?? self.waitingToDisconnect[cid] else { return }
         sfu.handle(lost: stream, from: client)
     }
 }

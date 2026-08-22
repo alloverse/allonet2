@@ -43,6 +43,9 @@ public final class DataChannelForwarder: MediaStreamForwarder, @unchecked Sendab
         self.token = nil
         lock.unlock()
         if let token { source.removeObserver(token) }
+        // Without this the receiver keeps an adopted channel that will never carry a frame
+        // again - a silent stream it plays forever.
+        destination.close()
     }
 
     deinit { stop() }

@@ -24,6 +24,7 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     public static let sampleRate = 48000.0
 
     private let sendFrame: (Data) -> Bool
+    private let closeChannel: () -> Void
     private let monotonicNow: () -> Double
     private let observers = FrameObservers()
     private let lock = NSLock()
@@ -42,6 +43,7 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         counters: VoiceCountersBox = VoiceCountersBox(),
         jitterBuffer: JitterBuffer? = nil,
         monotonicNow: @escaping () -> Double = { Date().timeIntervalSinceReferenceDate },
+        closeChannel: @escaping () -> Void = {},
         sendFrame: @escaping (Data) -> Bool
     )
     {
@@ -50,8 +52,19 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         self.counters = counters
         self.jitterBuffer = jitterBuffer ?? JitterBuffer(counters: counters)
         self.monotonicNow = monotonicNow
+        self.closeChannel = closeChannel
         self.sendFrame = sendFrame
         self.logger[metadataKey: "mediaId"] = .string(mediaId)
+    }
+
+    deinit { pump?.cancel() }
+
+    /// Close the channel under this stream. The far side sees the channel go, which is how
+    /// a receiver learns that a stream has ended.
+    public func close()
+    {
+        stopPump()
+        closeChannel()
     }
 
     // MARK: - Receiving

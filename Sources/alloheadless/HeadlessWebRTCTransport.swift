@@ -341,7 +341,7 @@ public class HeadlessWebRTCTransport: Transport
         {
             throw AlloverseError(code: AlloverseErrorCode.internalServerError, description: "Could not open media channel for \(mediaId)")
         }
-        let stream = DataChannelMediaStream(mediaId: mediaId, direction: .sendonly) { [weak channel] data in
+        let stream = DataChannelMediaStream(mediaId: mediaId, direction: .sendonly, closeChannel: { [weak channel] in channel?.close() }) { [weak channel] data in
             guard let channel, channel.isOpen else { return false }
             do { try channel.send(data: data); return true }
             catch { return false }
@@ -385,6 +385,9 @@ public class HeadlessWebRTCTransport: Transport
         guard let label = DataChannelLabel(rawValue: channel.label), case .media(let mediaId) = label,
               let stream = mediaStreams.removeValue(forKey: mediaId) else { return }
         channels[channel.label] = nil
+        // Our own outgoing channels pass through here too when closed; only incoming ones are
+        // a stream the session was listening to.
+        guard stream.streamDirection != .sendonly else { return }
         logger.info("Lost media stream \(mediaId)")
         delegate?.transport(self, didRemoveMediaStream: stream)
     }
