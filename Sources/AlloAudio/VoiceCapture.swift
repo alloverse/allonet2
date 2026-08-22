@@ -88,6 +88,10 @@ public final class VoiceCapture
             }
             self.converter = converter
         }
+            // The voice processor hands out a DiscreteInOrder layout (four identical copies on
+            // this machine), and the converter has no downmix rule for discrete channels: left
+            // to itself it maps none of them and emits silence. Take the first.
+            if inputFormat.channelCount != outputFormat.channelCount { converter.channelMap = [0] }
         logger.info("Capturing from \(inputFormat), sending as \(outputFormat), voice processing: \(voiceProcessingEnabled)")
 
         input.installTap(onBus: 0, bufferSize: AVAudioFrameCount(DataChannelMediaStream.frameDuration), format: inputFormat)
