@@ -80,7 +80,7 @@ public class HeadlessWebRTCTransport: Transport
         if(!Self.initialized) { Self.initialize() }
         
         self.connectionStatus = status
-        peer = AlloWebRTCPeer(portRange: connectionOptions.portRange, ipOverride: connectionOptions.ipOverride?.adc)
+        peer = AlloWebRTCPeer(portRange: connectionOptions.portRange, ipOverride: connectionOptions.ipOverride?.adc, bindAddress: connectionOptions.bindAddress)
         
         // Both capture lists are load-bearing. An inner `[weak self]` alone leaves the closure
         // Combine stores holding self strongly, and its publisher lives in `peer`, which this
