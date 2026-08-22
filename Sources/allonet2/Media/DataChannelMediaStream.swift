@@ -45,12 +45,14 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     /// - Parameter sendFrame: writes one encoded frame to the underlying channel, returning
     ///   false when the channel is gone - which on an unreliable channel simply means the
     ///   frame is lost.
+    /// - Parameter monotonicNow: seconds on a clock that only moves forward, used to measure
+    ///   arrival jitter. Override it to drive the jitter buffer from a test's own clock.
     public init(
         mediaId: MediaStreamId,
         direction: MediaStreamDirection,
         counters: VoiceCountersBox = VoiceCountersBox(),
         jitterBuffer: JitterBuffer? = nil,
-        monotonicNow: @escaping () -> Double = { Date().timeIntervalSinceReferenceDate },
+        monotonicNow: @escaping () -> Double = { Double(DispatchTime.now().uptimeNanoseconds) / 1e9 },
         closeChannel: @escaping () -> Void = {},
         sendFrame: @escaping (Data) -> Bool
     )
