@@ -10,6 +10,7 @@
 //  VOICEDEMO_TONE=440 sends a sine at that frequency instead of the microphone. No capture
 //  engine, no voice processing, no permission prompt: a sender an agent can run headless.
 //  VOICEDEMO_NO_VPIO=1 captures without the OS voice processor, in the device's native format.
+//  VOICEDEMO_LATENCY_LOG=<path> measures mouth-to-speaker latency; see Latency.swift.
 //
 
 import Foundation
@@ -38,6 +39,10 @@ struct VoiceDemo
             avatarDescription: EntityDescription(),
             connectionOptions: TransportConnectionOptions(routing: .direct)
         )
+        if let path = ProcessInfo.processInfo.environment["VOICEDEMO_LATENCY_LOG"]
+        {
+            client.latency = try LatencyLog(path: path)
+        }
         client.stayConnected()
 
         // macOS prompts for microphone access the first time this runs, and the prompt has to
@@ -63,6 +68,9 @@ final class VoiceDemoClient: AlloClient
     private var outgoing: DataChannelMediaStream?
     private var incoming: [MediaStreamId: DataChannelMediaStream] = [:]
     private var tone: DispatchSourceTimer?
+    var latency: LatencyLog?
+    private var outgoingMediaId: MediaStreamId?
+    private var lastPolled: [MediaStreamId: UInt32] = [:]
 
     override func reset()
     {
@@ -76,16 +84,22 @@ final class VoiceDemoClient: AlloClient
         let mediaId = "voice-mic"
         let stream = try voiceTransport.createOutgoingMediaStream(mediaId: mediaId)
         outgoing = stream
+
+        // The receiver knows this stream by its place-wide id, so that is the name a capture
+        // time has to be filed under.
+        let placeStreamId = PlaceStreamId(shortClientId: cid!.shortClientId, incomingMediaId: mediaId)
+        outgoingMediaId = placeStreamId.outgoingMediaId
+
         if let hz = ProcessInfo.processInfo.environment["VOICEDEMO_TONE"].flatMap(Double.init)
         {
             startTone(hz: hz, into: stream)
         }
         else
         {
+            capture.onFrameSent = { [weak self] sequence, at in self?.noteCapture(sequence, at: at) }
             try capture.start(sending: stream, voiceProcessing: ProcessInfo.processInfo.environment["VOICEDEMO_NO_VPIO"] == nil)
         }
-
-        let placeStreamId = PlaceStreamId(shortClientId: cid!.shortClientId, incomingMediaId: mediaId)
+        if latency != nil { startLatencyPolling() }
         try await changeEntity(entityId: avatarId, addOrChange: [
             LiveMedia(mediaId: placeStreamId.outgoingMediaId,
                       format: .audio(codec: .opus, sampleRate: 48000, channelCount: 1))
@@ -102,13 +116,42 @@ final class VoiceDemoClient: AlloClient
         let step = 2 * Double.pi * hz / DataChannelMediaStream.sampleRate
         let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "voicedemo.tone"))
         timer.schedule(deadline: .now(), repeating: .milliseconds(20), leeway: .milliseconds(2))
+        let latency = self.latency
+        let mediaId = outgoingMediaId
         timer.setEventHandler {
             var samples = [Float](repeating: 0, count: frameCount)
             for i in 0..<frameCount { samples[i] = Float(sin(phase)) * 0.25; phase += step }
-            samples.withUnsafeBufferPointer { stream.send(samples: $0.baseAddress!, frameCount: frameCount) }
+            let at = Date()
+            let sequence = samples.withUnsafeBufferPointer { stream.send(samples: $0.baseAddress!, frameCount: frameCount) }
+            if let sequence, let mediaId { latency?.note(capture: mediaId, sequence: sequence, at: at) }
         }
         tone = timer
         timer.resume()
+    }
+
+    private func noteCapture(_ sequence: UInt32, at: Date)
+    {
+        guard let latency, let outgoingMediaId else { return }
+        latency.note(capture: outgoingMediaId, sequence: sequence, at: at)
+    }
+
+    /// Poll each playing stream for the frame the audio device last took. The timestamp comes
+    /// from the render thread itself, so sampling here costs samples, not accuracy.
+    private func startLatencyPolling()
+    {
+        Task { [weak self] in
+            while true
+            {
+                try await Task.sleep(nanoseconds: 20_000_000)
+                guard let self, let latency = self.latency else { return }
+                for (mediaId, stream) in incoming
+                {
+                    guard let played = stream.lastPlayed, played.sequence != lastPolled[mediaId] else { continue }
+                    lastPolled[mediaId] = played.sequence
+                    latency.note(render: mediaId, sequence: played.sequence, at: played.at)
+                }
+            }
+        }
     }
 
     /// Listen to everything in the place except ourselves.
@@ -155,6 +198,12 @@ final class VoiceDemoClient: AlloClient
         {
             print("in  \(mediaId): \(stream.counters.snapshot) ringUnderrun=\(stream.render().underruns)")
             stream.counters.update { $0.resetPeaks() }
+        }
+        for measurement in latency?.report() ?? []
+        {
+            print(String(format: "latency %@: pipeline p50=%.0f p95=%.0f ms (n=%d), output device +%.1f ms",
+                         measurement.stream, measurement.p50 * 1000, measurement.p95 * 1000,
+                         measurement.count, playout.outputLatency * 1000))
         }
     }
 }
