@@ -197,7 +197,11 @@ final class VoiceDemoClient: AlloClient
         }
         for (mediaId, stream) in incoming
         {
-            print("in  \(mediaId): \(stream.counters.snapshot) ringUnderrun=\(stream.render().underruns)")
+            let ring = stream.render()
+            // Where the latency sits: frames waiting in the jitter buffer, then samples
+            // waiting in the ring, then the device.
+            print("in  \(mediaId): \(stream.counters.snapshot) ringUnderrun=\(ring.underruns)"
+                  + " jitter=\(stream.jitterBuffer.depth)/\(stream.jitterBuffer.targetDepth) ring=\(ring.availableToRead() * 1000 / Int(DataChannelMediaStream.sampleRate))ms")
             stream.counters.update { $0.resetPeaks() }
         }
         for measurement in latency?.report() ?? []
