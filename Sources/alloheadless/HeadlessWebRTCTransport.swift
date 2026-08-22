@@ -349,6 +349,11 @@ public class HeadlessWebRTCTransport: Transport
         return stream
     }
 
+    /// How many voice channels a remote peer may open on one transport. A peer can open them
+    /// in-band before it has announced, so nothing else bounds what it costs us to keep.
+    static let maximumMediaStreams = 8
+    private var adoptedMediaStreams: Int { mediaStreams.values.count { $0.streamDirection == .recvonly } }
+
     /// Adopt a media channel the far side opened in-band. Subscribes on libdatachannel's
     /// thread - see docs/voice-implementation.md, Threads.
     private nonisolated func adopt(remote channel: AlloWebRTCPeer.DataChannel)
@@ -368,6 +373,13 @@ public class HeadlessWebRTCTransport: Transport
         onMain { [weak self] in
             guard let self else { return subscription.cancel() }
             guard mediaStreams[mediaId] == nil else { return subscription.cancel() }
+            guard adoptedMediaStreams < Self.maximumMediaStreams else
+            {
+                logger.warning("Refusing media stream \(mediaId): already carrying \(Self.maximumMediaStreams) incoming streams")
+                subscription.cancel()
+                channel.close()
+                return
+            }
             mediaStreams[mediaId] = stream
             channels[channel.label] = channel
             cancellables.insert(subscription)
