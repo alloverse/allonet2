@@ -235,6 +235,7 @@ public class RealityViewMapper
                 loaded = Self.missingVisual()
             }
             if(Task.isCancelled) { return }
+            Self.anonymize(loaded)
             // Re-read: `state` is a value copy from before the await, and a newer Model may
             // have landed in the meantime.
             var state = entity.components[AlloModelStateComponent.self] ?? AlloModelStateComponent()
@@ -243,6 +244,20 @@ public class RealityViewMapper
             entity.components.set(state)
             entity.addChild(loaded)
         }
+    }
+
+    /// Strip the names off a loaded subtree. `guiForEid` resolves an `EntityID` with
+    /// `findEntity(named:)`, which searches the whole tree — so a node named after somebody else's
+    /// entity would quietly receive that entity's component updates and its removal. Names inside
+    /// an asset are cosmetic by contract (nothing addresses sub-nodes), and the file is a peer's,
+    /// so the safe reading of "cosmetic" is "gone".
+    ///
+    /// Costs the name-based bindings RealityKit uses for skeletal animation, which no asset we
+    /// ship has yet; revisit here when one does.
+    static func anonymize(_ entity: RealityKit.Entity)
+    {
+        entity.name = ""
+        for child in entity.children { anonymize(child) }
     }
 
     /// Stands in for a model that couldn't be loaded. Red and box-shaped so it can't be mistaken

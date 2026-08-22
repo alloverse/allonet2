@@ -123,6 +123,13 @@ Upstream also ignores `KHR_texture_transform` and `TEXCOORD_1`, and makes one
 `PhysicallyBasedMaterial` per primitive with no dedup. Base colour, normal, metallic-roughness,
 occlusion, emissive, alpha modes and double-sidedness all arrive correctly.
 
+Names inside a loaded asset are stripped before the subtree is attached. `guiForEid` resolves an
+`EntityID` through `findEntity(named:)`, which searches the whole tree, so a node named after
+another entity would quietly collect that entity's component updates and its removal. The contract
+already says names inside a glb are cosmetic; the safe reading of cosmetic, for a file a peer wrote,
+is gone. This costs the name-based bindings RealityKit uses for skeletal animation, which nothing we
+ship uses yet.
+
 A malformed *id* is a different trust boundary and is handled in the protocol layer: `AnyComponent`
 force-tries its decode, so `Model` hand-writes `init(from:)` and degrades an unparseable `AssetID`
 to `Model.unrenderable` (the same red box) instead of throwing. A throw there would trap every

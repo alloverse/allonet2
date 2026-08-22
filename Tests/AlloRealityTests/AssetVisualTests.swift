@@ -129,6 +129,31 @@ struct AssetVisualTests
         }
     }
 
+    /// `guiForEid` resolves an entity with `findEntity(named:)`, which searches the whole tree — so
+    /// a node inside somebody's asset named after another entity would silently receive that
+    /// entity's updates and its removal.
+    @Test func aNodeNamedLikeAnEntityCannotHijackLookups() async throws
+    {
+        let eid = "E3B0C442-98FC-1C14-9AFB-F4C8996FB924"
+        let url = try cached(TinyGLB.triangle(nodeName: eid), as: "glb")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let visual = try await RealityViewMapper.visual(ofAssetAt: url)
+
+        // The name really does survive into the loaded subtree: without anonymize, the tree the
+        // mapper searches would answer to it.
+        #expect(visual.findEntity(named: eid) != nil)
+
+        // The shape guiForEid searches: guiroot -> the mapper's entity -> the asset's subtree.
+        let guiroot = RealityKit.Entity()
+        let mapped = RealityKit.Entity()
+        mapped.name = "9F2B1E44-0000-4000-8000-000000000001"
+        guiroot.addChild(mapped)
+        RealityViewMapper.anonymize(visual)
+        mapped.addChild(visual)
+
+        #expect(guiroot.findEntity(named: eid) == nil)
+        #expect(guiroot.findEntity(named: mapped.name) === mapped)
+    }
 }
 
 private extension RealityKit.Entity
@@ -151,15 +176,16 @@ enum TinyGLB
     ///   - bufferURI: a `uri` on a second buffer, which a self-contained glb never has.
     ///   - vertexCount: overrides the count on *both* attribute accessors, so an absurd value gets
     ///     past the they-must-agree check and reaches the byte-range arithmetic.
+    ///   - nodeName: the glTF node's name, which is a peer's to choose.
     static func triangle(normals: Int = 3, normalViewLength: Int? = nil, bufferURI: String? = nil,
-                         vertexCount: String = "3") -> Data
+                         vertexCount: String = "3", nodeName: String? = nil) -> Data
     {
         let positions: [Float] = [0, 0, 0, 1, 0, 0, 0, 1, 0]
         let normalData: [Float] = (0..<3).flatMap { _ -> [Float] in [0, 0, 1] }
         let normalBytes = normalData.count * 4
         let json = """
         {"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],\
-        "nodes":[{"mesh":0}],\
+        "nodes":[{"mesh":0\(nodeName.map { ",\"name\":\"\($0)\"" } ?? "")}],\
         "meshes":[{"primitives":[{"attributes":{"POSITION":0,"NORMAL":1}}]}],\
         "accessors":[\
         {"bufferView":0,"componentType":5126,"count":\(vertexCount),"type":"VEC3","min":[0,0,0],"max":[1,1,0]},\
