@@ -212,6 +212,22 @@ public struct PlaceStreamId: Equatable, Hashable, Codable, CustomStringConvertib
     // TODO: Just have the server allocate stream IDs, so we don't need to have per-client stream namespaces
 }
 
+/// A media id in a client's own namespace broke `PlaceStreamId`'s encoding. The place joins it
+/// to the sender's short client id with a period, so a period inside it makes the result
+/// unparseable and every listener silently ignores the stream.
+public enum MediaStreamIdError: Error, Equatable, CustomStringConvertible
+{
+    case containsPeriod(MediaStreamId)
+
+    public var description: String
+    {
+        switch self
+        {
+        case .containsPeriod(let mediaId): "media id '\(mediaId)' contains a period, which separates a PlaceStreamId's two components"
+        }
+    }
+}
+
 extension MediaStream
 {
     public var description: String

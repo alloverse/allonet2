@@ -235,6 +235,22 @@ final class VoiceE2ETests: XCTestCase
         XCTAssertEqual(place.server.sfu.available.count, cap, "place adopted past its cap")
         }
     }
+
+    /// A period would land inside the place's "<shortClientId>.<mediaId>", which parses into
+    /// two components: listeners would ignore the stream and never say why.
+    @MainActor
+    func testAMediaIdWithAPeriodIsRefused() throws
+    {
+        let transport = HeadlessWebRTCTransport(
+            with: TransportConnectionOptions(routing: .direct, portRange: 21400..<21500),
+            status: ConnectionStatus())
+        defer { transport.disconnect() }
+
+        XCTAssertThrowsError(try transport.createOutgoingMediaStream(mediaId: "voice.mic")) { error in
+            XCTAssertEqual(error as? MediaStreamIdError, .containsPeriod("voice.mic"))
+        }
+        XCTAssertNoThrow(try transport.createOutgoingMediaStream(mediaId: "voice-mic"))
+    }
 }
 
 // MARK: - Harness

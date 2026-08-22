@@ -333,7 +333,20 @@ public class HeadlessWebRTCTransport: Transport
 
     /// Open an outgoing voice stream. No m-line, no offer/answer: the channel is the stream,
     /// and the far side learns about it in-band.
+    ///
+    /// - Parameter mediaId: names the stream inside this client's own namespace, and must
+    ///   contain no period; the place prefixes it with the sender's short client id to build
+    ///   the id listeners see.
+    /// - Throws: `MediaStreamIdError.containsPeriod` for an id the place could not encode.
     public func createOutgoingMediaStream(mediaId: MediaStreamId) throws -> DataChannelMediaStream
+    {
+        guard !mediaId.contains(".") else { throw MediaStreamIdError.containsPeriod(mediaId) }
+        return try openOutgoingMediaStream(mediaId: mediaId)
+    }
+
+    /// The place's own outgoing ids are already two-component, so forwarding skips the check
+    /// the client-facing API makes.
+    private func openOutgoingMediaStream(mediaId: MediaStreamId) throws -> DataChannelMediaStream
     {
         let label = DataChannelLabel.media(mediaId)
         guard let channel = createMediaChannel(label: label) as? AlloWebRTCPeer.DataChannel else
@@ -428,9 +441,11 @@ public class HeadlessWebRTCTransport: Transport
 
         if let source = mediaStream as? DataChannelMediaStream
         {
+            // The sender named this one, so it is checked here rather than trusted.
+            guard !source.mediaId.contains(".") else { throw MediaStreamIdError.containsPeriod(source.mediaId) }
             let receiverHeadless = (receiver as! HeadlessWebRTCTransport)
             let placeStreamId = PlaceStreamId(shortClientId: sender.clientId!.shortClientId, incomingMediaId: source.mediaId)
-            let destination = try receiverHeadless.createOutgoingMediaStream(mediaId: placeStreamId.outgoingMediaId)
+            let destination = try receiverHeadless.openOutgoingMediaStream(mediaId: placeStreamId.outgoingMediaId)
             // No scheduleRenegotiation(): an in-band data channel needs no offer/answer.
             return DataChannelForwarder(from: source, to: destination)
         }
