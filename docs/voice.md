@@ -113,6 +113,12 @@ server links no codec: it never decodes.
     swift run voicedemo alloplace2://localhost:9180            # microphone in, voice out
     VOICEDEMO_TONE=440 swift run voicedemo alloplace2://...    # a sine instead of the mic; no permission prompt
     VOICEDEMO_NO_VPIO=1 swift run voicedemo alloplace2://...   # capture without the voice processor
+    VOICEDEMO_LATENCY_LOG=/tmp/lat.log swift run voicedemo ... # both instances: capture/render times per frame
+    Scripts/voice-latency.sh /tmp/lat.log                      # p50/p95 capture-to-render per receiver
+
+With two instances on one machine the log joins on the shared clock: mouth-to-speaker latency,
+minus the output device's own latency, which `voicedemo` reports separately. Pass `-b 127.0.0.1`
+to the place and `VOICEDEMO_BIND=127.0.0.1` to the demos to keep a local test off the network.
 
 Give each place its own HTTP port *and* UDP range when several run on one machine; media on
 the default 10000-11000 collides and looks like a voice bug. `voicedemo` prints counters every

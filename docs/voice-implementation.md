@@ -82,16 +82,32 @@ observer list (`FrameObservers`) rather than `@Published`.
 
 ## Tests
 
-- Peers in tests bind to `127.0.0.1`. A headless test process on this host gathers no ICE
-  candidates otherwise, and loopback pairs connect in ~5 ms.
+- Peers in tests bind to `127.0.0.1` so a test never depends on the host's interfaces. For
+  two weeks `bindAddress` was accepted by `TransportConnectionOptions` and dropped before it
+  reached `AlloWebRTCPeer`, so the tests gathered on every interface while the docs said
+  otherwise; honouring it costs about 2 s more per E2E test, somewhere between connect and
+  announce, which is not yet explained. `AlloPlace -b` and `VOICEDEMO_BIND` reach the same
+  option.
 - Tear peers down before a test returns: `PlaceServer.stop()` and client `disconnect()` must
   be awaited, or the process segfaults at exit while peers are still closing.
 - `Scripts/soak-e2e.sh N` runs the E2E suite N times under a hang watchdog; the merge gate is
   20/20.
 
-## Heard live
+## Measured
 
-2026-08-22, two `voicedemo` instances on one Mac mini through speakers, webcam microphone:
-voice round-trips, zero `late` frames either direction over minutes, mouth-to-speaker delay
-felt like 200-500 ms, no howling - with the caveat that mic and speakers were far apart. A
-measured pipeline latency is the next number to get; ears gave a range.
+2026-08-22, two tone-mode `voicedemo` instances and a place on one Mac mini, ~70 s:
+
+| receiver | p50 | p95 | jitter depth | ring |
+|---|---|---|---|---|
+| A | 133 ms | 144 ms | 3 frames | 51-77 ms |
+| B | 174 ms | 189 ms | 4-5 frames | 52-77 ms |
+
+Capture-to-render, same wall clock; the output device adds 1.3 ms on top
+(`outputNode.presentationLatency`). An earlier run sat at 250 ms in both directions for
+minutes with zero underruns: the jitter buffer primes at whatever depth the first bursty
+arrivals suggest and **never shrinks**, so prime-time backlog becomes permanent latency. The
+jitter buffer and the ring buffer account for nearly all of the number; the network and the
+codec are a few ms. Reproduce with `VOICEDEMO_LATENCY_LOG` and `Scripts/voice-latency.sh`.
+
+Earlier the same day, by ear through speakers with a real microphone: voice round-trips, zero
+`late` frames either way, no howling with mic and speakers far apart.
