@@ -404,8 +404,10 @@ public class HeadlessWebRTCTransport: Transport
 
     private func forget(remote channel: AlloWebRTCPeer.DataChannel)
     {
-        guard let label = DataChannelLabel(rawValue: channel.label), case .media(let mediaId) = label,
-              let stream = mediaStreams.removeValue(forKey: mediaId) else { return }
+        guard let label = DataChannelLabel(rawValue: channel.label), case .media(let mediaId) = label else { return }
+        // A stale close for a channel we already replaced must not take its successor with it.
+        guard channels[channel.label] === channel else { return }
+        guard let stream = mediaStreams.removeValue(forKey: mediaId) else { return }
         channels[channel.label] = nil
         // Outgoing channels close through here too; only incoming ones were streams to the session.
         guard stream.streamDirection != .sendonly else { return }
