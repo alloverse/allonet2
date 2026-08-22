@@ -1,56 +1,61 @@
 # Allonet2
 
-This is the next iteration of [allonet](https://github.com/alloverse/allonet/),
-the fundamental networking library that underpins the distributed and collaborative 3D/VR/AR
-workspace [Alloverse](https://alloverse.com/). It is not yet ready to replace version 1, but its
-general shape is taking form and active development is now happening here.
+The second iteration of [allonet](https://github.com/alloverse/allonet/): the networking
+library that underpins the collaborative 3D/VR/AR workspace
+[Alloverse](https://alloverse.com/) and products built on it, such as
+[koja.works](https://koja.works). Active development happens here. The "why Swift, why
+WebRTC" background lives in [docs/history.md](docs/history.md).
 
-Allonet allows the writing of three different kinds of software:
+Allonet connects three kinds of software:
 
-* Alloapps: "widget" apps that run in a 3D space. They run server-side but have an API that
-  feels client-side. They're built towards a "UI library" built on top of allonet.
-* Visor: The 3D application(s) used to visualize these apps and other uses. Basically a 3D
-  web browser.
-* Place: The "simulation server"/network hub that users and apps connect to.
+* **Alloapps**: "widget" apps that run in a 3D space. Headless clients with app identity
+  (`AlloAppClient`, on the `alloheadless` product) — they run server-side but have an API that
+  feels client-side.
+* **Visors**: the 3D applications that visualize a place for a user — basically a 3D web
+  browser (`AlloUserClient` on `alloclient`, rendered via `AlloReality`).
+* **Places**: the simulation server / network hub that users and apps connect to
+  (`PlaceServer`, shipped as the `AlloPlace` executable).
 
-## Rationale of language choice
+## The model
 
-Allonet 1 was written in C, because I have decades of experience in C, and I know how to make
-it work on pretty much any platform. However, the constant memory corruption, lack of abstraction,
-and lack of a standard library worth mentioning is a pain.
+A place holds the authoritative world state: an entity/component system where every entity is
+just an id plus an owner, and all attributes are components (`Transform`, `Model`, `Text`,
+`Collision`, `Grabbable`, `LiveMedia`, … — see `StandardComponents.swift`; custom `Codable`
+components register with a `ComponentRegistry`). State flows to clients as revisioned deltas (`PlaceChangeSet`); each
+client acks the revision it has, and the place diffs from there, falling back to a full resync
+when a client falls too far behind. World state is not persisted — a place restart loses every
+entity.
 
-Requirements for a rewrite:
+Clients change the world through three mechanisms:
 
-* Interfaces with C, so that it can be used with C FFI from C#, lua, C++, Java, etc, and
-  integrated with any game engine or app platform
-* Language must be modern and object oriented, and also suitable for functional programming,
-  good support for async and threading
-* Must have a package manager and a wide library of functionality.
+1. **Interactions** — reliable, CBOR-encoded request/response RPC between entities
+   (`createEntity`, `changeEntity`, `custom(...)`, …). The place routes agent-to-agent
+   interactions and enforces that you only speak for entities you own.
+2. **Intents** — unreliable per-heartbeat state (movement direction, grab), simulated
+   server-side at a 20 ms tick.
+3. **Media** — real WebRTC audio tracks, selectively forwarded by the place's SFU, driven by
+   the `LiveMedia`/`LiveMediaListener` components.
 
-Both Swift and Rust match these. Rust won't play well with my brain, despite many tries. So
-Swift it is.
+## The wire
 
+Signalling is a single HTTP(S) POST to the place (JSON `SignallingPayload`; clients connect
+with an `alloplace2://host:port` URL). The WebRTC session then carries three data channels —
+`interactions` (reliable), `worldstate` (unreliable: deltas down, intents up), `logs`
+(reliable) — all CBOR-encoded, plus SRTP media tracks for voice. Renegotiation (needed every
+time the SFU forwards a new track) runs in-band as an `internal_renegotiate` interaction,
+client-polite/server-impolite. Two things deliberately do *not* ride the data channels:
+**assets** (content-addressed blobs, `sha256:<hex>`, on the place's HTTP server — published
+with a per-session bearer token, fetched unauthenticated and cacheable — see
+[docs/assets.md](docs/assets.md)) and **voice** (media tracks above).
 
-## Design changes from allonet 1
+Announce is the application-level handshake: the client presents an `Identity` and an avatar
+`EntityDescription`, protocol versions must match on major+minor, and authentication happens
+there — apps present a shared token; user authentication is delegated to an alloapp that has
+registered as the place's authentication provider. The place also serves a human-facing
+status dashboard (`/dashboard`) and receives client logs over the `logs` channel.
 
-Allonet was always supposed to use a web-compatible udp-like protocol, probably **WebRTC**.
-Now years later, I'm more keen on QUIC or WebTransport, but there are no working libraries 
-for them for Swift, so I'll lean on WebRTC once again.
-
-Thoughts on WebRTC signalling. We'll ignore p2p for now and use a server-client model. This means
-that the server's sdp will never change, and renegotiation is not as important. So,
-we don't need an active signalling channel, but instead use a single HTTPS call to exchange
-handshakes.
-
-The worst part about Allonet 1 was **JSON**. It was horribly inefficient. We'll aim for
-**ProtoBuf** this time, but lean on BinaryCodable as a stop-gap to just prototype before 
-we start messing with schemas. 
-
-One fun thing we could do is dynamic schemas: each agent shares the schemas
-it will publish data using (i e, which components it supports); placeserv merges to one large
-schema, and publishes that back to agents as the authoritative.
-
-
+The deeper maps — targets and their platforms, sync internals, transports and threading,
+client lifecycle and reconnection — live in [docs/architecture.md](docs/architecture.md).
 
 ## Development
 
@@ -62,18 +67,44 @@ swift build                               # first build downloads a large webrtc
 swift run AlloPlace -n "Local Place"
 ```
 
-`AlloPlace` is the place server. Useful flags: `-p` HTTP signalling port (default
-9080), `-t` token that AlloApps must present (omit to allow any app), `-u` UDP port
-range for WebRTC, `--app-name`/`--app-url-protocol` to brand the landing page for a
-custom client. Clients connect with an `alloplace2://host:port` URL; signalling is a single POST, over
-HTTP for localhost and HTTPS when a TLS proxy fronts the place. Everything after that runs
-over WebRTC data channels (CBOR-encoded).
+`AlloPlace` is the place server. Useful flags:
+
+* `-n <name>` — human-facing name of the place.
+* `-p <port>` — TCP port for the HTTP listener (signalling, assets, dashboard; default 9080).
+* `-u <min-max>` — UDP port range for WebRTC (default 10000-11000).
+* `-t <token>` — token an AlloApp must present to be granted app privileges; omitted, any app
+  that asks is authenticated. It is a role credential, not a connection gate: clients
+  announcing as users are only gated by `--require-auth` + an authentication provider.
+* `--require-auth` — refuse users until an authentication provider has registered. Without it,
+  a place admits anyone in the window between starting up and its provider connecting.
+* `--assets-dir <path>` — keep published assets across restarts (default is under the temp
+  directory).
+* `-l <from_ip-to_ip>` — rewrite a Docker-internal IP to the host's public one in published
+  SDP candidates.
+* `--app-name`, `--app-download-url`, `--app-url-protocol` — brand the landing page for a
+  custom client.
+
+Signalling is over HTTP for localhost and HTTPS when a TLS proxy fronts the place.
 
 Also runnable from Xcode: open the package, pick the AlloPlace scheme, set the same
 flags as Run arguments.
 
-### Windows
+`swift run demoapp alloplace2://localhost:9080` connects the minimal example alloapp.
 
-1. Install [Swift 5.9](https://www.swift.org/download/)
-2. Launch a Developer PowerShell For Visual Studio 2019 in Windows Terminal
-3. `swift build`
+### Linux
+
+CI builds and the Docker image run on Linux (amd64 + arm64) using the `alloheadless`
+transport; `alloclient` and `AlloReality` are Apple-only. See `Dockerfile`.
+
+## Documentation
+
+Start at [docs/index.md](docs/index.md) — architecture, the asset protocol, writing your own
+alloapp, rendering measurements, gotchas, history.
+
+Building a widget or extension for a place — your own, or a hosted one like a Koja workplace?
+[docs/writing-an-alloapp.md](docs/writing-an-alloapp.md) is the guide.
+
+Alloverse 1's conceptual documentation at [docs.alloverse.com](https://docs.alloverse.com)
+(e.g. [the architecture overview](https://docs.alloverse.com/concepts/architecture)) is still
+useful background: places, visors, alloapps, and the entity/component model carry over, but
+allonet2's protocol details (this README, this repo's docs/) differ throughout.
