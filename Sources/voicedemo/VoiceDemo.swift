@@ -9,6 +9,7 @@
 //
 //  VOICEDEMO_TONE=440 sends a sine at that frequency instead of the microphone. No capture
 //  engine, no voice processing, no permission prompt: a sender an agent can run headless.
+//  VOICEDEMO_NO_VPIO=1 captures without the OS voice processor, in the device's native format.
 //
 
 import Foundation
@@ -81,7 +82,7 @@ final class VoiceDemoClient: AlloClient
         }
         else
         {
-            try capture.start(sending: stream)
+            try capture.start(sending: stream, voiceProcessing: ProcessInfo.processInfo.environment["VOICEDEMO_NO_VPIO"] == nil)
         }
 
         let placeStreamId = PlaceStreamId(shortClientId: cid!.shortClientId, incomingMediaId: mediaId)

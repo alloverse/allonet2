@@ -57,8 +57,10 @@ public final class VoiceCapture
                                      interleaved: false)!
     }
 
-    /// Start capturing and send every 20 ms frame on `stream`.
-    public func start(sending stream: DataChannelMediaStream) throws
+    /// Start capturing and send every 20 ms frame on `stream`. `voiceProcessing: false` skips
+    /// the OS echo canceller and captures the device's native format - for telling a silent
+    /// microphone apart from a voice-processing format the conversion can't read.
+    public func start(sending stream: DataChannelMediaStream, voiceProcessing: Bool = true) throws
     {
         guard !isRunning else { return }
         self.stream = stream
@@ -67,8 +69,8 @@ public final class VoiceCapture
         // Must be set before the engine starts, and it re-creates the input format.
         do
         {
-            try input.setVoiceProcessingEnabled(true)
-            voiceProcessingEnabled = true
+            try input.setVoiceProcessingEnabled(voiceProcessing)
+            voiceProcessingEnabled = voiceProcessing
             // Voice processing ducks every sound it did not render itself, and playout runs
             // on a separate engine, so by default it ducks the very voices we're listening to.
             input.voiceProcessingOtherAudioDuckingConfiguration = .init(enableAdvancedDucking: false, duckingLevel: .min)
@@ -86,13 +88,13 @@ public final class VoiceCapture
             {
                 throw Failure.cannotConvert(from: inputFormat, to: outputFormat)
             }
-            self.converter = converter
-        }
             // The voice processor hands out a DiscreteInOrder layout (four identical copies on
             // this machine), and the converter has no downmix rule for discrete channels: left
             // to itself it maps none of them and emits silence. Take the first.
             if inputFormat.channelCount != outputFormat.channelCount { converter.channelMap = [0] }
-        logger.info("Capturing from \(inputFormat), sending as \(outputFormat), voice processing: \(voiceProcessingEnabled)")
+            self.converter = converter
+        }
+        logger.info("Capturing from \(inputFormat) (\(inputFormat.channelLayout?.layoutTag.description ?? "no layout")), sending as \(outputFormat), voice processing: \(voiceProcessingEnabled)")
 
         input.installTap(onBus: 0, bufferSize: AVAudioFrameCount(DataChannelMediaStream.frameDuration), format: inputFormat)
         { [weak self] buffer, _ in
@@ -120,9 +122,22 @@ public final class VoiceCapture
 
     /// Accumulate captured audio and emit whole frames. The tap's buffer size is a hint, not
     /// a promise, so frames are cut here rather than assumed.
+    private var acceptedBuffers = 0
     private func accept(_ buffer: AVAudioPCMBuffer)
     {
         guard let stream else { return }
+        acceptedBuffers += 1
+        if acceptedBuffers % 250 == 1, let channels = buffer.floatChannelData
+        {
+            // Per-channel peak of the raw tap, before any conversion: a silent microphone
+            // reads zero on every channel; a conversion dropping the signal does not.
+            let peaks = (0..<Int(buffer.format.channelCount)).map { c -> String in
+                var peak: Float = 0
+                for i in 0..<Int(buffer.frameLength) { peak = max(peak, abs(channels[c][i])) }
+                return String(format: "%.3f", peak)
+            }
+            logger.info("raw input peaks per channel: \(peaks.joined(separator: " "))")
+        }
         guard let mono = convert(buffer), let samples = mono.floatChannelData?[0] else { return }
 
         pending.append(contentsOf: UnsafeBufferPointer(start: samples, count: Int(mono.frameLength)))
