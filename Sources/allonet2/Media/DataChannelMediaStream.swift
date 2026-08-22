@@ -24,6 +24,9 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     public static let frameDuration = 960
     /// The one sample rate this path runs at, capture through playout.
     public static let sampleRate = 48000.0
+    /// Largest message this stream will take off the wire: one frame of the most verbose kind
+    /// the format has, uncompressed Float32. Opus at its maximum bitrate is a third of it.
+    public static let maximumFrameBytes = frameDuration * MemoryLayout<Float>.size + VoiceFrame.headerSize
 
     private let sendFrame: (Data) -> Bool
     private let closeChannel: () -> Void
@@ -79,6 +82,14 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     public func deliver(_ data: Data)
     {
         counters.update { $0.received += 1 }
+        // Before the fan-out: every forwarder would re-emit an oversized frame, and every
+        // jitter buffer downstream would hold on to it.
+        guard data.count <= Self.maximumFrameBytes else
+        {
+            counters.update { $0.malformed += 1 }
+            logger.debug("Dropped oversized voice frame: \(data.count) bytes")
+            return
+        }
         observers.emit(data)
 
         // The server routes without parsing; only a receiver needs the frame itself.
