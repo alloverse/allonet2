@@ -127,13 +127,14 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     public func send(samples: UnsafePointer<Float>, frameCount: Int) -> UInt32?
     {
         let peak = Self.peak(of: samples, count: frameCount)
-        lock.lock()
+        // One Opus encoder and one sequence, so the whole frame is one critical section:
+        // two callers interleaving would corrupt the codec's state, not just the numbering.
+        lock.lock(); defer { lock.unlock() }
         counters.update { $0.captured += 1; $0.capturedPeak = max($0.capturedPeak, peak) }
         if encoder == nil
         {
             guard let make = VoiceCodecs.makeEncoder else
             {
-                lock.unlock()
                 logger.error("Cannot send voice: \(VoiceCodecError.noCodecInstalled)")
                 counters.update { $0.sendFailed += 1 }
                 return nil
@@ -141,7 +142,6 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
             do { encoder = try make() }
             catch
             {
-                lock.unlock()
                 logger.error("Cannot create voice encoder: \(error)")
                 counters.update { $0.sendFailed += 1 }
                 return nil
@@ -152,7 +152,6 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         let timestamp = nextTimestamp
         nextSequence &+= 1
         nextTimestamp &+= UInt32(frameCount)
-        lock.unlock()
 
         do
         {
