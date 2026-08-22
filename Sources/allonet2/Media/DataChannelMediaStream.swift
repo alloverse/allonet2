@@ -93,7 +93,8 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         observers.emit(data)
 
         // The server routes without parsing; only a receiver needs the frame itself.
-        guard ringBuffer != nil else { return }
+        lock.lock(); let receiving = ringBuffer != nil; lock.unlock()
+        guard receiving else { return }
         do
         {
             let frame = try VoiceFrame(decoding: data)
