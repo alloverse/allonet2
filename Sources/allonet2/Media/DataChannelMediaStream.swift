@@ -4,6 +4,7 @@
 //
 
 import Foundation
+import Atomics
 import Logging
 
 /// A voice stream carried by one unreliable data channel.
@@ -102,10 +103,10 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
 
     // MARK: - Sending
 
-    /// Encode and send 20 ms of mono audio. Returns false if the frame could not be sent,
-    /// which on an unreliable channel means it is simply gone.
+    /// Encode and send 20 ms of mono audio. Returns the sequence the frame went out as, or
+    /// nil if it could not be sent - which on an unreliable channel means it is simply gone.
     @discardableResult
-    public func send(samples: UnsafePointer<Float>, frameCount: Int) -> Bool
+    public func send(samples: UnsafePointer<Float>, frameCount: Int) -> UInt32?
     {
         let peak = Self.peak(of: samples, count: frameCount)
         lock.lock()
@@ -117,7 +118,7 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
                 lock.unlock()
                 logger.error("Cannot send voice: \(VoiceCodecError.noCodecInstalled)")
                 counters.update { $0.sendFailed += 1 }
-                return false
+                return nil
             }
             do { encoder = try make() }
             catch
@@ -125,7 +126,7 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
                 lock.unlock()
                 logger.error("Cannot create voice encoder: \(error)")
                 counters.update { $0.sendFailed += 1 }
-                return false
+                return nil
             }
         }
         let encoder = self.encoder!
@@ -143,16 +144,16 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
             guard sendFrame(frame.encoded) else
             {
                 counters.update { $0.sendFailed += 1 }
-                return false
+                return nil
             }
             counters.update { $0.sent += 1 }
-            return true
+            return sequence
         }
         catch
         {
             logger.error("Failed to encode voice frame \(sequence): \(error)")
             counters.update { $0.sendFailed += 1 }
-            return false
+            return nil
         }
     }
 
@@ -269,7 +270,51 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
                 }
             }
             counters.update { $0.played += 1; $0.playedPeak = max($0.playedPeak, peak) }
+
+            let playedSequence: UInt32? = switch step
+            {
+            case .decode(let frame): frame.sequence
+            case .recoverFromFEC(let next): next.sequence &- 1   // FEC fills the slot before it
+            case .conceal, .priming: nil                         // no frame to name; see PlayoutMark
+            }
+            if let playedSequence
+            {
+                playoutMark.store(PlayoutMark(framesWritten: UInt32(truncatingIfNeeded: ring.framesWritten),
+                                              sequence: playedSequence).bits, ordering: .relaxed)
+            }
         }
+    }
+
+    // MARK: - Latency
+
+    private let playoutMark = ManagedAtomic<UInt64>(0)
+    private let lastPlayedFrame = ManagedAtomic<UInt64>(0)
+
+    /// Record which frame's samples are about to reach the audio device. Call from the render
+    /// callback *before* reading the ring: two atomic loads and a store, no lock, no allocation.
+    public func notePlayout(of ring: AudioRingBuffer)
+    {
+        guard let mark = PlayoutMark(bits: playoutMark.load(ordering: .relaxed)),
+              let sequence = mark.sequence(atReadHead: ring.framesRead, frameDuration: Self.frameDuration)
+        else { return }
+        lastPlayedFrame.store(UInt64(sequence) << 32 | UInt64(Self.uptimeMilliseconds), ordering: .relaxed)
+    }
+
+    /// The last frame handed to the audio device, and when: the far end of a mouth-to-speaker
+    /// measurement. Nil until playout has rendered a frame it can name.
+    public var lastPlayed: (sequence: UInt32, at: Date)?
+    {
+        let bits = lastPlayedFrame.load(ordering: .relaxed)
+        guard bits != 0 else { return nil }
+        let age = Double(Self.uptimeMilliseconds &- UInt32(truncatingIfNeeded: bits)) / 1000
+        return (UInt32(truncatingIfNeeded: bits >> 32), Date(timeIntervalSinceNow: -age))
+    }
+
+    /// Milliseconds since boot, in 32 bits so a timestamp and a sequence share one atomic
+    /// word. Wraps after 49 days; only differences of a few hundred ms are ever taken.
+    private static var uptimeMilliseconds: UInt32
+    {
+        UInt32(truncatingIfNeeded: DispatchTime.now().uptimeNanoseconds / 1_000_000)
     }
 
     private static func peak(of samples: UnsafePointer<Float>, count: Int) -> Float
@@ -277,6 +322,42 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         var peak: Float = 0
         for i in 0..<count { peak = max(peak, abs(samples[i])) }
         return peak
+    }
+}
+
+/// Where playout has got to in the ring buffer: the frame whose last sample sits at
+/// `framesWritten`.
+///
+/// Every playout step writes exactly one frame duration - decode, FEC recovery and
+/// concealment alike - so one anchor resolves the frame at any read position by arithmetic,
+/// including across concealed slots that have no frame to name. The whole map is therefore a
+/// single atomic word, which is what lets the audio render thread read it.
+struct PlayoutMark: Equatable
+{
+    let framesWritten: UInt32
+    let sequence: UInt32
+
+    init(framesWritten: UInt32, sequence: UInt32)
+    {
+        self.framesWritten = framesWritten
+        self.sequence = sequence
+    }
+
+    init?(bits: UInt64)
+    {
+        guard bits != 0 else { return nil }   // nothing written yet
+        self.init(framesWritten: UInt32(truncatingIfNeeded: bits >> 32), sequence: UInt32(truncatingIfNeeded: bits))
+    }
+
+    var bits: UInt64 { UInt64(framesWritten) << 32 | UInt64(sequence) }
+
+    /// The frame whose samples sit at absolute read position `framesRead`, or nil once the
+    /// consumer has drained past the mark and there is nothing left to play.
+    func sequence(atReadHead framesRead: Int, frameDuration: Int) -> UInt32?
+    {
+        let behind = framesWritten &- UInt32(truncatingIfNeeded: framesRead)
+        guard behind > 0, behind < UInt32.max / 2 else { return nil }
+        return sequence &- (behind - 1) / UInt32(frameDuration)
     }
 }
 

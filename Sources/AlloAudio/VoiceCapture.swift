@@ -45,6 +45,9 @@ public final class VoiceCapture
     private weak var stream: DataChannelMediaStream?
     private(set) public var isRunning = false
 
+    /// Sequence and capture time of every frame sent, for latency correlation.
+    public var onFrameSent: ((UInt32, Date) -> Void)?
+
     /// Whether the OS voice-processing unit was actually enabled. False means capture still
     /// works, but with no echo cancellation.
     public private(set) var voiceProcessingEnabled = false
@@ -99,7 +102,8 @@ public final class VoiceCapture
         input.installTap(onBus: 0, bufferSize: AVAudioFrameCount(DataChannelMediaStream.frameDuration), format: inputFormat)
         { [weak self] buffer, _ in
             guard let self else { return }
-            Task { @MainActor in self.accept(buffer) }
+            let capturedAt = Date()   // the hop to the main actor below is not part of capture
+            Task { @MainActor in self.accept(buffer, capturedAt: capturedAt) }
         }
 
         do { try engine.start() }
@@ -123,7 +127,7 @@ public final class VoiceCapture
     /// Accumulate captured audio and emit whole frames. The tap's buffer size is a hint, not
     /// a promise, so frames are cut here rather than assumed.
     private var acceptedBuffers = 0
-    private func accept(_ buffer: AVAudioPCMBuffer)
+    private func accept(_ buffer: AVAudioPCMBuffer, capturedAt: Date)
     {
         guard let stream else { return }
         acceptedBuffers += 1
@@ -140,15 +144,25 @@ public final class VoiceCapture
         }
         guard let mono = convert(buffer), let samples = mono.floatChannelData?[0] else { return }
 
+        // Whatever was already queued was captured before this buffer arrived, so a frame's
+        // audio starts that far back from `capturedAt`.
+        let backlog = pending.count
         pending.append(contentsOf: UnsafeBufferPointer(start: samples, count: Int(mono.frameLength)))
 
         let frameSize = DataChannelMediaStream.frameDuration
+        var frameIndex = 0
         while pending.count >= frameSize
         {
-            pending.withUnsafeBufferPointer { buffer in
+            let sequence = pending.withUnsafeBufferPointer { buffer in
                 stream.send(samples: buffer.baseAddress!, frameCount: frameSize)
             }
+            if let sequence, let onFrameSent
+            {
+                let offset = Double(frameIndex * frameSize - backlog) / DataChannelMediaStream.sampleRate
+                onFrameSent(sequence, capturedAt.addingTimeInterval(offset))
+            }
             pending.removeFirst(frameSize)
+            frameIndex += 1
         }
     }
 

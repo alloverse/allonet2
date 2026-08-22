@@ -117,6 +117,7 @@ open class AudioRingBuffer: Cancellable, CustomStringConvertible
         // Publish new write index with release ordering.
         w = (w + toWrite) % capacityFrames
         writeIndex.store(w, ordering: .releasing)
+        framesWrittenTotal.wrappingIncrement(by: toWrite, ordering: .relaxed)
         return toWrite
     }
     
@@ -152,10 +153,20 @@ open class AudioRingBuffer: Cancellable, CustomStringConvertible
         // Publish new read index.
         r = (r + toRead) % capacityFrames
         readIndex.store(r, ordering: .releasing)
+        framesReadTotal.wrappingIncrement(by: toRead, ordering: .relaxed)
         return toRead
     }
 
-    
+
+    private let framesWrittenTotal = ManagedAtomic(0)
+    private let framesReadTotal = ManagedAtomic(0)
+
+    /// Frames ever written, and ever read. The modulo indices say how much is buffered; these
+    /// say *where* in the stream the two heads are, which is what maps a sample back to the
+    /// frame it came from.
+    public var framesWritten: Int { framesWrittenTotal.load(ordering: .relaxed) }
+    public var framesRead: Int { framesReadTotal.load(ordering: .relaxed) }
+
     private let underrunFrames = ManagedAtomic(0)
 
     /// Frames the consumer asked for that were not there. Nonzero while a stream primes;
