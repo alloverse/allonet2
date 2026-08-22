@@ -288,10 +288,19 @@ public class RealityViewMapper
     /// not `Sendable`; the handoff is safe because the parse task is the only reference until it
     /// returns, and nothing touches the asset afterwards but validation and conversion, both on
     /// the main actor.
+    ///
+    /// Parsed from bytes, never from the URL. `GLTFAsset(url:)` resolves a `buffer.uri` or
+    /// `image.uri` relative to the file's directory — and cgltf percent-decodes after joining, so
+    /// an encoded `../` walks out of the cache and reads any local file straight into a vertex
+    /// buffer. That is not just a `.gltf` problem: a `.glb`'s JSON chunk can carry the same URIs
+    /// (probed: the bytes of a file one directory up arrive in `buffers[1].data`). Checking after
+    /// the fact is useless — GLTFKit2 clears `uri` once it has resolved it, so by the time we could
+    /// look, the read has happened. Handing cgltf bytes with no base directory is what makes the
+    /// traversal unrepresentable: a non-`data:` URI then fails to resolve at all.
     private struct ParsedGLTF: @unchecked Sendable
     {
         let asset: GLTFAsset
-        init(contentsOf url: URL) throws { asset = try GLTFAsset(url: url, options: [:]) }
+        init(contentsOf url: URL) throws { asset = try GLTFAsset(data: Data(contentsOf: url), options: [:]) }
     }
 
     /// glTF that parses but doesn't hold together. GLTFKit2 never runs `cgltf_validate`, and

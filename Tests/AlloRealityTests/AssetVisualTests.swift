@@ -105,6 +105,29 @@ struct AssetVisualTests
         }
     }
 
+    /// A `.glb`'s JSON chunk can name external buffers exactly like a `.gltf` can, and resolving
+    /// them against the file's directory reads local files into vertex data. Parsing from bytes
+    /// leaves cgltf no base directory to join against, so the reference cannot resolve at all.
+    @Test func aGlbReferencingAnExternalBufferCannotReachIt() async throws
+    {
+        let fm = FileManager.default
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("assets-\(UUID().uuidString)")
+        let cache = root.appendingPathComponent("cache")
+        try fm.createDirectory(at: cache, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+        // The file a traversal would be after, one level above where the asset is cached.
+        try Data(repeating: 0x41, count: 64).write(to: root.appendingPathComponent("secret.bin"))
+
+        for uri in ["../secret.bin", "..%2Fsecret.bin"]
+        {
+            let url = cache.appendingPathComponent("\(String(repeating: "ab", count: 32)).glb")
+            try TinyGLB.triangle(bufferURI: uri).write(to: url)
+            await #expect(throws: (any Error).self, "\(uri) resolved") {
+                try await RealityViewMapper.visual(ofAssetAt: url)
+            }
+            try fm.removeItem(at: url)
+        }
+    }
 
 }
 
@@ -125,9 +148,11 @@ enum TinyGLB
     /// - Parameters:
     ///   - normals: how many NORMAL vectors the accessor claims; 3 (one per vertex) is correct.
     ///   - normalViewLength: byte length its buffer view claims; nil for the honest 12 per normal.
+    ///   - bufferURI: a `uri` on a second buffer, which a self-contained glb never has.
     ///   - vertexCount: overrides the count on *both* attribute accessors, so an absurd value gets
     ///     past the they-must-agree check and reaches the byte-range arithmetic.
-    static func triangle(normals: Int = 3, normalViewLength: Int? = nil, vertexCount: String = "3") -> Data
+    static func triangle(normals: Int = 3, normalViewLength: Int? = nil, bufferURI: String? = nil,
+                         vertexCount: String = "3") -> Data
     {
         let positions: [Float] = [0, 0, 0, 1, 0, 0, 0, 1, 0]
         let normalData: [Float] = (0..<3).flatMap { _ -> [Float] in [0, 0, 1] }
@@ -141,7 +166,8 @@ enum TinyGLB
         {"bufferView":1,"componentType":5126,"count":\(normals == 3 ? vertexCount : String(normals)),"type":"VEC3"}],\
         "bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36},\
         {"buffer":0,"byteOffset":36,"byteLength":\(normalViewLength ?? normalBytes)}],\
-        "buffers":[{"byteLength":\(36 + normalBytes)}]}
+        "buffers":[{"byteLength":\(36 + normalBytes)}\
+        \(bufferURI.map { ",{\"byteLength\":64,\"uri\":\"\($0)\"}" } ?? "")]}
         """
 
         // Both chunks are 4-byte aligned; JSON pads with spaces, BIN with zeros (glTF 2.0 §4.4.1).
