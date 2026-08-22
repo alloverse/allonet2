@@ -6,6 +6,7 @@
 //
 
 import allonet2
+import AlloAudio
 import alloclient
 import RealityKit
 import OpenCombineShim
@@ -169,7 +170,7 @@ public class SpatialAudioPlayer
         )
         guient.components.set(spatial)
         
-        let ringBuffer = stream.render() as! AVFAudioRingBuffer
+        let ringBuffer = stream.render()
         ringBuffer.store(in: &playState.cancellables)
         
         // TODO: Adjust playback speed to keep the buffered amount stable at ~50ms latency?
@@ -210,7 +211,7 @@ public class SpatialAudioPlayer
             }
         }
     }
-    static func logStatistics(_ requested: Int, _ ringBuffer: AVFAudioRingBuffer, into streamLogger: Logger, from stats: StreamStats)
+    static func logStatistics(_ requested: Int, _ ringBuffer: AudioRingBuffer, into streamLogger: Logger, from stats: StreamStats)
     {
         stats.updateEMA(current: &stats.avgRequested, with: requested)
         stats.updateEMA(current: &stats.avgReadCapacity, with: ringBuffer.availableToRead())

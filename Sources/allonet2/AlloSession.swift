@@ -313,8 +313,13 @@ public class AlloSession : NSObject, TransportDelegate
         }
     }
     
+    /// How many times this session has had to renegotiate since it connected. Voice over
+    /// data channels should never add to this: a media channel opens in-band.
+    public private(set) var renegotiationCount = 0
+
     public func transport(requestsRenegotiation transport: Transport)
     {
+        renegotiationCount += 1
         Task
         {
             do
@@ -423,8 +428,9 @@ public class AlloSession : NSObject, TransportDelegate
     
     public func transport(_ transport: Transport, didRemoveMediaStream stream: MediaStream)
     {
+        // Channel-closed fires again after disconnect already dropped these; report each once.
+        guard incomingStreams.removeValue(forKey: stream.mediaId) != nil else { return }
         logger.info("Removing stream \(stream.mediaId)")
-        incomingStreams[stream.mediaId] = nil
         delegate?.session(self, didRemoveMediaStream: stream)
     }
     

@@ -56,12 +56,16 @@ public struct TransportConnectionOptions: Sendable
     public let routing: TransportRouting
     public let ipOverride: IPOverride?
     public let portRange: Range<Int>?
-    
-    public init(routing: TransportRouting = .direct, ipOverride: IPOverride? = nil, portRange: Range<Int>? = nil)
+    /// Gather candidates on this interface only. "127.0.0.1" keeps a connection inside the
+    /// machine, which is what the in-process tests need.
+    public let bindAddress: String?
+
+    public init(routing: TransportRouting = .direct, ipOverride: IPOverride? = nil, portRange: Range<Int>? = nil, bindAddress: String? = nil)
     {
         self.routing = routing
         self.ipOverride = ipOverride
         self.portRange = portRange
+        self.bindAddress = bindAddress
     }
 }
 
@@ -94,22 +98,51 @@ public enum TransportSignallingState: UInt32
     case haveRemotePRAnswer = 4
 }
 
-public enum DataChannelLabel: String
+public enum DataChannelLabel: RawRepresentable, Hashable, Sendable
 {
-    case interactions = "interactions"
-    case intentWorldState = "worldstate"
-    case logs = "logs"
-}
+    case interactions
+    case intentWorldState
+    case logs
+    /// One voice stream. Channel-per-stream is what lets the SFU route frames without
+    /// looking inside them, and removes the stream id from the frame header.
+    case media(MediaStreamId)
 
-extension DataChannelLabel
-{
-    public var channelId: Int32 { get {
+    static let mediaPrefix = "voice/"
+
+    public var rawValue: String {
+        switch self {
+        case .interactions: "interactions"
+        case .intentWorldState: "worldstate"
+        case .logs: "logs"
+        case .media(let mediaId): Self.mediaPrefix + mediaId
+        }
+    }
+
+    public init?(rawValue: String) {
+        switch rawValue {
+        case "interactions": self = .interactions
+        case "worldstate": self = .intentWorldState
+        case "logs": self = .logs
+        case let label where label.hasPrefix(Self.mediaPrefix):
+            let mediaId = String(label.dropFirst(Self.mediaPrefix.count))
+            guard !mediaId.isEmpty else { return nil }
+            self = .media(mediaId)
+        default: return nil
+        }
+    }
+
+    /// Pre-agreed SCTP stream for the control channels, which both sides create up front.
+    /// Media channels are opened in-band and SCTP assigns their stream, so they have none.
+    public var channelId: Int32? { get {
         switch self {
         case .interactions: 1
         case .intentWorldState: 2
         case .logs: 3
+        case .media: nil
         }
     } }
+
+    public var isMedia: Bool { if case .media = self { return true }; return false }
 }
 
 public protocol DataChannel {

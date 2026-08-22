@@ -5,6 +5,42 @@
 
 import PackageDescription
 
+#if canImport(Darwin)
+// Everything that cannot exist on Linux: AVFoundation capture/playout, RealityKit
+// rendering, and the voice demo. Declared only on Apple hosts,
+// because a target referencing an Apple-only dependency breaks the *manifest* on Linux -
+// even when only the server product is being built.
+let applePlatformTargets: [Target] = [
+    .target(name: "AlloAudio", dependencies: ["allonet2"]),
+    // Was the googlewebrtc client transport; now the user-facing client on top of the same
+    // libdatachannel transport the server uses. Apple-only for its audio, not its network.
+    .target(name: "alloclient", dependencies: [
+        .product(name: "OpenCombineShim", package: "opencombine"),
+        "allonet2",
+        "alloheadless",
+        "AlloAudio",
+        "AlloOpus",
+    ]),
+    .target(name: "AlloReality", dependencies: [
+        .product(name: "OpenCombineShim", package: "opencombine"),
+        "alloclient",
+        "AlloAudio",
+        .product(name: "GLTFKit2", package: "GLTFKit2"),
+    ]),
+    .testTarget(name: "AlloRealityTests", dependencies: ["AlloReality"]),
+    .executableTarget(name: "voicedemo", dependencies: ["alloheadless", "AlloAudio", "AlloOpus"]),
+]
+let applePlatformProducts: [Product] = [
+    .library(name: "AlloAudio", targets: ["AlloAudio"]),
+    .library(name: "alloclient", targets: ["alloclient"]),
+    .library(name: "AlloReality", targets: ["AlloReality"]),
+    .executable(name: "voicedemo", targets: ["voicedemo"]),
+]
+#else
+let applePlatformTargets: [Target] = []
+let applePlatformProducts: [Product] = []
+#endif
+
 let package = Package(
     name: "allonet2",
     platforms: [
@@ -19,16 +55,12 @@ let package = Package(
             targets: ["allonet2"],
         ),
         .library(
-            name: "alloclient",
-            targets: ["alloclient"]
-        ),
-        .library(
             name: "alloheadless",
             targets: ["alloheadless"]
         ),
         .library(
-            name: "AlloReality",
-            targets: ["AlloReality"]
+            name: "AlloOpus",
+            targets: ["AlloOpus"]
         ),
         .executable(name: "AlloPlace",
             targets: ["AlloPlace"]
@@ -36,11 +68,10 @@ let package = Package(
         .executable(name: "demoapp",
             targets: ["demoapp"]
         )
-    ],
+    ] + applePlatformProducts,
     dependencies: [
           .package(url: "https://github.com/outfoxx/PotentCodables.git", from: "3.5.3"),
 
-        .package(url: "https://github.com/livekit/webrtc-xcframework.git", exact: "137.7151.07"),
         // 0.26.0 introduced HTTPHeaders, which the asset endpoint uses. Our own Package.resolved
         // pins something newer, so nothing here catches a build that honours the lower bound —
         // KojaApp resolved 0.25.0 and failed to compile allonet2.
@@ -82,14 +113,6 @@ let package = Package(
             ]
         ),
         .target(
-            name: "alloclient",
-            dependencies: [
-                .product(name: "LiveKitWebRTC", package: "webrtc-xcframework"),
-                .product(name: "OpenCombineShim", package: "opencombine"),
-                "allonet2"
-            ]
-        ),
-        .target(
             name: "alloheadless",
             dependencies: [
                 .product(name: "OpenCombineShim", package: "opencombine"),
@@ -97,14 +120,51 @@ let package = Package(
                 "allonet2"
             ]
         ),
+        // Vendored libopus (BSD-3). Built from source rather than linked from the system so
+        // macOS, visionOS and Linux all get the same codec with no per-machine setup.
+        // Architecture-specific kernels are excluded; the generic C path is far more than
+        // fast enough for one 32 kbit/s mono stream.
         .target(
-            name: "AlloReality",
-            dependencies: [
-                .product(name: "OpenCombineShim", package: "opencombine"),
-                "alloclient",
-                .product(name: "GLTFKit2", package: "GLTFKit2"),
+            name: "COpus",
+            path: "Packages/opus",
+            exclude: [
+                "celt/arm", "celt/dump_modes", "celt/mips", "celt/tests", "celt/x86",
+                "silk/arm", "silk/fixed", "silk/mips", "silk/tests", "silk/x86",
+                // Demos carry their own main() and need CUSTOM_MODES, which we do not build.
+                "src/opus_demo.c", "src/repacketizer_demo.c", "src/opus_compare.c",
+                "celt/opus_custom_demo.c",
+                "doc", "tests", "training", "win32", "cmake", "m4", "meson", "scripts",
+                "include/meson.build", "celt/meson.build", "silk/meson.build", "src/meson.build",
+                "CMakeLists.txt", "Makefile.am", "Makefile.mips", "Makefile.unix", "configure.ac",
+                "meson.build", "meson_options.txt", "autogen.sh", "opus.m4", "opus.pc.in",
+                "opus-uninstalled.pc.in", "update_version", "releases.sha2",
+                "celt_headers.mk", "celt_sources.mk", "opus_headers.mk", "opus_sources.mk",
+                "silk_headers.mk", "silk_sources.mk",
+                "AUTHORS", "COPYING", "ChangeLog", "NEWS", "README", "README.draft",
+                "LICENSE_PLEASE_READ.txt",
+            ],
+            sources: ["celt", "silk", "silk/float", "src"],
+            publicHeadersPath: "include",
+            cSettings: [
+                .headerSearchPath("."),
+                .headerSearchPath("celt"),
+                .headerSearchPath("silk"),
+                .headerSearchPath("silk/float"),
+                .headerSearchPath("include"),
+                .define("OPUS_BUILD", to: "1"),
+                .define("USE_ALLOCA", to: "1"),
+                .define("HAVE_LRINT", to: "1"),
+                .define("HAVE_LRINTF", to: "1"),
+                .define("FLOATING_POINT", to: "1"),
+                .define("PACKAGE_VERSION", to: "\"1.4\""),
             ]
         ),
+        // opus_encoder_ctl is a C variadic, which Swift cannot call.
+        .target(name: "COpusShim", dependencies: ["COpus"]),
+        .target(name: "AlloOpus", dependencies: ["COpus", "COpusShim", "allonet2"]),
+        // CoreAudio capture and playout. Apple platforms only, so it is declared only when
+        // building on one - the Linux server has no use for a microphone.
+    ] + applePlatformTargets + [
         .testTarget(
             name: "allonet2Tests",
             dependencies: [
@@ -114,11 +174,14 @@ let package = Package(
                 .product(name: "FlyingSocks", package: "FlyingFox") // reading back an ephemeral port
             ]
         ),
-        // Darwin-only. Linux CI survives it only because the Dockerfile builds `--product AlloPlace`,
-        // which reaches neither this nor AlloReality.
         .testTarget(
-            name: "AlloRealityTests",
-            dependencies: ["AlloReality"]
+            name: "AlloOpusTests",
+            dependencies: ["AlloOpus", "allonet2"]
+        ),
+        // End-to-end: a real PlaceServer and real clients over real libdatachannel loopback.
+        .testTarget(
+            name: "alloheadlessTests",
+            dependencies: ["alloheadless", "allonet2"]
         ),
         .executableTarget(
             name: "AlloPlace",
