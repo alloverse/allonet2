@@ -69,6 +69,9 @@ public final class VoiceCapture
         {
             try input.setVoiceProcessingEnabled(true)
             voiceProcessingEnabled = true
+            // Voice processing ducks every sound it did not render itself, and playout runs
+            // on a separate engine, so by default it ducks the very voices we're listening to.
+            input.voiceProcessingOtherAudioDuckingConfiguration = .init(enableAdvancedDucking: false, duckingLevel: .min)
         }
         catch
         {
