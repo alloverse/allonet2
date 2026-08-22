@@ -90,6 +90,7 @@ public final class VoiceCapture
             if inputFormat.channelCount != outputFormat.channelCount { converter.channelMap = [0] }
             self.converter = converter
         }
+        else { converter = nil }
         logger.info("Capturing from \(inputFormat) (\(inputFormat.channelLayout?.layoutTag.description ?? "no layout")), sending as \(outputFormat), voice processing: \(voiceProcessingEnabled)")
 
         input.installTap(onBus: 0, bufferSize: AVAudioFrameCount(DataChannelMediaStream.frameDuration), format: inputFormat)
