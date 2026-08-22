@@ -44,9 +44,7 @@ public class RealityViewMapper
         }.store(in: &cancellables)
         netstate.observers.entityRemoved.sink { netent in
             guard let guient = self.guiForEid(netent.id) else { return }
-            // Nothing else will: the component removers only run for a component that goes away,
-            // not for an entity that does, so an in-flight load would keep the entity alive and
-            // then decorate something already off-screen.
+            // Component removers don't run for an entity that merely goes away.
             guient.components[AlloModelStateComponent.self]?.loadingTask?.cancel()
             guient.components[AlloTextStateComponent.self]?.loadingTask?.cancel()
             guient.removeFromParent()
@@ -211,10 +209,8 @@ public class RealityViewMapper
         }
     }
 
-    /// Meshes that draw through a loaded child entity — `.builtin` and `.asset` — rather than
-    /// through the entity's own `ModelComponent`. The subtree is the visual, opaquely; nothing
-    /// addresses inside it, and the file's own materials are the materials. A load that fails
-    /// leaves the placeholder rather than nothing: an invisible entity reads as no entity.
+    /// Load `.builtin`/`.asset` meshes, which draw through a child subtree instead of the entity's
+    /// own `ModelComponent`. A failed load shows `missingVisual()`, never nothing.
     private func loadVisual(
         of entity: RealityKit.Entity,
         describedAs description: String,
@@ -227,17 +223,14 @@ public class RealityViewMapper
             do { loaded = try await load() }
             catch
             {
-                // Only our own cancellation means "a newer Model landed, drop this". A
-                // CancellationError raised anywhere else is a load that failed, and swallowing it
-                // would leave the entity blank forever.
+                // Only our own cancellation means a newer Model replaced us.
                 if Task.isCancelled { return }
                 print("Failed to load \(description) for entity \(entity.name): \(error)")
                 loaded = Self.missingVisual()
             }
             if(Task.isCancelled) { return }
             Self.anonymize(loaded)
-            // Re-read: `state` is a value copy from before the await, and a newer Model may
-            // have landed in the meantime.
+            // Re-read: `state` is a copy from before the await.
             var state = entity.components[AlloModelStateComponent.self] ?? AlloModelStateComponent()
             state.loadingTask = nil
             state.entity = loaded
@@ -246,44 +239,29 @@ public class RealityViewMapper
         }
     }
 
-    /// Strip the names off a loaded subtree. `guiForEid` resolves an `EntityID` with
-    /// `findEntity(named:)`, which searches the whole tree — so a node named after somebody else's
-    /// entity would quietly receive that entity's component updates and its removal. Names inside
-    /// an asset are cosmetic by contract (nothing addresses sub-nodes), and the file is a peer's,
-    /// so the safe reading of "cosmetic" is "gone".
-    ///
-    /// Costs the name-based bindings RealityKit uses for skeletal animation, which no asset we
-    /// ship has yet; revisit here when one does.
+    /// Clear a loaded subtree's names, so a peer's node can't answer to another entity's id in
+    /// `guiForEid`. Costs RealityKit's name-based animation binding; see docs/assets-implementation.md.
     static func anonymize(_ entity: RealityKit.Entity)
     {
         entity.name = ""
         for child in entity.children { anonymize(child) }
     }
 
-    /// Stands in for a model that couldn't be loaded. Red and box-shaped so it can't be mistaken
-    /// for content, present so the entity is still findable and still has a size.
+    /// Stands in for a model that couldn't be loaded: red, so it can't be mistaken for content.
     public static func missingVisual() -> RealityKit.Entity
     {
         ModelEntity(mesh: .generateBox(size: 0.5), materials: [SimpleMaterial(color: .red, isMetallic: true)])
     }
 
-    /// The visual an asset file draws as, dispatched on the cached file's path extension —
-    /// `AssetStore` derives that from the publisher's media type precisely so a loader that only
-    /// takes a URL (RealityKit has no data-based USDZ loader) can be picked without sniffing bytes.
-    /// Only the extensions `AssetStore.filenameExtension(for:)` can actually produce are handled;
-    /// `.gltf` deliberately isn't one of them (see `unloadableFormat`).
+    /// The visual an asset file draws as, dispatched on the extension `AssetStore` derived from its
+    /// media type. `.gltf` is deliberately absent; see docs/assets-implementation.md.
     public static func visual(ofAssetAt url: URL) async throws -> RealityKit.Entity
     {
         switch url.pathExtension.lowercased()
         {
         case "glb":
-            // Split load: parsing is cheap but synchronous (measured: 9 ms for 12.7 MB) so it runs
-            // off the main actor, while conversion to RealityKit entities is main-actor-only and
-            // expensive (3.1 s for that same 12.7 MB / 86k-tri scene, 35 ms for a 1.4 MB object) —
-            // which is why rooms ship as one asset per part rather than one asset per room.
-            // The detached task is unstructured, so cancelling us doesn't cancel it; at 9 ms per
-            // 12.7 MB that's cheaper to let finish than to plumb, and the check below is what
-            // keeps a cancelled load from paying the expensive half.
+            // Parse off-main, convert on it; the check keeps a cancelled load from paying for the
+            // expensive half. Costs in docs/assets-implementation.md.
             let parsed = try await Task.detached(priority: .userInitiated) { try ParsedGLTF(contentsOf: url) }.value
             try Task.checkCancellation()
             guard let scene = parsed.asset.defaultScene ?? parsed.asset.scenes.first else
@@ -299,34 +277,19 @@ public class RealityViewMapper
         }
     }
 
-    /// A parsed glTF crossing back from the parsing task. `GLTFAsset` is an Objective-C class and
-    /// not `Sendable`; the handoff is safe because the parse task is the only reference until it
-    /// returns, and nothing touches the asset afterwards but validation and conversion, both on
-    /// the main actor.
+    /// A parsed glTF handed back from the parse task; `@unchecked` because `GLTFAsset` is an
+    /// Objective-C class that only ever has the one reference.
     ///
-    /// Parsed from bytes, never from the URL. `GLTFAsset(url:)` resolves a `buffer.uri` or
-    /// `image.uri` relative to the file's directory — and cgltf percent-decodes after joining, so
-    /// an encoded `../` walks out of the cache and reads any local file straight into a vertex
-    /// buffer. That is not just a `.gltf` problem: a `.glb`'s JSON chunk can carry the same URIs
-    /// (probed: the bytes of a file one directory up arrive in `buffers[1].data`). Checking after
-    /// the fact is useless — GLTFKit2 clears `uri` once it has resolved it, so by the time we could
-    /// look, the read has happened. Handing cgltf bytes with no base directory is what makes the
-    /// traversal unrepresentable: a non-`data:` URI then fails to resolve at all.
+    /// From bytes, never the URL: a URL gives cgltf a base directory to resolve external buffer
+    /// URIs against, which is a path traversal. See docs/assets-implementation.md.
     private struct ParsedGLTF: @unchecked Sendable
     {
         let asset: GLTFAsset
         init(contentsOf url: URL) throws { asset = try GLTFAsset(data: Data(contentsOf: url), options: [:]) }
     }
 
-    /// glTF that parses but doesn't hold together. GLTFKit2 never runs `cgltf_validate`, and
-    /// `MeshResource` asserts *below Swift* on inconsistent vertex data — an uncatchable trap
-    /// reachable from a peer's bytes, since `convert` has no error path either. So the invariants
-    /// RealityKit assumes get checked here, while a throw still means something: every attribute of
-    /// a primitive must describe the same vertices, and every accessor's window must fit the buffer
-    /// view it reads through.
-    ///
-    /// Not covered: index *values* pointing past the vertex count, which would mean walking the
-    /// whole index buffer. Unmeasured whether RealityKit traps on that; see docs/assets.md.
+    /// Reject glTF that parses but contradicts itself, because RealityKit asserts below Swift on it
+    /// rather than throwing. Scope and gaps in docs/assets-implementation.md.
     private static func validate(_ asset: GLTFAsset, from url: URL) throws
     {
         for mesh in asset.meshes
@@ -352,7 +315,7 @@ public class RealityViewMapper
 
     private static func validate(accessor: GLTFAccessor, named name: String, from url: URL) throws
     {
-        // A sparse accessor with no buffer view is all zeroes by definition — nothing to overrun.
+        // A sparse accessor with no buffer view is all zeroes; nothing to overrun.
         guard let view = accessor.bufferView else { return }
         let element = Int(GLTFBytesPerComponentForComponentType(accessor.componentType))
                     * Int(GLTFComponentCountForDimension(accessor.dimension))
@@ -377,9 +340,8 @@ public class RealityViewMapper
         }
     }
 
-    /// The byte just past an accessor's last element: `offset + (count - 1) * stride + element`.
-    /// Nil when that overflows — every term is a number a peer wrote, and `Int` overflow traps in
-    /// Swift exactly as hard as the RealityKit assertion this whole function exists to avoid.
+    /// `offset + (count - 1) * stride + element`, or nil if it overflows — every term is a peer's,
+    /// and an `Int` overflow traps as hard as the assertion this exists to avoid.
     private static func windowEnd(offset: Int, count: Int, stride: Int, element: Int) -> Int?
     {
         guard count > 0 else { return offset }
@@ -390,9 +352,8 @@ public class RealityViewMapper
 
     private var warnedAboutMissingAssetResolver = false
 
-    /// Where an asset's bytes are, or nil if nobody wired up `assetResolver`. That is a deployment
-    /// mistake rather than a per-asset failure, so it's said once and then drawn as a placeholder;
-    /// neither case retries.
+    /// Where an asset's bytes are, or nil if nobody wired up `assetResolver` — a deployment mistake,
+    /// so it's said once rather than per asset.
     private func resolvedAssetURL(_ asset: AssetID, for entityName: String) async throws -> URL?
     {
         guard let assetResolver else
@@ -431,8 +392,7 @@ public class RealityViewMapper
         }
         catch
         {
-            // A newer Model landed and cancelled us: the caller throws away whatever we return, so
-            // this is not a failure to report. A CancellationError without that is a real failure.
+            // Cancelled means the caller discards this anyway, so it isn't a failure to report.
             if !Task.isCancelled
             {
                 print("Failed to load image asset \(asset) for entity \(entityName): \(error)")
@@ -588,28 +548,21 @@ public class RealityViewMapper
 }
 
 
-/// Why a fetched asset couldn't become a visual. The bytes are already on disk and hash-checked at
-/// this point, so what's left is a file this renderer has no loader for.
-/// The result of an overflow-reporting operation, or nil if it overflowed — so overflow checks
-/// chain with `flatMap` instead of unwinding into a ladder of tuple destructuring.
+/// The result of an overflow-reporting operation, or nil if it overflowed, so checks chain.
 private func ifNoOverflow(_ result: (partialValue: Int, overflow: Bool)) -> Int?
 {
     result.overflow ? nil : result.partialValue
 }
 
+/// Why a fetched asset couldn't become a visual. The bytes are on disk and hash-checked by now, so
+/// what's left is a file this renderer won't open.
 public enum AssetVisualError: Error, Equatable, CustomStringConvertible
 {
-    /// The extension isn't one `visual(ofAssetAt:)` has a loader for — most likely a publisher that
-    /// named the wrong media type, since the extension is derived from it. `.gltf` lands here on
-    /// purpose: a JSON glTF references its buffers and textures by relative URI, which a store that
-    /// holds one file per content address can never resolve, and cgltf percent-decodes those URIs
-    /// *after* joining them to the base directory — so an encoded `../` reads whatever local file a
-    /// peer names straight into a vertex buffer. Publishers ship `.glb`, which is self-contained.
+    /// No loader for this extension. `.gltf` included, on purpose; see docs/assets-implementation.md.
     case unloadableFormat(URL)
     /// Valid glTF, but with nothing in it to draw.
     case gltfHasNoScene(URL)
-    /// Parseable glTF whose vertex data contradicts itself. Rejected here because RealityKit
-    /// asserts below Swift rather than throwing; the string says which invariant broke.
+    /// Parseable glTF whose vertex data contradicts itself; the string says which invariant broke.
     case inconsistentGeometry(URL, String)
 
     public var description: String

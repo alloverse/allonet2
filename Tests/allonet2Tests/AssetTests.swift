@@ -59,15 +59,12 @@ struct AssetIDTests
         #expect(try JSONDecoder().decode(Model.Mesh.self, from: encoded) == .asset(id: id))
     }
 
-    /// `Model` hand-writes `init(from:)` to survive a bad id, which is exactly the kind of change
-    /// that silently rewrites a wire format. Encoding is still synthesized and a valid payload must
-    /// still decode to itself, byte for byte.
+    /// Hand-writing `init(from:)` is exactly the change that silently rewrites a wire format.
     @Test @MainActor func modelStillCodesAsItAlwaysDid() throws
     {
         let id = AssetID(hashing: Data("mesh".utf8))
         let model = Model(mesh: .asset(id: id))
-        // Sorted because JSONEncoder's key order for this type varies between processes; the wire
-        // is CBOR and keyed either way, so what's pinned is the shape and the leaf spellings.
+        // Sorted: JSONEncoder's key order for this type varies between processes.
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         let encoded = try encoder.encode(model)
@@ -75,20 +72,17 @@ struct AssetIDTests
         #expect(try JSONDecoder().decode(Model.self, from: encoded) == model)
     }
 
-    /// `AnyComponent.decoded()` force-tries, so a Model that throws on decode takes down every
-    /// client rendering that entity — one malformed id from any peer would empty a room. An id that
-    /// isn't a content address can never name bytes, so the model degrades to something visibly
-    /// broken instead of throwing.
+    /// `AnyComponent.decoded()` force-tries, so one malformed id from any peer would empty a room.
     @Test @MainActor func aModelWithAnUnparseableAssetIdDegradesInsteadOfTrapping() throws
     {
         func model(_ json: String) throws -> Model
         {
             try JSONDecoder().decode(Model.self, from: Data(json.utf8))
         }
-        // The mesh's id, and the material's — both reach AssetID through a different enum.
+        // Mesh and material reach AssetID through different enums.
         #expect(try model(#"{"mesh":{"asset":{"id":"placeholder"}},"material":{"standard":{}}}"#) == .unrenderable)
         #expect(try model(#"{"mesh":{"sphere":{"radius":1}},"material":{"image":{"asset":"../../etc/passwd"}}}"#) == .unrenderable)
-        // A payload that is wrong in some other way is still an error: we only know what a bad id means.
+        // Wrong in some other way is still an error: we only know what a bad id means.
         #expect(throws: (any Error).self) { try model(#"{"mesh":{"sphere":{"radius":"big"}},"material":{"standard":{}}}"#) }
     }
 }

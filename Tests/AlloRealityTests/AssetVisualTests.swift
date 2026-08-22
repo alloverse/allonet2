@@ -4,10 +4,8 @@ import RealityKit
 import GLTFKit2
 @testable import AlloReality
 
-/// `Model.mesh == .asset` turns a cached file into an entity's visual. The interesting part is the
-/// dispatch on the file's extension and what happens to files that aren't loadable — the bytes come
-/// from a peer, and only the hash is checked before we hand them to a parser that has no validation
-/// pass and a converter that asserts below Swift.
+/// Turning a cached file into a visual. The bytes are a peer's and only their hash was checked, so
+/// most of this is about files that shouldn't load.
 @MainActor
 struct AssetVisualTests
 {
@@ -29,8 +27,7 @@ struct AssetVisualTests
         #expect(visual.meshBearingDescendants > 0)
     }
 
-    /// The extension is derived from a media type the publisher chose, so it can name anything.
-    /// That has to surface as a typed error the caller can log — not a trap.
+    /// The publisher chose the media type the extension came from, so it can name anything.
     @Test func anUnknownExtensionFails() async throws
     {
         let url = try cached(TinyGLB.triangle(), as: "zip")
@@ -40,10 +37,7 @@ struct AssetVisualTests
         }
     }
 
-    /// `.gltf` is a supported media type in the store but deliberately has no loader: its buffers
-    /// and textures are relative URIs the store can't hold, and cgltf percent-decodes those URIs
-    /// after joining them to the base directory, so an encoded `../` reads arbitrary local files
-    /// into vertex data.
+    /// `.gltf` is a media type the store accepts but this deliberately won't load.
     @Test func jsonGltfIsRefusedRatherThanResolvedAgainstTheCacheDirectory() async throws
     {
         let url = try cached(TinyGLB.triangle(), as: "gltf")
@@ -53,8 +47,7 @@ struct AssetVisualTests
         }
     }
 
-    /// A truncated glb is the common malformed case. It must come back as a parser error, because
-    /// conversion to RealityKit has no error path at all — it calls `fatalError`.
+    /// The common malformed case, and conversion has no error path — so the parser must catch it.
     @Test func aTruncatedGlbThrowsFromTheParser() async throws
     {
         let url = try cached(TinyGLB.triangle().prefix(40), as: "glb")
@@ -70,9 +63,7 @@ struct AssetVisualTests
         }
     }
 
-    /// The parser accepts a primitive whose attributes disagree about how many vertices there are;
-    /// `MeshResource` then asserts below Swift, which no `catch` can reach. So this has to be
-    /// rejected before conversion, by us.
+    /// Parses fine, then asserts below Swift where no `catch` reaches it (measured: SIGTRAP).
     @Test func attributesThatDisagreeAboutVertexCountAreRejected() async throws
     {
         let url = try cached(TinyGLB.triangle(normals: 1), as: "glb")
@@ -92,10 +83,8 @@ struct AssetVisualTests
         }
     }
 
-    /// The bounds check is arithmetic on numbers a peer wrote, so it has to survive numbers chosen
-    /// to break the arithmetic itself: `(count - 1) * stride` overflows `Int` long before the
-    /// comparison that was supposed to reject it, and an overflow traps as hard as the assertion
-    /// this all exists to avoid.
+    /// The bounds check is arithmetic on a peer's numbers, so it must survive numbers picked to
+    /// overflow it before the comparison that would have rejected them.
     @Test func anAbsurdVertexCountIsRejectedRatherThanOverflowing() async throws
     {
         let url = try cached(TinyGLB.triangle(vertexCount: "9223372036854775807"), as: "glb")
@@ -105,9 +94,7 @@ struct AssetVisualTests
         }
     }
 
-    /// A `.glb`'s JSON chunk can name external buffers exactly like a `.gltf` can, and resolving
-    /// them against the file's directory reads local files into vertex data. Parsing from bytes
-    /// leaves cgltf no base directory to join against, so the reference cannot resolve at all.
+    /// A `.glb` can name external buffers too; parsing from bytes leaves nothing to resolve against.
     @Test func aGlbReferencingAnExternalBufferCannotReachIt() async throws
     {
         let fm = FileManager.default
@@ -115,7 +102,7 @@ struct AssetVisualTests
         let cache = root.appendingPathComponent("cache")
         try fm.createDirectory(at: cache, withIntermediateDirectories: true)
         defer { try? fm.removeItem(at: root) }
-        // The file a traversal would be after, one level above where the asset is cached.
+        // What a traversal would be after, one level above the cache.
         try Data(repeating: 0x41, count: 64).write(to: root.appendingPathComponent("secret.bin"))
 
         for uri in ["../secret.bin", "..%2Fsecret.bin"]
@@ -129,9 +116,8 @@ struct AssetVisualTests
         }
     }
 
-    /// `guiForEid` resolves an entity with `findEntity(named:)`, which searches the whole tree — so
-    /// a node inside somebody's asset named after another entity would silently receive that
-    /// entity's updates and its removal.
+    /// `guiForEid` searches the whole tree, so a node named after another entity would collect its
+    /// updates and its removal.
     @Test func aNodeNamedLikeAnEntityCannotHijackLookups() async throws
     {
         let eid = "E3B0C442-98FC-1C14-9AFB-F4C8996FB924"
@@ -139,11 +125,10 @@ struct AssetVisualTests
         defer { try? FileManager.default.removeItem(at: url) }
         let visual = try await RealityViewMapper.visual(ofAssetAt: url)
 
-        // The name really does survive into the loaded subtree: without anonymize, the tree the
-        // mapper searches would answer to it.
+        // The name really does survive the load, so this fails if anonymize becomes a no-op.
         #expect(visual.findEntity(named: eid) != nil)
 
-        // The shape guiForEid searches: guiroot -> the mapper's entity -> the asset's subtree.
+        // The shape guiForEid searches: guiroot -> entity -> asset subtree.
         let guiroot = RealityKit.Entity()
         let mapped = RealityKit.Entity()
         mapped.name = "9F2B1E44-0000-4000-8000-000000000001"
@@ -164,18 +149,15 @@ private extension RealityKit.Entity
     }
 }
 
-/// The smallest glTF 2.0 that draws something: one triangle, positions and normals, no material.
-/// Generated rather than committed so the container layout stays readable and so the hostile
-/// variants differ from the good one by exactly the field under test — a binary fixture would say
-/// nothing about why the bytes are what they are.
+/// The smallest glTF 2.0 that draws something. Generated rather than committed so each hostile
+/// variant differs from the good one by exactly the field under test.
 enum TinyGLB
 {
     /// - Parameters:
     ///   - normals: how many NORMAL vectors the accessor claims; 3 (one per vertex) is correct.
     ///   - normalViewLength: byte length its buffer view claims; nil for the honest 12 per normal.
     ///   - bufferURI: a `uri` on a second buffer, which a self-contained glb never has.
-    ///   - vertexCount: overrides the count on *both* attribute accessors, so an absurd value gets
-    ///     past the they-must-agree check and reaches the byte-range arithmetic.
+    ///   - vertexCount: set on *both* accessors, so an absurd value reaches the byte-range check.
     ///   - nodeName: the glTF node's name, which is a peer's to choose.
     static func triangle(normals: Int = 3, normalViewLength: Int? = nil, bufferURI: String? = nil,
                          vertexCount: String = "3", nodeName: String? = nil) -> Data
@@ -196,7 +178,7 @@ enum TinyGLB
         \(bufferURI.map { ",{\"byteLength\":64,\"uri\":\"\($0)\"}" } ?? "")]}
         """
 
-        // Both chunks are 4-byte aligned; JSON pads with spaces, BIN with zeros (glTF 2.0 §4.4.1).
+        // Chunks are 4-byte aligned; JSON pads with spaces, BIN with zeros (glTF 2.0 §4.4.1).
         var jsonChunk = Data(json.utf8)
         jsonChunk.append(contentsOf: Array(repeating: UInt8(0x20), count: (4 - jsonChunk.count % 4) % 4))
         var binChunk = (positions + normalData).withUnsafeBufferPointer { Data(buffer: $0) }

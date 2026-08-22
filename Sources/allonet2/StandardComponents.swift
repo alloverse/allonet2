@@ -62,9 +62,8 @@ public struct Model: Component
     public enum Mesh: Equatable, Codable
     {
         case builtin(name: String) // A mesh loaded from a client-provided file. This is a hack and will be replaced by Asset-based meshes
-        /// A mesh fetched from the place by content address. The loaded file's whole node tree
-        /// becomes this entity's visual, opaquely: nothing addresses inside it. Ship one asset
-        /// per thing that needs its own entity.
+        /// A mesh fetched from the place by content address; the whole file is the visual, and
+        /// nothing addresses inside it. One asset per thing that needs its own entity.
         case asset(id: AssetID)
         // The rest or basic geometric meshes
         case box(size: SIMD3<Float>, cornerRadius: Float)
@@ -92,17 +91,13 @@ public struct Model: Component
         self.material = material
     }
 
-    /// What a Model with an unparseable asset id decodes to: the same red box a renderer shows for
-    /// a model it failed to load, which is what this is.
+    /// What a Model with an unparseable asset id decodes to: the renderer's red placeholder box.
     public static let unrenderable = Model(
         mesh: .box(size: .init(repeating: 0.5), cornerRadius: 0),
         material: .color(color: .rgb(red: 1, green: 0, blue: 0, alpha: 1), metallic: true))
 
-    /// A component is whatever a peer put there, and `AnyComponent.decoded()` force-tries — so a
-    /// throwing decode here traps *every* client that renders that entity, which makes one bad id
-    /// a way to kill a room. An id that isn't a content address can never name bytes, so there is
-    /// nothing to wait for and nothing to retry: the model becomes visibly broken instead. Only
-    /// `AssetError` degrades; anything else is a payload we don't understand at all.
+    /// `AnyComponent.decoded()` force-tries, so throwing here would trap every client rendering the
+    /// entity. A bad id can never name bytes, so degrade to `unrenderable` instead.
     public init(from decoder: any Decoder) throws
     {
         let c = try decoder.container(keyedBy: CodingKeys.self)
