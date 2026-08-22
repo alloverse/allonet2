@@ -135,17 +135,12 @@ public class HeadlessWebRTCTransport: Transport
         }.store(in: &cancellables)
 
 
+        // Only a legacy googlewebrtc peer still opens an RTP track, and nothing on this side
+        // can render one - reporting it upwards reaches Track.render(), which traps.
         peer.$tracks.sinkChanges(added: { [weak self] track in
-            onMain { [weak self] in
-                guard let self else { return }
-                delegate?.transport(self, didReceiveMediaStream: track)
-            }
-        }, removed: { [weak self] track in
-            onMain { [weak self] in
-                guard let self else { return }
-                delegate?.transport(self, didRemoveMediaStream: track)
-            }
-        }).store(in: &cancellables)
+            let mediaId = track.mediaId
+            onMain { [weak self] in self?.logger.warning("legacy RTP track \(mediaId) ignored") }
+        }, removed: { _ in }).store(in: &cancellables)
 
         peer.$dataChannels.sinkChanges(added: { [weak self] channel in
             // Deliberately not marshalled: see `adopt`.
