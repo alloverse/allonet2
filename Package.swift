@@ -26,6 +26,7 @@ let applePlatformTargets: [Target] = [
         "AlloAudio",
         .product(name: "GLTFKit2", package: "GLTFKit2"),
     ]),
+    .testTarget(name: "AlloAudioTests", dependencies: ["AlloAudio"]),
     .testTarget(name: "AlloRealityTests", dependencies: ["AlloReality"]),
     .executableTarget(name: "voicedemo", dependencies: ["allonet2", "AlloAudio", "AlloOpus"]),
 ]
