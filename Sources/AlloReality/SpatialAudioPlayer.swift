@@ -185,11 +185,14 @@ public class SpatialAudioPlayer
         mapper.guiForEid(playState.eid)?.components.remove(VoiceSourceComponent.self)
     }
     
+    /// Stop playing, and let go of everything this player set up. The engine itself keeps
+    /// running: it is the client's, and the microphone is on it.
     public func stop()
     {
         streamCancellables.forEach { $0.cancel() }; streamCancellables.removeAll()
         listenerCancellables.forEach { $0.cancel() }; listenerCancellables.removeAll()
         sessionCancellables.forEach { $0.cancel() }; sessionCancellables.removeAll()
+        for streamId in state.keys { stop(streamId: streamId) }
     }
     
     public typealias PCMCallback = VoiceEngine.PCMCallback
