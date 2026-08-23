@@ -10,7 +10,7 @@ import alloheadless
 {
     @Test func transportDiesWithItsLastReference() async throws
     {
-        var transport: HeadlessWebRTCTransport? = HeadlessWebRTCTransport(
+        var transport: DataChannelTransport? = DataChannelTransport(
             with: TransportConnectionOptions(routing: .direct, portRange: 21400..<21500),
             status: ConnectionStatus())
         weak var released = transport

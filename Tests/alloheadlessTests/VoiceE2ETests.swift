@@ -225,7 +225,7 @@ final class VoiceE2ETests: XCTestCase
     func testAPeerCannotOpenUnboundedMediaStreams() async throws
     {
         try await withPlace { place in
-        let cap = HeadlessWebRTCTransport.maximumMediaStreams
+        let cap = DataChannelTransport.maximumMediaStreams
         let speaker = try await place.connectClient(named: "speaker")
         for i in 0..<(cap + 3) { _ = try speaker.startSpeaking(mediaId: "voice-\(i)") }
 
@@ -241,7 +241,7 @@ final class VoiceE2ETests: XCTestCase
     @MainActor
     func testAMediaIdWithAPeriodIsRefused() throws
     {
-        let transport = HeadlessWebRTCTransport(
+        let transport = DataChannelTransport(
             with: TransportConnectionOptions(routing: .direct, portRange: 21400..<21500),
             status: ConnectionStatus())
         defer { transport.disconnect() }
@@ -270,7 +270,6 @@ final class TestPlace
         server = PlaceServer(
             name: "Voice E2E",
             httpPort: port,
-            transportClass: HeadlessWebRTCTransport.self,
             // Loopback only: this host gathers no candidates otherwise.
             options: TransportConnectionOptions(routing: .direct, bindAddress: "127.0.0.1"),
             alloAppAuthToken: ""
@@ -410,11 +409,11 @@ final class TestClient
 final class VoiceCapturingClient: AlloAppClient
 {
     private(set) var streams: [String: DataChannelMediaStream] = [:]
-    private(set) var transportForTesting: HeadlessWebRTCTransport!
+    private(set) var transportForTesting: DataChannelTransport!
 
     override func reset()
     {
-        let transport = HeadlessWebRTCTransport(with: self.connectionOptions, status: connectionStatus)
+        let transport = DataChannelTransport(with: self.connectionOptions, status: connectionStatus)
         transportForTesting = transport
         reset(with: transport)
     }

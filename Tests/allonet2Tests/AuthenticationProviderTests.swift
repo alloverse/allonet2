@@ -14,7 +14,6 @@ final class AuthenticationProviderTests: XCTestCase
     {
         PlaceServer(
             name: "Test Place",
-            transportClass: MockTransport.self,
             options: TransportConnectionOptions(routing: .direct),
             alloAppAuthToken: appToken,
             requiresAuthentication: !appToken.isEmpty

@@ -15,7 +15,7 @@ import Logging
 
 public class AlloUserClient : AlloClient
 {
-    private var userTransport: HeadlessWebRTCTransport!
+    private var userTransport: DataChannelTransport!
 
     @Published public var micEnabled: Bool = false
     {
@@ -50,7 +50,7 @@ public class AlloUserClient : AlloClient
     {
         micTrack?.stop()
         micTrack = nil
-        userTransport = HeadlessWebRTCTransport(with: self.connectionOptions, status: connectionStatus)
+        userTransport = DataChannelTransport(with: self.connectionOptions, status: connectionStatus)
         let _ = createMicrophoneTrackIfNeeded()
         reset(with: userTransport)
     }
@@ -86,7 +86,7 @@ final class MicrophoneTrack: AudioTrack
     /// Matches what KojaApp registers in its `LiveMedia` component.
     static let mediaId = "voice-mic"
 
-    private weak var transport: HeadlessWebRTCTransport?
+    private weak var transport: DataChannelTransport?
     private let capture = VoiceCapture()
     private var stream: DataChannelMediaStream?
     private var micLogger = Logger(labelSuffix: "client.microphone")
@@ -97,7 +97,7 @@ final class MicrophoneTrack: AudioTrack
         didSet { apply() }
     }
 
-    init(transport: HeadlessWebRTCTransport, isEnabled: Bool)
+    init(transport: DataChannelTransport, isEnabled: Bool)
     {
         self.transport = transport
         self.isEnabled = isEnabled

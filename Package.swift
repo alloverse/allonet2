@@ -100,6 +100,7 @@ let package = Package(
             dependencies: [
                 "PotentCodables",
                 "FlyingFox",
+                "AlloDataChannel",
                 "Version",
                 .product(name: "kvSIMD", package: "kvSIMD.swift"),
                 .product(name: "SIMDTools", package:"simd-tools"),
@@ -112,14 +113,9 @@ let package = Package(
                 .plugin(name: "PackageBuildInfoPlugin", package: "PackageBuildInfo")
             ]
         ),
-        .target(
-            name: "alloheadless",
-            dependencies: [
-                .product(name: "OpenCombineShim", package: "opencombine"),
-                "AlloDataChannel",
-                "allonet2"
-            ]
-        ),
+        // Re-exports allonet2, which used to be only half of what an alloapp or a place needed.
+        // Kept so `import alloheadless` still compiles; delete once no consumer says it.
+        .target(name: "alloheadless", dependencies: ["allonet2"]),
         // Vendored libopus (BSD-3). Built from source rather than linked from the system so
         // macOS, visionOS and Linux all get the same codec with no per-machine setup.
         // Architecture-specific kernels are excluded; the generic C path is far more than

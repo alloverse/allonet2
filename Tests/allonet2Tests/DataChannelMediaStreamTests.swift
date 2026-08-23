@@ -5,7 +5,6 @@
 
 import Testing
 import Foundation
-import alloheadless
 @testable import allonet2
 
 @Suite("Data channel media stream")
@@ -48,14 +47,14 @@ struct DataChannelMediaStreamTests
     @MainActor
     @Test func refusesToForwardAStreamThatIsNotADataChannel() throws
     {
-        let options = TransportConnectionOptions(routing: .direct)
+        let options = TransportConnectionOptions(routing: .direct, bindAddress: "127.0.0.1")
         let sender = MockTransport(with: options, status: ConnectionStatus())
-        let receiver = MockTransport(with: options, status: ConnectionStatus())
+        let receiver = DataChannelTransport(with: options, status: ConnectionStatus())
+        defer { receiver.disconnect() }
 
         #expect(throws: ForwardingError.notADataChannelStream("mic"))
         {
-            try HeadlessWebRTCTransport.forward(mediaStream: MockMediaStream(mediaId: "mic"),
-                                                from: sender, to: receiver)
+            try receiver.forward(mediaStream: MockMediaStream(mediaId: "mic"), from: sender)
         }
     }
 }

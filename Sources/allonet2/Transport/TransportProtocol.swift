@@ -28,11 +28,15 @@ public protocol TransportDelegate: AnyObject {
     func transport(requestsRenegotiation transport: Transport)
 }
 
-// A Transport wraps a WebRTC peer connection with Alloverse specific peer semantics, but no business logic
+/// A Transport wraps a WebRTC peer connection with Alloverse specific peer semantics, but no
+/// business logic.
+///
+/// `DataChannelTransport` is the only implementation that speaks to a real peer. The protocol
+/// survives as the seam the unit tests substitute a mock through, so a session, a client or a
+/// whole place can be driven without ICE, timing or a network. Production code names the
+/// concrete type.
 public protocol Transport: AnyObject
 {
-    init(with connectionOptions: TransportConnectionOptions, status: ConnectionStatus)
-    
     var clientId: ClientId? { get set }
     var delegate: TransportDelegate? { get set }
     
@@ -47,8 +51,13 @@ public protocol Transport: AnyObject
     func createDataChannel(label: DataChannelLabel, reliable: Bool) -> DataChannel?
     func send(data: Data, on channel: DataChannelLabel)
     
-    // Media channels
-    static func forward(mediaStream: MediaStream, from sender: any Transport, to receiver: any Transport) throws -> MediaStreamForwarder
+    /// Open a copy of an incoming stream on *this* transport and start copying frames into it.
+    ///
+    /// - Parameters:
+    ///   - mediaStream: a stream that arrived on `sender`.
+    ///   - sender: the transport it arrived on; its client id names the outgoing stream.
+    /// - Returns: a running forwarder; `stop()` it to close the outgoing stream.
+    func forward(mediaStream: MediaStream, from sender: any Transport) throws -> MediaStreamForwarder
 }
 
 public struct TransportConnectionOptions: Sendable

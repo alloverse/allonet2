@@ -56,7 +56,7 @@ so `AlloSession` reports each removal once.
 
 libdatachannel calls back from its own threads, and `@Published` emits on `willSet`, so the
 value a sink is handed is the one *about to be replaced*. The rule everywhere on this path:
-subscribe to be woken, hop to the main actor (`onMain` in `HeadlessWebRTCTransport`), then
+subscribe to be woken, hop to the main actor (`onMain` in `DataChannelTransport`), then
 read the property - never act on the value the sink delivered. Tests use `waitUntil`, which
 reads the property on a short poll, for the same reason.
 

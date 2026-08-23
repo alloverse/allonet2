@@ -48,11 +48,11 @@ Hard-won non-obvious facts. Fold a new one in here when it doesn't fit a topic d
 
 - libdatachannel calls back from its own thread pool, on several worker threads, and synchronously
   on the calling network thread for `Closed` (`PeerConnection::changeState`). Everything above the
-  transport is main-actor, so `HeadlessWebRTCTransport` marshals every peer publisher through
+  transport is main-actor, so `DataChannelTransport` marshals every peer publisher through
   `onMain` before touching anything. The one deliberate exception is the incoming-data path:
   `didReceiveData` is `nonisolated` so decoding can't queue behind the main thread, and it reads
   `dataDelegate` rather than the isolated `delegate`.
-- `HeadlessWebRTCTransport` implements media forwarding; `UIWebRTCTransport` throws fatalError
+- `DataChannelTransport` implements media forwarding; `UIWebRTCTransport` throws fatalError
   (a client doesn't forward).
 
 ## Process lifetime

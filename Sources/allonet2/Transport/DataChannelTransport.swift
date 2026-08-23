@@ -1,11 +1,10 @@
 //
-//  HeadlessWebRTCTransport.swift
+//  DataChannelTransport.swift
 //  allonet2
 //
 //  Created by Nevyn Bengtsson on 2025-02-11.
 //
 
-import allonet2
 import Foundation
 import AlloDataChannel
 import OpenCombineShim
@@ -26,7 +25,7 @@ private func onMain(_ work: @escaping @Sendable @MainActor () -> Void)
 }
 
 @MainActor
-public class HeadlessWebRTCTransport: Transport
+public class DataChannelTransport: Transport
 {
     public weak var delegate: TransportDelegate? {
         didSet { dataDelegate = delegate }
@@ -45,16 +44,16 @@ public class HeadlessWebRTCTransport: Transport
             }
         }
     }
-    var logger = Logger(labelSuffix: "transport.headless")
+    var logger = Logger(labelSuffix: "transport.datachannel")
     
     private var peer: AlloWebRTCPeer
     private var channels: [String: AlloWebRTCPeer.DataChannel] = [:]
     private var mediaStreams: [String: DataChannelMediaStream] = [:]
     private var connectionStatus: ConnectionStatus
     private var cancellables = Set<AnyCancellable>()
-    let connectionState = StateMachine<TransportConnectionState>(.idle, label: "HeadlessTransport")
+    let connectionState = StateMachine<TransportConnectionState>(.idle, label: "DataChannelTransport")
     
-    private static var datachannelLogger = Logger(labelSuffix: "transport.headless.libdatachannel")
+    private static var datachannelLogger = Logger(labelSuffix: "transport.datachannel.libdatachannel")
     private static var initialized: Bool = false
     private static func initialize()
     {
@@ -75,7 +74,7 @@ public class HeadlessWebRTCTransport: Transport
     }
     public static var version: String { LibdatachannelVersion() }
     
-    public required init(with connectionOptions: allonet2.TransportConnectionOptions, status: ConnectionStatus)
+    public init(with connectionOptions: TransportConnectionOptions, status: ConnectionStatus)
     {
         if(!Self.initialized) { Self.initialize() }
         
@@ -426,28 +425,10 @@ public class HeadlessWebRTCTransport: Transport
         }
     }
     
-    // Media operations - server can forward but not create
-    public func createMicrophoneTrack() throws -> AudioTrack
-    {
-        fatalError("Not available server-side")
-    }
-    
-    public func setMicrophoneEnabled(_ enabled: Bool)
-    {
-        fatalError("Not available server-side")
-    }
-    
-    /// Copy one incoming stream to a freshly opened outgoing stream on another transport.
-    ///
-    /// - Parameters:
-    ///   - mediaStream: a stream that arrived on `sender`. Only a `DataChannelMediaStream` can
-    ///     be forwarded; this is the only kind a transport carries.
-    ///   - sender: the transport that received it; its client id names the outgoing stream.
-    ///   - receiver: the transport that gets the copy.
-    /// - Returns: a running forwarder; `stop()` it to close the outgoing stream.
-    /// - Throws: `ForwardingError.notADataChannelStream` for any other kind of stream, and
-    ///   `MediaStreamIdError.containsPeriod` for a sender-chosen id the place cannot encode.
-    public static func forward(mediaStream: MediaStream, from sender: any Transport, to receiver: any Transport) throws -> MediaStreamForwarder
+    /// - Throws: `ForwardingError.notADataChannelStream` for any other kind of stream - a data
+    ///   channel is the only thing this transport carries - and `MediaStreamIdError.containsPeriod`
+    ///   for a sender-chosen id the place cannot encode.
+    public func forward(mediaStream: MediaStream, from sender: any Transport) throws -> MediaStreamForwarder
     {
         guard let source = mediaStream as? DataChannelMediaStream else
         {
@@ -456,11 +437,10 @@ public class HeadlessWebRTCTransport: Transport
         // The sender named this one, so it is checked here rather than trusted.
         guard !source.mediaId.contains(".") else { throw MediaStreamIdError.containsPeriod(source.mediaId) }
 
-        var logger = Logger(labelSuffix: "transport.libdatachannel").forClient(receiver.clientId!)
-        logger.info("Forwarding media stream \(mediaStream.mediaId) from \(sender.clientId) to \(receiver.clientId)")
+        logger.info("Forwarding media stream \(mediaStream.mediaId) from \(sender.clientId) to \(clientId)")
 
         let placeStreamId = PlaceStreamId(shortClientId: sender.clientId!.shortClientId, incomingMediaId: source.mediaId)
-        let destination = try (receiver as! HeadlessWebRTCTransport).openOutgoingMediaStream(mediaId: placeStreamId.outgoingMediaId)
+        let destination = try openOutgoingMediaStream(mediaId: placeStreamId.outgoingMediaId)
         // No scheduleRenegotiation(): an in-band data channel needs no offer/answer.
         return DataChannelForwarder(from: source, to: destination)
     }
@@ -509,7 +489,7 @@ extension AlloWebRTCPeer.ICECandidate
     }
 }
 
-extension allonet2.IPOverride
+extension IPOverride
 {
     var adc: AlloWebRTCPeer.IPOverride
     {

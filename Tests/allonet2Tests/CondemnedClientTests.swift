@@ -14,7 +14,6 @@ import PotentCBOR
     {
         let server = PlaceServer(
             name: "Test Place",
-            transportClass: MockTransport.self,
             options: TransportConnectionOptions(routing: .direct),
             alloAppAuthToken: "apptoken",
             requiresAuthentication: true

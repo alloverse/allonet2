@@ -9,9 +9,9 @@ source of truth; update this doc when they move.
 |---|---|---|
 | `allonet2` | library | Core: ECS world model and wire types, `AlloSession`, `AlloClient` base, `PlaceServer` (interactions, ECS sync, SFU, assets, HTTP, dashboard), simulations, logging, errors. Linux-capable. |
 | `alloclient` | library | Visor-side transport: `UIWebRTCTransport` on LiveKitWebRTC, mic capture, `AlloUserClient`. Apple-only in practice (AVFAudio, the webrtc xcframework). |
-| `alloheadless` | library | App/place-side transport: `HeadlessWebRTCTransport` on libdatachannel (the `Packages/AlloDataChannel` submodule), `AlloAppClient`. This is what Linux and Docker use. |
+| `alloheadless` | library | App/place-side transport: `DataChannelTransport` on libdatachannel (the `Packages/AlloDataChannel` submodule), `AlloAppClient`. This is what Linux and Docker use. |
 | `AlloReality` | library | RealityKit layer: `RealityViewMapper` mirrors `PlaceState` into an entity tree; spatial audio playback + attenuation. Apple-only. |
-| `AlloPlace` | executable | The place server CLI (ArgumentParser) wiring `PlaceServer` to `HeadlessWebRTCTransport`. |
+| `AlloPlace` | executable | The place server CLI (ArgumentParser) wiring `PlaceServer` to `DataChannelTransport`. |
 | `demoapp` | executable | Minimal example alloapp: spawns an avatar, orbits it, answers a `custom` interaction. |
 
 `Package.swift` has no platform conditions; Apple-only-ness is enforced by what a consumer
@@ -42,7 +42,7 @@ links. Swift tools 6.1, language mode 5, platforms macOS 15 / iOS 18 / visionOS 
 
 - `Transport` protocol (`TransportProtocol.swift`): offer/answer lifecycle, data channels,
   media forwarding. Implementations: `UIWebRTCTransport` (alloclient) and
-  `HeadlessWebRTCTransport` (alloheadless); only the headless one forwards media.
+  `DataChannelTransport` (alloheadless); only the headless one forwards media.
 - `AlloSession` wraps a `Transport` with the three fixed data channels — `interactions`
   (reliable, stream id 1), `worldstate` (unreliable, id 2; `PlaceChangeSet` down, `Intent`
   up), `logs` (reliable, id 3) — CBOR-encoded via PotentCodables (`AlloSession.swift`;
