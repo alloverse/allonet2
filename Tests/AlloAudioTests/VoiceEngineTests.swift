@@ -3,6 +3,7 @@ import Foundation
 import AVFoundation
 import simd
 @testable import AlloAudio
+import allonet2
 
 /// The tap hands us buffers of whatever size the device likes; frames on the wire are exactly
 /// 960 samples. Everything in between - continuity, the backlog offset, and what muting does to
@@ -117,6 +118,32 @@ import simd
         #expect(VoiceEngine.isAudible(distance: 9.9, maxDistance: 10, wasAudible: true))
         #expect(!VoiceEngine.isAudible(distance: 9.9, maxDistance: 10, wasAudible: false))
         #expect(VoiceEngine.isAudible(distance: 9.7, maxDistance: 10, wasAudible: false))
+    }
+
+    /// A removed tap's buffers are still queued as hops to this actor; by the time they run,
+    /// capture may have restarted on a different stream, which must not be sent that audio.
+    @Test func dropsAudioCapturedByAReplacedTap() throws
+    {
+        let engine = VoiceEngine()
+        let stream = DataChannelMediaStream(mediaId: "voice-mic", direction: .sendonly) { _ in true }
+        engine.captureStream = stream
+        let generation = engine.captureGeneration
+
+        let format = AVAudioFormat(commonFormat: .pcmFormatFloat32,
+                                   sampleRate: DataChannelMediaStream.sampleRate,
+                                   channels: 1,
+                                   interleaved: false)!
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format,
+                                                   frameCapacity: AVAudioFrameCount(DataChannelMediaStream.frameDuration)))
+        buffer.frameLength = buffer.frameCapacity
+
+        engine.accept(buffer, capturedAt: Date(), generation: generation)
+        #expect(stream.counters.snapshot.captured == 1)
+
+        // What startCapture(sending:) does while a tap callback is still in flight.
+        engine.captureGeneration &+= 1
+        engine.accept(buffer, capturedAt: Date(), generation: generation)
+        #expect(stream.counters.snapshot.captured == 1, "stale audio reached the stream that replaced it")
     }
 }
 

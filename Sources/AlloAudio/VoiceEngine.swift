@@ -126,8 +126,12 @@ public final class VoiceEngine
 
     private var accumulator: FrameAccumulator
     private var converter: AVAudioConverter?
-    private weak var captureStream: DataChannelMediaStream?
+    weak var captureStream: DataChannelMediaStream?
     private var acceptedBuffers = 0
+
+    /// Which tap the audio being accepted came from. A removed tap's buffers can still be
+    /// queued as hops to this actor, and must not be sent on the stream that replaced theirs.
+    var captureGeneration = 0
 
     /// Whether the microphone is open. Muting does not change it; see `isMuted`.
     public private(set) var isCapturing = false
@@ -226,13 +230,15 @@ public final class VoiceEngine
         logger.info("Capturing from \(inputFormat) (\(inputFormat.channelLayout?.layoutTag.description ?? "no layout")), sending as \(voiceFormat), voice processing: \(voiceProcessingEnabled)")
 
         captureStream = stream
+        captureGeneration &+= 1
+        let generation = captureGeneration
         // 20 ms at the *input* rate, which is not the 48 kHz the frame duration counts in.
         let tapFrames = AVAudioFrameCount(inputFormat.sampleRate * 0.02)
         input.installTap(onBus: 0, bufferSize: tapFrames, format: inputFormat)
         { [weak self] buffer, _ in
             guard let self else { return }
             let capturedAt = Date()   // the hop to the main actor below is not part of capture
-            Task { @MainActor in self.accept(buffer, capturedAt: capturedAt) }
+            Task { @MainActor in self.accept(buffer, capturedAt: capturedAt, generation: generation) }
         }
     }
 
@@ -247,9 +253,11 @@ public final class VoiceEngine
     }
 
     /// Accumulate captured audio into whole frames; the tap's buffer size is a hint, not a promise.
-    private func accept(_ buffer: AVAudioPCMBuffer, capturedAt: Date)
+    /// Audio from a tap older than the current capture is dropped: it belongs to a stream that is
+    /// no longer being sent on.
+    func accept(_ buffer: AVAudioPCMBuffer, capturedAt: Date, generation: Int)
     {
-        guard let stream = captureStream else { return }
+        guard generation == captureGeneration, let stream = captureStream else { return }
         acceptedBuffers += 1
         if acceptedBuffers % 250 == 1, let channels = buffer.floatChannelData
         {
