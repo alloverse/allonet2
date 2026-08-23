@@ -21,8 +21,6 @@ final class MockMediaStreamForwarder: MediaStreamForwarder
     private(set) var stopCount = 0
     func stop() { stopCount += 1 }
 
-    var ssrc: UInt32? { nil }
-    var pt: UInt8? { nil }
     var forwardedMessageCount: Int { 0 }
     var lastError: Error? { nil }
     var lastErrorAt: Date? { nil }

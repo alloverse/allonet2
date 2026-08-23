@@ -303,8 +303,6 @@ class PlaceServerStatus: WSMessageHandler
                     <thead><tr>
                         <th>Source stream ID</th>
                         <th>Target client ID</th>
-                        <th>SSRC</th>
-                        <th>PT</th>
                         <th>Message count</th>
                         <th>Last error</th>
                         <th>Errored at</th>
@@ -315,8 +313,6 @@ class PlaceServerStatus: WSMessageHandler
                 \t\t\t\t<tr>
                 \t\t\t\t    <td>\(fi.source)</td>
                 \t\t\t\t    <td>\(fi.target)</td>
-                \t\t\t\t    <td>\(forwarder.ssrc)</td>
-                \t\t\t\t    <td>\(forwarder.pt)</td>
                 \t\t\t\t    <td>\(forwarder.forwardedMessageCount)</td>
                 \t\t\t\t    <td>\(forwarder.lastError)</td>
                 \t\t\t\t    <td>\(forwarder.lastErrorAt)</td>

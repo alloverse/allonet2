@@ -182,10 +182,8 @@ public protocol AudioTrack
 public protocol MediaStreamForwarder
 {
     func stop()
-    
+
     // debugging info
-    var ssrc: UInt32? { get }
-    var pt: UInt8? { get }
     var forwardedMessageCount: Int { get }
     var lastError: Error? { get }
     var lastErrorAt: Date? { get }

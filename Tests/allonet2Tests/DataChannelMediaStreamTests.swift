@@ -5,6 +5,7 @@
 
 import Testing
 import Foundation
+import alloheadless
 @testable import allonet2
 
 @Suite("Data channel media stream")
@@ -40,6 +41,22 @@ struct DataChannelMediaStreamTests
 
         #expect(stream.counters.snapshot.malformed == 0)
         #expect(seen.count == 1)
+    }
+
+    /// The RTP path is gone, so a stream that isn't a data channel is a caller error and has to
+    /// name itself; silently returning no forwarder would leave a listener waiting for audio.
+    @MainActor
+    @Test func refusesToForwardAStreamThatIsNotADataChannel() throws
+    {
+        let options = TransportConnectionOptions(routing: .direct)
+        let sender = MockTransport(with: options, status: ConnectionStatus())
+        let receiver = MockTransport(with: options, status: ConnectionStatus())
+
+        #expect(throws: ForwardingError.notADataChannelStream("mic"))
+        {
+            try HeadlessWebRTCTransport.forward(mediaStream: MockMediaStream(mediaId: "mic"),
+                                                from: sender, to: receiver)
+        }
     }
 }
 

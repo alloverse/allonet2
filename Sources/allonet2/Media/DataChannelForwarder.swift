@@ -10,12 +10,15 @@ import Foundation
 public enum ForwardingError: Error, Equatable, CustomStringConvertible
 {
     case sendFailed(MediaStreamId)
+    /// The only stream a transport carries is a data channel; nothing else can be copied.
+    case notADataChannelStream(MediaStreamId)
 
     public var description: String
     {
         switch self
         {
         case .sendFailed(let mediaId): "send failed for \(mediaId)"
+        case .notADataChannelStream(let mediaId): "media stream '\(mediaId)' is not carried on a data channel and cannot be forwarded"
         }
     }
 }
@@ -65,9 +68,7 @@ public final class DataChannelForwarder: MediaStreamForwarder, @unchecked Sendab
 
     deinit { stop() }
 
-    // Debugging info. There is no RTP header to report on.
-    public var ssrc: UInt32? { nil }
-    public var pt: UInt8? { nil }
+    // Debugging info
     public var forwardedMessageCount: Int { lock.lock(); defer { lock.unlock() }; return messageCount }
     public var lastError: Error? { lock.lock(); defer { lock.unlock() }; return error }
     public var lastErrorAt: Date? { lock.lock(); defer { lock.unlock() }; return errorAt }

@@ -135,11 +135,11 @@ public class HeadlessWebRTCTransport: Transport
         }.store(in: &cancellables)
 
 
-        // Only a legacy googlewebrtc peer still opens an RTP track, and nothing on this side
-        // can render one - reporting it upwards reaches Track.render(), which traps.
+        // No supported client sends RTP any more, and there is no media plane left on this side
+        // to hand a track to. Logged rather than ignored silently: it means a peer we can't serve.
         peer.$tracks.sinkChanges(added: { [weak self] track in
-            let mediaId = track.mediaId
-            onMain { [weak self] in self?.logger.warning("legacy RTP track \(mediaId) ignored") }
+            let name = "\(track.streamId)-\(track.trackId)"
+            onMain { [weak self] in self?.logger.warning("legacy RTP track \(name) ignored") }
         }, removed: { _ in }).store(in: &cancellables)
 
         peer.$dataChannels.sinkChanges(added: { [weak self] channel in
@@ -437,29 +437,32 @@ public class HeadlessWebRTCTransport: Transport
         fatalError("Not available server-side")
     }
     
+    /// Copy one incoming stream to a freshly opened outgoing stream on another transport.
+    ///
+    /// - Parameters:
+    ///   - mediaStream: a stream that arrived on `sender`. Only a `DataChannelMediaStream` can
+    ///     be forwarded; this is the only kind a transport carries.
+    ///   - sender: the transport that received it; its client id names the outgoing stream.
+    ///   - receiver: the transport that gets the copy.
+    /// - Returns: a running forwarder; `stop()` it to close the outgoing stream.
+    /// - Throws: `ForwardingError.notADataChannelStream` for any other kind of stream, and
+    ///   `MediaStreamIdError.containsPeriod` for a sender-chosen id the place cannot encode.
     public static func forward(mediaStream: MediaStream, from sender: any Transport, to receiver: any Transport) throws -> MediaStreamForwarder
     {
+        guard let source = mediaStream as? DataChannelMediaStream else
+        {
+            throw ForwardingError.notADataChannelStream(mediaStream.mediaId)
+        }
+        // The sender named this one, so it is checked here rather than trusted.
+        guard !source.mediaId.contains(".") else { throw MediaStreamIdError.containsPeriod(source.mediaId) }
+
         var logger = Logger(labelSuffix: "transport.libdatachannel").forClient(receiver.clientId!)
         logger.info("Forwarding media stream \(mediaStream.mediaId) from \(sender.clientId) to \(receiver.clientId)")
 
-        if let source = mediaStream as? DataChannelMediaStream
-        {
-            // The sender named this one, so it is checked here rather than trusted.
-            guard !source.mediaId.contains(".") else { throw MediaStreamIdError.containsPeriod(source.mediaId) }
-            let receiverHeadless = (receiver as! HeadlessWebRTCTransport)
-            let placeStreamId = PlaceStreamId(shortClientId: sender.clientId!.shortClientId, incomingMediaId: source.mediaId)
-            let destination = try receiverHeadless.openOutgoingMediaStream(mediaId: placeStreamId.outgoingMediaId)
-            // No scheduleRenegotiation(): an in-band data channel needs no offer/answer.
-            return DataChannelForwarder(from: source, to: destination)
-        }
-
-        let track = mediaStream as! AlloWebRTCPeer.Track
-        let receiverHeadless = (receiver as! HeadlessWebRTCTransport)
-        let peer = receiverHeadless.peer
-        let shortId = sender.clientId!.uuidString.split(separator: "-").first!
-        let sfu = try MediaForwardingUnit(forwarding: track, fromClientId: String(shortId) , to: peer)
-        receiverHeadless.scheduleRenegotiation()
-        return sfu
+        let placeStreamId = PlaceStreamId(shortClientId: sender.clientId!.shortClientId, incomingMediaId: source.mediaId)
+        let destination = try (receiver as! HeadlessWebRTCTransport).openOutgoingMediaStream(mediaId: placeStreamId.outgoingMediaId)
+        // No scheduleRenegotiation(): an in-band data channel needs no offer/answer.
+        return DataChannelForwarder(from: source, to: destination)
     }
 }
 
@@ -470,29 +473,6 @@ extension AlloWebRTCPeer.DataChannel : DataChannel
         return DataChannelLabel(rawValue: self.label)!
     }
 }
-
-extension AlloWebRTCPeer.Track : MediaStream
-{
-    public func render() -> allonet2.AudioRingBuffer {
-        fatalError("Not implemented")
-        //return AudioRingBuffer(channels: 1, capacityFrames: 48000, canceller: {})
-    }
-    
-    public var mediaId: String
-    {
-        "\(self.streamId)-\(self.trackId)"
-    }
-    
-    public var streamDirection: MediaStreamDirection
-    {
-        MediaStreamDirection(rawValue: direction.rawValue)!
-    }
-}
-
-extension MediaForwardingUnit : MediaStreamForwarder
-{
-}
-
 
 extension SignallingPayload
 {
