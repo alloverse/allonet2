@@ -152,13 +152,42 @@ import allonet2
                                                    frameCapacity: AVAudioFrameCount(DataChannelMediaStream.frameDuration)))
         buffer.frameLength = buffer.frameCapacity
 
-        engine.accept(buffer, capturedAt: Date(), generation: generation)
+        engine.accept(buffer, capturedAt: Date(), generation: generation, capturedWhileMuted: false)
         #expect(stream.counters.snapshot.captured == 1)
 
         // What startCapture(sending:) does while a tap callback is still in flight.
         engine.captureGeneration &+= 1
-        engine.accept(buffer, capturedAt: Date(), generation: generation)
+        engine.accept(buffer, capturedAt: Date(), generation: generation, capturedWhileMuted: false)
         #expect(stream.counters.snapshot.captured == 1, "stale audio reached the stream that replaced it")
+    }
+
+    /// Without the voice processor nothing mutes the microphone itself, so a tap buffer recorded
+    /// during a mute is real speech. Muting drops what the accumulator holds, but a buffer still
+    /// in flight is decided by the mute state *now* - and a quick unmute would let it through.
+    @Test func neverSendsAudioRecordedWhileMuted() throws
+    {
+        let engine = VoiceEngine(voiceProcessing: false)
+        let stream = DataChannelMediaStream(mediaId: "voice-mic", direction: .sendonly) { _ in true }
+        engine.captureStream = stream
+        let generation = engine.captureGeneration
+
+        let format = AVAudioFormat(commonFormat: .pcmFormatFloat32,
+                                   sampleRate: DataChannelMediaStream.sampleRate,
+                                   channels: 1,
+                                   interleaved: false)!
+        let buffer = try #require(AVAudioPCMBuffer(pcmFormat: format,
+                                                   frameCapacity: AVAudioFrameCount(DataChannelMediaStream.frameDuration)))
+        buffer.frameLength = buffer.frameCapacity
+
+        // Recorded while muted, delivered after the user unmuted again.
+        engine.isMuted = true
+        engine.isMuted = false
+        engine.accept(buffer, capturedAt: Date(), generation: generation, capturedWhileMuted: true)
+        #expect(stream.counters.snapshot.captured == 0, "audio recorded while muted was transmitted")
+
+        // The next buffer, recorded after the unmute, goes as normal.
+        engine.accept(buffer, capturedAt: Date(), generation: generation, capturedWhileMuted: false)
+        #expect(stream.counters.snapshot.captured == 1)
     }
 }
 

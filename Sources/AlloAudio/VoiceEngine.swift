@@ -5,6 +5,7 @@
 
 import Foundation
 import AVFoundation
+import os
 import simd
 import allonet2
 import AlloOpus
@@ -151,10 +152,17 @@ public final class VoiceEngine
     {
         didSet
         {
+            let muted = isMuted   // the lock's closure is Sendable and cannot reach the main actor
+            mutedAtTap.withLock { $0 = muted }
             accumulator.muted = isMuted
             applyMute()
         }
     }
+
+    /// Whether capture was muted at the moment the tap handed a buffer over. The tap runs on the
+    /// audio thread and cannot read the main actor's `isMuted`; reading it after the hop instead
+    /// is what let an unmute release audio recorded during the mute.
+    private let mutedAtTap = OSAllocatedUnfairLock(initialState: false)
 
     private func applyMute()
     {
@@ -238,7 +246,10 @@ public final class VoiceEngine
         { [weak self] buffer, _ in
             guard let self else { return }
             let capturedAt = Date()   // the hop to the main actor below is not part of capture
-            Task { @MainActor in self.accept(buffer, capturedAt: capturedAt, generation: generation) }
+            let muted = self.mutedAtTap.withLock { $0 }
+            Task { @MainActor in
+                self.accept(buffer, capturedAt: capturedAt, generation: generation, capturedWhileMuted: muted)
+            }
         }
     }
 
@@ -253,11 +264,15 @@ public final class VoiceEngine
     }
 
     /// Accumulate captured audio into whole frames; the tap's buffer size is a hint, not a promise.
-    /// Audio from a tap older than the current capture is dropped: it belongs to a stream that is
-    /// no longer being sent on.
-    func accept(_ buffer: AVAudioPCMBuffer, capturedAt: Date, generation: Int)
+    ///
+    /// Two things are decided at capture time rather than here, because both can have changed by
+    /// the time this runs: audio from a tap older than the current capture belongs to a stream
+    /// that is no longer being sent on, and audio recorded while muted stays unsent even if the
+    /// user has unmuted since. Without the voice processor the microphone is live while muted, so
+    /// that second one is real microphone audio, not the silence the OS would have handed us.
+    func accept(_ buffer: AVAudioPCMBuffer, capturedAt: Date, generation: Int, capturedWhileMuted: Bool)
     {
-        guard generation == captureGeneration, let stream = captureStream else { return }
+        guard generation == captureGeneration, !capturedWhileMuted, let stream = captureStream else { return }
         acceptedBuffers += 1
         if acceptedBuffers % 250 == 1, let channels = buffer.floatChannelData
         {
