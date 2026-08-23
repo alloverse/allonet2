@@ -95,13 +95,20 @@ public class SpatialAudioPlayer
     public func useAsListener(_ listenerEid: EntityID)
     {
         listenerCancellables.forEach { $0.cancel() }; listenerCancellables.removeAll()
-        // Withdraw the old listener's forward requests, or the SFU keeps streaming to it.
-        // (After a reconnect the old entity is already gone, and there's nothing to clear.)
-        if let old = self.listener, old.id != listenerEid, client.place.entities[old.id] != nil
+        if let old = self.listener, old.id != listenerEid
         {
-            Task { @MainActor in
-                do { try await old.components.set(LiveMediaListener(mediaIds: [])) }
-                catch { logger.error("Couldn't clear old listener \(old.id): \(error)") }
+            // The position system follows the first entity it finds with this component, which
+            // with two of them may well be the one we just stopped listening from.
+            mapper.guiForEid(old.id)?.components.remove(AudioListenerComponent.self)
+
+            // Withdraw the old listener's forward requests, or the SFU keeps streaming to it.
+            // (After a reconnect the old entity is already gone, and there's nothing to clear.)
+            if client.place.entities[old.id] != nil
+            {
+                Task { @MainActor in
+                    do { try await old.components.set(LiveMediaListener(mediaIds: [])) }
+                    catch { logger.error("Couldn't clear old listener \(old.id): \(error)") }
+                }
             }
         }
 
