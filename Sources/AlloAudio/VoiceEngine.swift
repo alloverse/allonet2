@@ -304,6 +304,7 @@ public final class VoiceEngine
         let ring: AudioRingBuffer
         var position: SIMD3<Float> = .zero
         var occlusion: Float = 0
+        var audible = true
     }
     private var sources: [String: Source] = [:]
 
@@ -385,6 +386,31 @@ public final class VoiceEngine
         sources[mediaId]!.position = position
         source.node.position = AVAudio3DPoint(position)
     }
+
+    /// Whether a source `distance` metres from the listener can be heard at all. The environment
+    /// node's `maximumDistance` only stops attenuating further, so a distant source stays faintly
+    /// audible unless someone silences it; `wasAudible` gives the threshold a 2 % dead band, so a
+    /// source hovering at the edge does not chatter between the two answers.
+    ///
+    /// ```swift
+    /// let heard = VoiceEngine.isAudible(distance: d, maxDistance: 10, wasAudible: engine.isAudible(mediaId))
+    /// engine.setAudible(heard, for: mediaId)
+    /// ```
+    public nonisolated static func isAudible(distance: Float, maxDistance: Float, wasAudible: Bool) -> Bool
+    {
+        distance < (wasAudible ? maxDistance : maxDistance * 0.98)
+    }
+
+    /// Silence `mediaId`, or let it be heard again, without tearing the source down.
+    public func setAudible(_ audible: Bool, for mediaId: String)
+    {
+        guard let source = sources[mediaId], source.audible != audible else { return }
+        sources[mediaId]!.audible = audible
+        source.node.volume = audible ? 1 : 0
+    }
+
+    /// Whether `mediaId` is currently heard. Unknown streams are not.
+    public func isAudible(_ mediaId: String) -> Bool { sources[mediaId]?.audible ?? false }
 
     /// Attenuation from something between the source and the listener, in dB (0 clear,
     /// -100 fully blocked). The raycast that decides this belongs to the caller.

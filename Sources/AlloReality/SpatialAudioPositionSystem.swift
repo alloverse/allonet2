@@ -55,6 +55,12 @@ public struct SpatialAudioPositionSystem: RealityKit.System
             let sourcePosition = entity.position(relativeTo: fieldEntity)
             engine.setPosition(sourcePosition, for: source.mediaId)
 
+            // Attenuation alone leaves a distant source faint but audible; past maxDistance it is gone.
+            engine.setAudible(VoiceEngine.isAudible(distance: simd_distance(listenerPosition, sourcePosition),
+                                                    maxDistance: Float(Self.maxDistance),
+                                                    wasAudible: engine.isAudible(source.mediaId)),
+                              for: source.mediaId)
+
             let isOccluded: Bool
             // The raycast crashes on macOS 15
             if #available(macOS 26, *) {

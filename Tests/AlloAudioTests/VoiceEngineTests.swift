@@ -103,6 +103,21 @@ import simd
         engine.stop()
         #expect(engine.isCapturing == false)
     }
+
+    /// The environment node's maximumDistance only stops attenuating further, so without this
+    /// cutoff a source across the place stays quietly audible forever.
+    @Test func silencesSourcesPastMaxDistance()
+    {
+        #expect(VoiceEngine.isAudible(distance: 0, maxDistance: 10, wasAudible: false))
+        #expect(VoiceEngine.isAudible(distance: 9, maxDistance: 10, wasAudible: false))
+        #expect(!VoiceEngine.isAudible(distance: 10, maxDistance: 10, wasAudible: true))
+        #expect(!VoiceEngine.isAudible(distance: 1000, maxDistance: 10, wasAudible: true))
+
+        // Dead band: a source hovering at the edge keeps whichever answer it had.
+        #expect(VoiceEngine.isAudible(distance: 9.9, maxDistance: 10, wasAudible: true))
+        #expect(!VoiceEngine.isAudible(distance: 9.9, maxDistance: 10, wasAudible: false))
+        #expect(VoiceEngine.isAudible(distance: 9.7, maxDistance: 10, wasAudible: false))
+    }
 }
 
 @Suite struct SpatialMappingTests
