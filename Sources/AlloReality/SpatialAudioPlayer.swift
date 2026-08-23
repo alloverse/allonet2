@@ -23,7 +23,7 @@ public class SpatialAudioPlayer
     let content: RealityViewContentProtocol
     let listenerEid: EntityID? = nil
     let addon: ListenerAddon?
-    fileprivate var state: [MediaStreamId: SpatialAudioPlaybackState] = [:]
+    fileprivate var state: [String: SpatialAudioPlaybackState] = [:]
     var streamCancellables: Set<AnyCancellable> = []
     var listenerCancellables: Set<AnyCancellable> = []
     var logger: Logger! = Logger(labelSuffix: "spatialaudioplayer")
@@ -225,7 +225,7 @@ public class SpatialAudioPlayer
         }
     }
     
-    func stop(streamId: MediaStreamId)
+    func stop(streamId: String)
     {
         guard let playState = state[streamId] else { return }
         var streamLogger = logger!
@@ -264,7 +264,7 @@ public class SpatialAudioPlayer
 @MainActor
 fileprivate class SpatialAudioPlaybackState
 {
-    let streamId: MediaStreamId
+    let streamId: String
     let eid: EntityID
     let pcmCallback: ((UnsafeMutableAudioBufferListPointer, Int) -> Void)?
     
@@ -277,7 +277,7 @@ fileprivate class SpatialAudioPlaybackState
         controller?.stop()
     }
     
-    fileprivate init(streamId: MediaStreamId, eid: EntityID, callback: SpatialAudioPlayer.PCMCallback? = nil)
+    fileprivate init(streamId: String, eid: EntityID, callback: SpatialAudioPlayer.PCMCallback? = nil)
     {
         self.streamId = streamId
         self.eid = eid

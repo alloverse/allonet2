@@ -105,7 +105,7 @@ public enum DataChannelLabel: RawRepresentable, Hashable, Sendable
     case logs
     /// One voice stream. Channel-per-stream is what lets the SFU route frames without
     /// looking inside them, and removes the stream id from the frame header.
-    case media(MediaStreamId)
+    case media(String)
 
     static let mediaPrefix = "voice/"
 
@@ -161,13 +161,12 @@ public enum MediaStreamDirection: UInt32
     public var isSend: Bool { self == .sendonly || self == .sendrecv }
 }
 
-public typealias MediaStreamId = String
 // TODO: XXX, there is confusion whether this represents a 'stream' or a 'track'. In GoogleWebRTC, a Stream is a bundle of tracks. libdatachannel doesn't use this abstraction. This API uses MediaStream interchangeably as both, and mediaID can be either the streamId or streamId+trackId. This is confusing. Fix it!
 public protocol MediaStream: CustomStringConvertible
 {
     // PlaceServer side for incoming streams: This will be a single-component stream ID in the client's own namespace
     // In all other cases (clients, place outgoing streams): This will be a two-component PlaceStreamId
-    var mediaId: MediaStreamId { get }
+    var mediaId: String { get }
     var streamDirection: MediaStreamDirection { get }
     
     // XXX: Move to AudioTrack and add an array of audiotracks here
@@ -195,14 +194,14 @@ public struct PlaceStreamId: Equatable, Hashable, Codable, CustomStringConvertib
     // Shortened version of the sending client's ID (to fit in sdp)
     public let shortClientId: String
     // A single MediaStream ID in the namespace of the sending client. "streamId-trackId". Should not contain a period.
-    public let incomingMediaId: MediaStreamId
+    public let incomingMediaId: String
     // String version of the place stream ID, that is used in WebRTC as the MID sent to receiving clients. Contains a period separating the shortened client ID and the mediaId.
-    public var outgoingMediaId: MediaStreamId {
+    public var outgoingMediaId: String {
         return "\(shortClientId).\(incomingMediaId)"
     }
     public var description: String { return outgoingMediaId }
     
-    public init(shortClientId: String, incomingMediaId: MediaStreamId) {
+    public init(shortClientId: String, incomingMediaId: String) {
         self.shortClientId = shortClientId
         self.incomingMediaId = incomingMediaId
     }
@@ -215,7 +214,7 @@ public struct PlaceStreamId: Equatable, Hashable, Codable, CustomStringConvertib
 /// unparseable and every listener silently ignores the stream.
 public enum MediaStreamIdError: Error, Equatable, CustomStringConvertible
 {
-    case containsPeriod(MediaStreamId)
+    case containsPeriod(String)
 
     public var description: String
     {

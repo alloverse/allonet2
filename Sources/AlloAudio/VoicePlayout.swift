@@ -19,7 +19,7 @@ public final class VoicePlayout
 {
     private let engine = AVAudioEngine()
     private var logger = Logger(labelSuffix: "audio.playout")
-    private var sources: [MediaStreamId: AVAudioSourceNode] = [:]
+    private var sources: [String: AVAudioSourceNode] = [:]
     private let format: AVAudioFormat
 
     public init()
@@ -58,7 +58,7 @@ public final class VoicePlayout
     /// alongside one rather than pretending it is not there.
     public var outputLatency: TimeInterval { engine.outputNode.presentationLatency }
 
-    public func stop(_ mediaId: MediaStreamId)
+    public func stop(_ mediaId: String)
     {
         guard let source = sources.removeValue(forKey: mediaId) else { return }
         engine.detach(source)
