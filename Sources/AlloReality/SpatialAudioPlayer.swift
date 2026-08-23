@@ -10,17 +10,15 @@ import AlloAudio
 import alloclient
 import RealityKit
 import OpenCombineShim
-import SwiftUI
-import CoreAudio
 import Logging
 
-/// Syncs `LiveMedia` components from entities surrounding the local avatar and plays them back spatially.
+/// Syncs `LiveMedia` components from entities surrounding the local avatar and plays them back
+/// spatially through the client's `VoiceEngine`.
 @MainActor
 public class SpatialAudioPlayer
 {
     let mapper: RealityViewMapper
     let client: AlloUserClient
-    let content: RealityViewContentProtocol
     let listenerEid: EntityID? = nil
     let addon: ListenerAddon?
     fileprivate var state: [MediaStreamId: SpatialAudioPlaybackState] = [:]
@@ -29,11 +27,10 @@ public class SpatialAudioPlayer
     var logger: Logger! = Logger(labelSuffix: "spatialaudioplayer")
     
     /// Construct a SpatialAudioPlayer which uses `mapper` to create audio related components and `client` to react to network events. Note: announce must have completed and avatar exist before instantiating this class.
-    public init(mapper: RealityViewMapper, client: AlloUserClient, content: RealityViewContentProtocol, addon: ListenerAddon? = nil)
+    public init(mapper: RealityViewMapper, client: AlloUserClient, addon: ListenerAddon? = nil)
     {
         self.mapper = mapper
         self.client = client
-        self.content = content
         self.addon = addon
         self.logger = Logger(labelSuffix: "spatialaudioplayer", metadataProvider: Logger.MetadataProvider { [weak self] in
             guard let self, let cid = self.client.cid else { return [:] }
@@ -113,10 +110,7 @@ public class SpatialAudioPlayer
         logger.info("Using \(listenerEid) as RealityKit listener")
 
         // TODO: When non-immersive, set it to be an "ears" sub-entity which is always pointed "forwards" in the camera perspective
-        var cameraContent = content as! RealityViewCameraContent
-        cameraContent.audioListener = guient
-        
-        // Make sure our custom attenuation system knows who the listener is
+        // The position system reads the listener pose off this entity every frame.
         guient.components.set(AudioListenerComponent())
         
         // Setup listeners to get incoming tracks. Just ask to get everything (except our own audio) forwarded.
@@ -144,7 +138,7 @@ public class SpatialAudioPlayer
         var streamLogger = logger!
         streamLogger[metadataKey: "mediaId"] = .string(stream.mediaId)
         streamLogger.info("Playing \(stream)")
-    
+
         guard
             let playState = state[stream.mediaId],
             let netent = client.placeState.current.entities[playState.eid],
@@ -154,91 +148,34 @@ public class SpatialAudioPlayer
             streamLogger.error("Should not be possible to get a stream without corresponding state and entities")
             return
         }
-        
-        assert(playState.controller == nil, "Playing the same stream twice?")
-        
-        streamLogger.info("Setting up LiveMedia on \(netent.id)")
-        var stats = StreamStats()
-        
-        // TODO: Pick these up as settings from an Alloverse component
-        let spatial = SpatialAudioComponent(
-            gain: 0, // Overridden by `SpatialAudioAttenuationSystem`
-            directLevel: .zero,
-            reverbLevel: .zero,
-            directivity: .beam(focus: 0.3),
-            distanceAttenuation: .rolloff(factor: 0.0) // Don't do attenuation here, but in `SpatialAudioAttenuationSystem` instead.
-        )
-        guient.components.set(spatial)
-        
-        let ringBuffer = stream.render()
-        ringBuffer.store(in: &playState.cancellables)
-        
-        // TODO: Adjust playback speed to keep the buffered amount stable at ~50ms latency?
-        let config = AudioGeneratorConfiguration(layoutTag: kAudioChannelLayoutTag_Mono)
-        let handler: Audio.GeneratorRenderHandler = { [weak playState] (isSilence, timestamp, frameCount, audioBufferList) -> OSStatus in
-            let requested = Int(frameCount)
-            let ablPointer = UnsafeMutableAudioBufferListPointer(audioBufferList)
-            Self.logStatistics(requested, ringBuffer, into: streamLogger, from: stats)
-            ringBuffer.readOrSilence(into: ablPointer, frames: requested)
-            playState?.pcmCallback?(ablPointer, requested)
-            return noErr
+        guard let stream = stream as? DataChannelMediaStream else
+        {
+            streamLogger.error("Voice is carried on data channels; cannot play \(type(of: stream))")
+            return
         }
-        do {
-            playState.controller = try guient.playAudio(handler)
-        } catch {
-            streamLogger.error("Failed to start audio generator on entity \(netent.id): \(error)")
+
+        do { try client.voiceEngine.play(stream, pcm: playState.pcmCallback) }
+        catch
+        {
+            streamLogger.error("Failed to play voice from entity \(netent.id): \(error)")
             stop(streamId: playState.streamId)
             return
         }
+        // Which entity the position system should follow for this stream.
+        guient.components.set(VoiceSourceComponent(mediaId: stream.mediaId, engine: client.voiceEngine))
         streamLogger.info("Successfully set up audio renderer \(netent.id)")
     }
-    
-    class StreamStats {
-        var requestCountSinceLast: Int = 0
-        var avgRequested: Double! = nil
-        var avgReadCapacity: Double! = nil
-        var avgWriteCapacity: Double! = nil
-        
-        let alpha: Double = 0.2 // Smoothing factor: 0 < alpha <= 1. Larger = more reactive
-        var lastLoggedAt: Date = Date.now
-        static var logEveryNSeconds: TimeInterval = 2
 
-        func updateEMA(current: inout Double!, with newValue: Int) {
-            if current == nil {
-                current = Double(newValue)
-            } else {
-                current = alpha * Double(newValue) + (1 - alpha) * current
-            }
-        }
-    }
-    static func logStatistics(_ requested: Int, _ ringBuffer: AudioRingBuffer, into streamLogger: Logger, from stats: StreamStats)
-    {
-        stats.updateEMA(current: &stats.avgRequested, with: requested)
-        stats.updateEMA(current: &stats.avgReadCapacity, with: ringBuffer.availableToRead())
-        stats.updateEMA(current: &stats.avgWriteCapacity, with: ringBuffer.availableToWrite())
-        stats.requestCountSinceLast += 1
-        
-        if Date.now.timeIntervalSince(stats.lastLoggedAt) > StreamStats.logEveryNSeconds {
-            streamLogger.trace("Render stats: \(Int(stats.requestCountSinceLast)) * \(Int(stats.avgRequested)) frames rendered, from buffered \(Int(stats.avgReadCapacity)) available \(Int(stats.avgWriteCapacity))")
-            stats.requestCountSinceLast = 0
-            stats.lastLoggedAt = Date.now
-        }
-    }
-    
     func stop(streamId: MediaStreamId)
     {
         guard let playState = state[streamId] else { return }
         var streamLogger = logger!
         streamLogger[metadataKey: "mediaId"] = .string(streamId)
         streamLogger.info("Stopping \(playState.streamId); tearing down LiveMedia renderer")
-        
-        let guient = mapper.guiForEid(playState.eid)
-        
-        streamLogger.info("Was attached to \(playState.eid), disabling it...")
-        playState.stop()
+
+        client.voiceEngine.stop(mediaId: streamId)
         state[streamId] = nil
-        
-        guient?.components.remove(SpatialAudioComponent.self)
+        mapper.guiForEid(playState.eid)?.components.remove(VoiceSourceComponent.self)
     }
     
     public func stop()
@@ -248,7 +185,7 @@ public class SpatialAudioPlayer
         sessionCancellables.forEach { $0.cancel() }; sessionCancellables.removeAll()
     }
     
-    public typealias PCMCallback = ((UnsafeMutableAudioBufferListPointer, Int) -> Void)
+    public typealias PCMCallback = VoiceEngine.PCMCallback
     public struct ListenerAddon
     {
         public let mediaAdded: (EntityID, LiveMedia) -> PCMCallback?
@@ -266,17 +203,8 @@ fileprivate class SpatialAudioPlaybackState
 {
     let streamId: MediaStreamId
     let eid: EntityID
-    let pcmCallback: ((UnsafeMutableAudioBufferListPointer, Int) -> Void)?
-    
-    var cancellables: Set<AnyCancellable> = []
-    var controller: AudioGeneratorController? = nil
-    
-    fileprivate func stop()
-    {
-        cancellables.forEach {$0.cancel()}
-        controller?.stop()
-    }
-    
+    let pcmCallback: SpatialAudioPlayer.PCMCallback?
+
     fileprivate init(streamId: MediaStreamId, eid: EntityID, callback: SpatialAudioPlayer.PCMCallback? = nil)
     {
         self.streamId = streamId

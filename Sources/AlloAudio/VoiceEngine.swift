@@ -340,6 +340,14 @@ public final class VoiceEngine
 
     // MARK: - Spatialisation
 
+    /// The head axes a right-handed, -Z-forward transform describes - RealityKit's convention
+    /// and the environment node's - ready for `setListener`.
+    public nonisolated static func listenerAxes(of transform: simd_float4x4) -> (forward: SIMD3<Float>, up: SIMD3<Float>)
+    {
+        (forward: simd_normalize(-simd_make_float3(transform.columns.2)),
+         up: simd_normalize(simd_make_float3(transform.columns.1)))
+    }
+
     /// Where the listener's head is, in the shared coordinate space. `forward` and `up` are the
     /// head's axes; both are normalised here.
     public func setListener(position: SIMD3<Float>, forward: SIMD3<Float>, up: SIMD3<Float>)
@@ -432,13 +440,3 @@ public extension AVAudio3DPoint
     init(_ v: SIMD3<Float>) { self.init(x: v.x, y: v.y, z: v.z) }
 }
 
-public extension AVAudio3DVectorOrientation
-{
-    /// The listener axes of a right-handed transform: forward is -Z, up is +Y, both normalised.
-    init(transform: simd_float4x4)
-    {
-        let forward = simd_normalize(-simd_make_float3(transform.columns.2))
-        let up = simd_normalize(simd_make_float3(transform.columns.1))
-        self.init(forward: AVAudio3DVector(forward), up: AVAudio3DVector(up))
-    }
-}
