@@ -318,7 +318,7 @@ class PlaceServerStatus: WSMessageHandler
                 \t\t\t\t<tr>
                 \t\t\t\t    <td>\(fi.source)</td>
                 \t\t\t\t    <td>\(fi.target)</td>
-                \t\t\t\t    <td>\(formatCount(counters?.forwardedIn))</td>
+                \t\t\t\t    <td>\(formatCount(counters?.forwardedOut))</td>
                 \t\t\t\t    <td>\(formatCount(counters?.forwardDropped))</td>
                 \t\t\t\t    <td>\(lastErrorCell(forwarder))</td>
                 \t\t\t\t</tr>

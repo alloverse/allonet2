@@ -50,8 +50,8 @@ final class PlaceServerStatusTests: XCTestCase
 
             let forwarder = try XCTUnwrap(place.server.sfu.active.values.first as? DataChannelForwarder)
             let forwarded = forwarder.destination.counters.snapshot
-            XCTAssertGreaterThan(forwarded.forwardedIn, 0)
-            XCTAssertTrue(html.contains("<td>\(forwarded.forwardedIn)</td>"), html)
+            XCTAssertGreaterThan(forwarded.forwardedOut, 0)
+            XCTAssertTrue(html.contains("<td>\(forwarded.forwardedOut)</td>"), html)
             XCTAssertTrue(html.contains("<td>\(forwarded.forwardDropped)</td>"), html)
             XCTAssertTrue(html.contains("<td>-</td>"), "no forwarding error occurred, so the cell should read \"-\": \(html)")
         }
