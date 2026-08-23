@@ -6,14 +6,14 @@
 //  harness instead of a fake server state.
 //
 
-import XCTest
+import Testing
 import Foundation
 @testable import allonet2
 
 @MainActor
-final class PlaceServerStatusTests: XCTestCase
+@Suite struct PlaceServerStatusTests
 {
-    func testStatusPageRendersForwardingCounters() async throws
+    @Test func statusPageRendersForwardingCounters() async throws
     {
         try await withPlace { place in
             let speaker = try await place.connectClient(named: "speaker")
@@ -37,23 +37,23 @@ final class PlaceServerStatusTests: XCTestCase
 
             // The server's own view of the speaker's stream, distinct from `incoming` (the
             // listener's local copy, post-forward).
-            let psi = try XCTUnwrap(placeStreamId.psi)
-            let sourceStream = try XCTUnwrap(place.server.sfu.available[psi]?.stream as? DataChannelMediaStream)
+            let psi = try #require(placeStreamId.psi)
+            let sourceStream = try #require(place.server.sfu.available[psi]?.stream as? DataChannelMediaStream)
             let available = sourceStream.counters.snapshot
 
             let status = PlaceServerStatus(server: place.server)
             let html = status.sfuTable
 
-            XCTAssertGreaterThan(available.received, 0)
-            XCTAssertTrue(html.contains("<td>\(available.received)</td>"), html)
-            XCTAssertTrue(html.contains("<td>\(available.malformed)</td>"), html)
+            #expect(available.received > 0)
+            #expect(html.contains("<td>\(available.received)</td>"), "\(html)")
+            #expect(html.contains("<td>\(available.malformed)</td>"), "\(html)")
 
-            let forwarder = try XCTUnwrap(place.server.sfu.active.values.first as? DataChannelForwarder)
+            let forwarder = try #require(place.server.sfu.active.values.first as? DataChannelForwarder)
             let forwarded = forwarder.destination.counters.snapshot
-            XCTAssertGreaterThan(forwarded.forwardedOut, 0)
-            XCTAssertTrue(html.contains("<td>\(forwarded.forwardedOut)</td>"), html)
-            XCTAssertTrue(html.contains("<td>\(forwarded.forwardDropped)</td>"), html)
-            XCTAssertTrue(html.contains("<td>-</td>"), "no forwarding error occurred, so the cell should read \"-\": \(html)")
+            #expect(forwarded.forwardedOut > 0)
+            #expect(html.contains("<td>\(forwarded.forwardedOut)</td>"), "\(html)")
+            #expect(html.contains("<td>\(forwarded.forwardDropped)</td>"), "\(html)")
+            #expect(html.contains("<td>-</td>"), "no forwarding error occurred, so the cell should read \"-\": \(html)")
         }
     }
 }
