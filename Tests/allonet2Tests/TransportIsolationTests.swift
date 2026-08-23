@@ -1,5 +1,4 @@
 import XCTest
-import alloheadless
 @testable import allonet2
 
 /// libdatachannel calls back from its own thread pool, so everything the transport hands upwards

@@ -1,5 +1,4 @@
 import Testing
-import alloheadless
 @testable import allonet2
 
 /// A client builds a fresh transport and session per connection attempt, so anything that

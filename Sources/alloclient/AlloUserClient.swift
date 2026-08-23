@@ -6,7 +6,6 @@
 //
 
 import allonet2
-import alloheadless
 import AlloAudio
 import AlloOpus
 import OpenCombineShim

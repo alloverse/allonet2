@@ -17,7 +17,6 @@ let applePlatformTargets: [Target] = [
     .target(name: "alloclient", dependencies: [
         .product(name: "OpenCombineShim", package: "opencombine"),
         "allonet2",
-        "alloheadless",
         "AlloAudio",
         "AlloOpus",
     ]),
@@ -28,7 +27,7 @@ let applePlatformTargets: [Target] = [
         .product(name: "GLTFKit2", package: "GLTFKit2"),
     ]),
     .testTarget(name: "AlloRealityTests", dependencies: ["AlloReality"]),
-    .executableTarget(name: "voicedemo", dependencies: ["alloheadless", "AlloAudio", "AlloOpus"]),
+    .executableTarget(name: "voicedemo", dependencies: ["allonet2", "AlloAudio", "AlloOpus"]),
 ]
 let applePlatformProducts: [Product] = [
     .library(name: "AlloAudio", targets: ["AlloAudio"]),
@@ -165,7 +164,6 @@ let package = Package(
             name: "allonet2Tests",
             dependencies: [
                 "allonet2",
-                "alloheadless",
                 "FlyingFox",
                 .product(name: "FlyingSocks", package: "FlyingFox") // reading back an ephemeral port
             ]
@@ -182,13 +180,13 @@ let package = Package(
         .executableTarget(
             name: "AlloPlace",
             dependencies: [
-                "alloheadless",
+                "allonet2",
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ]
         ),
         .executableTarget(
             name: "demoapp",
-            dependencies: ["alloheadless"]
+            dependencies: ["allonet2"]
         ),
     ],
     swiftLanguageModes: [.v5]
