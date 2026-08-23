@@ -19,7 +19,6 @@ let applePlatformTargets: [Target] = [
         .product(name: "OpenCombineShim", package: "opencombine"),
         "allonet2",
         "AlloAudio",
-        "AlloOpus",
     ]),
     .target(name: "AlloReality", dependencies: [
         .product(name: "OpenCombineShim", package: "opencombine"),
