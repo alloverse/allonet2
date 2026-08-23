@@ -92,6 +92,14 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
             logger.debug("Dropped oversized voice frame: \(data.count) bytes")
             return
         }
+        // Header only - length and kind byte - so this costs no allocation on the SFU's path,
+        // which never parses the payload at all.
+        guard data.count >= VoiceFrame.headerSize, VoiceFrame.Kind(rawValue: data[data.startIndex]) != nil else
+        {
+            counters.update { $0.malformed += 1 }
+            logger.debug("Dropped voice frame with invalid header: \(data.count) bytes")
+            return
+        }
         observers.emit(data)
 
         // The server routes without parsing; only a receiver needs the frame itself.
