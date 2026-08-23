@@ -425,6 +425,8 @@ public class DataChannelTransport: Transport
         }
     }
     
+    /// Copies frames from a stream on `sender` into a new channel opened on this transport.
+    ///
     /// - Throws: `ForwardingError.notADataChannelStream` for any other kind of stream - a data
     ///   channel is the only thing this transport carries - and `MediaStreamIdError.containsPeriod`
     ///   for a sender-chosen id the place cannot encode.
@@ -436,10 +438,14 @@ public class DataChannelTransport: Transport
         }
         // The sender named this one, so it is checked here rather than trusted.
         guard !source.mediaId.contains(".") else { throw MediaStreamIdError.containsPeriod(source.mediaId) }
+        guard let senderId = sender.clientId else
+        {
+            preconditionFailure("Stream \(source.mediaId) arrived on a transport with no client id")
+        }
 
-        logger.info("Forwarding media stream \(mediaStream.mediaId) from \(sender.clientId) to \(clientId)")
+        logger.info("Forwarding media stream \(source.mediaId) from \(senderId.shortClientId)")
 
-        let placeStreamId = PlaceStreamId(shortClientId: sender.clientId!.shortClientId, incomingMediaId: source.mediaId)
+        let placeStreamId = PlaceStreamId(shortClientId: senderId.shortClientId, incomingMediaId: source.mediaId)
         let destination = try openOutgoingMediaStream(mediaId: placeStreamId.outgoingMediaId)
         // No scheduleRenegotiation(): an in-band data channel needs no offer/answer.
         return DataChannelForwarder(from: source, to: destination)
