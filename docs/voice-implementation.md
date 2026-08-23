@@ -108,6 +108,11 @@ still settable through the system's statics. It spatialises **mono inputs only**
 every source node is one channel. The rendering algorithm is `.auto`: whether the listener is
 wearing headphones is not knowable from here.
 
+`maximumDistance` is not a cutoff: it only stops attenuation growing, so beyond it a source is
+quiet rather than gone, where the old system's gain went to -inf. `VoiceEngine.isAudible` is
+that cutoff - decided per frame by the position system, applied as the source node's volume,
+with a 2 % dead band so a source hovering at the edge doesn't chatter.
+
 `VoiceSourceComponent` ties an entity to the stream coming out of it, so the system reads
 everything it needs off the scene and holds no reference back to `SpatialAudioPlayer`.
 
