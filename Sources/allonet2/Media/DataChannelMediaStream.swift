@@ -200,13 +200,19 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         lock.lock(); defer { lock.unlock() }
         if let ringBuffer { return ringBuffer }
 
+        playoutGeneration &+= 1
+        let generation = playoutGeneration
         let ring = AudioRingBuffer(channels: 1, capacityFrames: Int(Self.sampleRate), canceller: { [weak self] in
-            self?.stopPlayout()
+            self?.stopPlayout(generation: generation)
         })
         ringBuffer = ring
         startPump(filling: ring)
         return ring
     }
+
+    /// Which playout a ring belongs to. Whoever held a ring cancels it whenever they get round
+    /// to it, which can be after playout has been restarted on a new one.
+    private var playoutGeneration = 0
 
     /// Decoded audio kept queued ahead of the device; refilling to a level self-clocks.
     /// See docs/voice-implementation.md, Playout is self-clocking.
@@ -241,9 +247,14 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
 
     /// Stop decoding and let go of the ring, so `render()` builds a new one rather than handing
     /// out the dead one. Arrived-at by cancelling the ring, which is how a player stops playout.
-    private func stopPlayout()
+    ///
+    /// - Parameter generation: the playout being stopped, or nil to stop whatever is running.
+    ///   A ring cancelled after playout already restarted names the generation that is over, and
+    ///   must leave its replacement alone.
+    private func stopPlayout(generation: Int? = nil)
     {
         lock.lock(); defer { lock.unlock() }
+        if let generation, generation != playoutGeneration { return }
         pump?.cancel()
         pump = nil
         ringBuffer = nil

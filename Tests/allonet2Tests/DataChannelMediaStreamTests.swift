@@ -68,6 +68,35 @@ struct DataChannelMediaStreamTests
         #expect(try await audioArrives(in: restarted), "playing the stream a second time is silent")
     }
 
+    /// Whoever held the old ring lets go of it on its own schedule, which can be after playout
+    /// has already been restarted. Cancelling a ring playout has moved on from must not stop the
+    /// one it moved on to.
+    @Test func cancellingAReplacedRingLeavesTheCurrentOneRunning() async throws
+    {
+        VoiceCodecs.makeDecoder = { RawPCMVoiceCodec() }
+        let stream = receiver()
+
+        let first = stream.render()
+        deliver(5, from: 0, to: stream)
+        #expect(try await audioArrives(in: first))
+        first.cancel()
+
+        let second = stream.render()
+        #expect(second !== first)
+
+        // The straggler: the old player finally drops its reference, after the restart.
+        first.cancel()
+        #expect(stream.render() === second, "a stale ring's cancellation threw the current one away")
+
+        var sink = [Float](repeating: 0, count: DataChannelMediaStream.frameDuration)
+        while second.availableToRead() > 0
+        {
+            sink.withUnsafeMutableBufferPointer { _ = second.read(into: [$0.baseAddress!], frames: $0.count) }
+        }
+        deliver(5, from: 5, to: stream)
+        #expect(try await audioArrives(in: second), "a stale ring's cancellation stopped the current pump")
+    }
+
     @Test func rejectsOversizedMessagesBeforeFanningThemOut()
     {
         let stream = receiver()
