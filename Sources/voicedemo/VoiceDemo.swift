@@ -176,7 +176,11 @@ final class VoiceDemoClient: AlloClient
     {
         guard let stream = stream as? DataChannelMediaStream else { return }
         incoming[stream.mediaId] = stream
-        do { try engine.play(stream) }
+        do
+        {
+            try engine.play(stream)
+            engine.setPosition(.zero, for: stream.mediaId)   // no scene to position sources from
+        }
         catch { logger.error("Failed to play \(stream.mediaId): \(error)") }
     }
 

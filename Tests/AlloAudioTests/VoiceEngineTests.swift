@@ -135,6 +135,13 @@ import allonet2
         #expect(VoiceEngine.volume(audible: false, occlusion: VoiceEngine.blockedOcclusion) == 0)
     }
 
+    /// A source with no position yet starts `audible == false`, so it takes this same silent
+    /// path - otherwise it would render at the listener's spot at full volume for a frame or two.
+    @Test func aSourceWithNoPositionYetIsSilent()
+    {
+        #expect(VoiceEngine.volume(audible: false, occlusion: 0) == 0)
+    }
+
     /// A removed tap's buffers are still queued as hops to this actor; by the time they run,
     /// capture may have restarted on a different stream, which must not be sent that audio.
     @Test func dropsAudioCapturedByAReplacedTap() throws

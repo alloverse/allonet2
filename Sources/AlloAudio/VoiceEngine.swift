@@ -326,8 +326,9 @@ public final class VoiceEngine
         let node: AVAudioSourceNode
         let ring: AudioRingBuffer
         var position: SIMD3<Float> = .zero
+        var positioned = false   // gates audible: silent until setPosition first runs for this id
         var occlusion: Float = 0
-        var audible = true
+        var audible = false
     }
     private var sources: [String: Source] = [:]
 
@@ -352,6 +353,9 @@ public final class VoiceEngine
         engine.connect(source, to: environment, fromBus: 0, toBus: environment.nextAvailableInputBus, format: voiceFormat)
         source.renderingAlgorithm = .auto   // HRTF is only right on headphones, which we can't detect
         sources[stream.mediaId] = Source(node: source, ring: ring)
+        // Starts silent: a position may not land until the next scene update, and rendering
+        // before then would play this source at the listener's spot at full volume.
+        applyVolume(to: stream.mediaId)
 
         do { try start() }
         catch
@@ -402,12 +406,20 @@ public final class VoiceEngine
 
     /// Where the entity speaking `mediaId` is, in the same space as the listener. Called once
     /// per rendered frame per source, so unchanged positions are dropped rather than pushed
-    /// through an audio-unit parameter set.
+    /// through an audio-unit parameter set - except the first call, which always applies and
+    /// lifts the source out of the silence it started in.
     public func setPosition(_ position: SIMD3<Float>, for mediaId: String)
     {
-        guard let source = sources[mediaId], simd_distance_squared(source.position, position) > 1e-6 else { return }
+        guard let source = sources[mediaId] else { return }
+        let firstPosition = !source.positioned
+        guard firstPosition || simd_distance_squared(source.position, position) > 1e-6 else { return }
         sources[mediaId]!.position = position
         source.node.position = AVAudio3DPoint(position)
+        if firstPosition
+        {
+            sources[mediaId]!.positioned = true
+            setAudible(true, for: mediaId)
+        }
     }
 
     /// Whether a source `distance` metres from the listener can be heard at all. The environment
