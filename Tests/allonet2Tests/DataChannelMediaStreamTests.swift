@@ -52,11 +52,14 @@ struct DataChannelMediaStreamTests
         let ring = stream.render()
         deliver(5, from: 0, to: stream)
         #expect(try await audioArrives(in: ring))
+        stream.notePlayout(of: ring)
+        #expect(stream.lastPlayed != nil)
 
         ring.cancel()
 
         let restarted = stream.render()
         #expect(restarted !== ring)
+        #expect(stream.lastPlayed == nil, "a stale mark from the cancelled ring must not survive the restart")
 
         // Drain what is buffered, so what arrives next can only come from a running pump.
         var sink = [Float](repeating: 0, count: DataChannelMediaStream.frameDuration)

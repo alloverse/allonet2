@@ -205,6 +205,10 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         let ring = AudioRingBuffer(channels: 1, capacityFrames: Int(Self.sampleRate), canceller: { [weak self] in
             self?.stopPlayout(generation: generation)
         })
+        // Both describe the old ring; left stale, notePlayout can report a frame this ring
+        // never wrote as freshly played before its pump has decoded anything.
+        playoutMark.store(0, ordering: .relaxed)
+        lastPlayedFrame.store(0, ordering: .relaxed)
         ringBuffer = ring
         startPump(filling: ring)
         return ring
