@@ -160,6 +160,31 @@ struct JitterBufferTests
         #expect(counters.snapshot.late == 0, "nothing that arrived after the underrun is late")
     }
 
+    /// A stalled consumer overflows the buffer; whatever is dropped, the playhead must land on
+    /// audio that is still here rather than concealing its way forward to it.
+    @Test func overflowMovesThePlayheadToTheOldestRetainedFrame()
+    {
+        let counters = VoiceCountersBox()
+        let buffer = Self.makeBuffer(counters: counters)
+        buffer.insert(Self.frame(0), arrival: Self.arrival(0))
+        buffer.insert(Self.frame(1), arrival: Self.arrival(1))
+        #expect(buffer.nextStep(codecSupportsFEC: true) == .decode(Self.frame(0)))
+
+        // Playout stops here. Frames keep arriving until the oldest are dropped.
+        let cap = buffer.configuration.maximumDepth * 2
+        for sequence in UInt32(2)...UInt32(cap + 20)
+        {
+            buffer.insert(Self.frame(sequence), arrival: Self.arrival(sequence))
+        }
+        #expect(counters.snapshot.overflowed > 0, "the buffer has to have overflowed for this to mean anything")
+        #expect(buffer.depth == cap)
+
+        // Resuming plays the oldest frame that survived, immediately.
+        let oldestRetained = UInt32(cap + 20) - UInt32(cap) + 1
+        #expect(buffer.nextStep(codecSupportsFEC: true) == .decode(Self.frame(oldestRetained)))
+        #expect(counters.snapshot.concealed == 0)
+    }
+
     @Test func growsTheTargetDepthWithObservedJitter()
     {
         let buffer = Self.makeBuffer()

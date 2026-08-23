@@ -148,6 +148,9 @@ public final class JitterBuffer: @unchecked Sendable
         {
             frames.removeValue(forKey: oldest)
             counters.update { $0.overflowed += 1 }
+            // The playhead named the frame just dropped; leaving it there would conceal its way
+            // across every dropped slot before reaching audio that is still buffered.
+            if playhead == oldest { playhead = frames.keys.min(by: { $1.isNewerSequence(than: $0) }) }
         }
     }
 
