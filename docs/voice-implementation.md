@@ -74,6 +74,13 @@ ever spent the surplus. This does.
   downstream of the render block rather than the output device alone. The cost of varispeed is
   that a correcting stream is up to 34 cents off pitch; a pitch-preserving stretch that fits the
   latency budget would have to be written by hand (WSOLA in the pump), which is a card of its own.
+  The rate node, not the source node, is what feeds the environment node's input bus - but
+  `AVAudioUnitVarispeed` does not conform to `AVAudio3DMixing`, so position, occlusion, volume and
+  rendering algorithm stay on the source node at the head of the chain, and the engine resolves
+  them to the mixer the chain ends at. Measured, panning is identical to the bit with the rate node
+  and without it (at x = -/+1 m, 9.1 dB of left/right separation on one side and 8.1 dB on the
+  other - an HRTF is measured on a head and is not mirror-symmetric); `EnvironmentNodeChainTests`
+  keeps it that way, because losing it would be silent.
 
 ## Stream lifetime
 

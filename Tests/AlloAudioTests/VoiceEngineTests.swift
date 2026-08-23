@@ -292,22 +292,26 @@ import allonet2
     }
 }
 
-/// What silencing and the falloff actually do to the signal, rendered offline so it needs no
-/// audio device. None of it is in the documentation and all of it cost a measurement to learn: a
-/// source silenced the wrong way is still quietly audible across the place, a peak taken too
-/// early says the opposite of the truth, and an environment node left to attenuate distance
-/// itself multiplies its own curve onto ours.
-@Suite struct EnvironmentNodeRenderingTests
+/// What playout's chain into the environment node carries, rendered offline so it needs no audio
+/// device. None of it is in the documentation and all of it cost a measurement: a source silenced
+/// the wrong way stays audible across the place, a level taken too early says the opposite of the
+/// truth, an environment node left to attenuate distance multiplies its own curve onto ours, and
+/// every spatial property is set on a node that is not the one the mixer sees.
+@Suite struct EnvironmentNodeChainTests
 {
     /// What "silent" can mean here: the HRTF path has a gain floor, so a source at volume 0 comes
     /// out at exactly -120 dB of full scale on every block rather than at true digital zero.
     /// Inaudible under anything, but not something an equality can be written against.
     private let silenceFloor: Float = 2e-6
 
-    /// Loudest sample of a 1 kHz tone through one spatialised source, configured the way playout
-    /// configures its own, and ignoring the blocks where a changed gain is still ramping.
-    private func settledPeak(distance: Float = 1.5, volume: Float = 1, occlusion: Float = 0,
-                             throughRateNode: Bool = false) throws -> Float
+    private struct Rendered { var peak: Float; var left: Float; var right: Float }
+
+    /// A 1 kHz tone through one spatialised source, configured the way playout configures its own:
+    /// loudest sample, and per-channel rms, over the blocks after a changed gain has finished
+    /// ramping.
+    private func render(volume: Float = 1, occlusion: Float = 0,
+                        position: AVAudio3DPoint = AVAudio3DPoint(x: 0, y: 0, z: -1.5),
+                        throughRateNode: Bool = false) throws -> Rendered
     {
         let mono = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48000, channels: 1, interleaved: false)!
         let engine = AVAudioEngine()
@@ -338,8 +342,11 @@ import allonet2
         {
             engine.connect(source, to: environment, fromBus: 0, toBus: environment.nextAvailableInputBus, format: mono)
         }
+        environment.listenerPosition = AVAudio3DPoint(x: 0, y: 0, z: 0)
+        environment.listenerVectorOrientation = AVAudio3DVectorOrientation(
+            forward: AVAudio3DVector(x: 0, y: 0, z: -1), up: AVAudio3DVector(x: 0, y: 1, z: 0))
         source.renderingAlgorithm = VoiceEngine.renderingAlgorithm
-        source.position = AVAudio3DPoint(x: 0, y: 0, z: -distance)
+        source.position = position
         source.volume = volume
         source.occlusion = occlusion
 
@@ -350,16 +357,33 @@ import allonet2
 
         let output = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: 4096)!
         var peak: Float = 0
+        var square = [0.0, 0.0]
+        var counted = 0
         for block in 0..<8
         {
             _ = try engine.renderOffline(4096, to: output)
             guard block >= 4, let channels = output.floatChannelData else { continue }
-            for channel in 0..<Int(output.format.channelCount)
+            for i in 0..<Int(output.frameLength)
             {
-                for i in 0..<Int(output.frameLength) { peak = max(peak, abs(channels[channel][i])) }
+                for channel in 0..<2
+                {
+                    let sample = channels[channel][i]
+                    peak = max(peak, abs(sample))
+                    square[channel] += Double(sample) * Double(sample)
+                }
+                counted += 1
             }
         }
-        return peak
+        func rms(_ channel: Int) -> Float { Float((square[channel] / Double(max(counted, 1))).squareRoot()) }
+        return Rendered(peak: peak, left: rms(0), right: rms(1))
+    }
+
+    private func settledPeak(distance: Float = 1.5, volume: Float = 1, occlusion: Float = 0,
+                             throughRateNode: Bool = false) throws -> Float
+    {
+        try render(volume: volume, occlusion: occlusion,
+                   position: AVAudio3DPoint(x: 0, y: 0, z: -distance),
+                   throughRateNode: throughRateNode).peak
     }
 
     /// `AVAudioMixing.volume` does reach an environment node's input, and zero is silence in every
@@ -383,6 +407,35 @@ import allonet2
         #expect(audible > 0.1)
         let silenced = try settledPeak(volume: 0, throughRateNode: true)
         #expect(silenced <= audible * silenceFloor, "a silenced source rendered at \(silenced), against \(audible)")
+    }
+
+    /// The rate node is what feeds the environment node's input bus, but `position` and
+    /// `renderingAlgorithm` are set on the source node behind it - `AVAudioUnitVarispeed` does not
+    /// conform to `AVAudio3DMixing`, so there is nowhere else to set them. The engine resolves a
+    /// chain's mixing properties to the mixer it ends at; measured, the panning is identical with
+    /// the rate node and without it, and losing it would be silent - voices would simply stop
+    /// coming from where the speaker is.
+    @Test func positionStillPansThroughTheRateNode() throws
+    {
+        var chains: [(left: Rendered, right: Rendered)] = []
+        for throughRateNode in [false, true]
+        {
+            let left = try render(position: AVAudio3DPoint(x: -1, y: 0, z: 0), throughRateNode: throughRateNode)
+            let right = try render(position: AVAudio3DPoint(x: 1, y: 0, z: 0), throughRateNode: throughRateNode)
+
+            #expect(left.left > left.right * 2, "a source on the left has to reach the left ear louder")
+            #expect(right.right > right.left * 2)
+            chains.append((left, right))
+        }
+
+        // Chain against chain rather than ear against ear: an HRTF is measured on a head, and this
+        // one is not mirror-symmetric - 9.1 dB of separation on the left, 8.1 dB on the right.
+        let (plain, rated) = (chains[0], chains[1])
+        for (without, with) in [(plain.left, rated.left), (plain.right, rated.right)]
+        {
+            #expect(abs(without.left - with.left) <= without.left * 1e-5, "the rate node moved the left ear")
+            #expect(abs(without.right - with.right) <= without.right * 1e-5, "the rate node moved the right ear")
+        }
     }
 
     /// Occlusion is a lowpass plus a little attenuation, and clamps at -100 dB: even at the value
