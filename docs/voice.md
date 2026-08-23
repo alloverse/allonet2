@@ -58,7 +58,7 @@ Nine-byte header, big-endian, then the codec payload:
 
 ## Pipeline
 
-    capture -> encode -> frame -> channel -> [place: copy bytes] -> channel -> jitter buffer -> decode -> ring buffer -> device
+    capture -> encode -> frame -> channel -> [place: copy bytes] -> channel -> jitter buffer -> decode -> ring buffer -> VoiceEngine source node -> environment node -> device
 
 `DataChannelMediaStream` is the stream in all three roles: a sender encodes and writes, the
 place routes, a receiver buffers and decodes. `DataChannelForwarder` is the entire server-side
@@ -112,12 +112,10 @@ channel are a trust boundary and both are bounded:
 
 ## Known limitations
 
-- **Echo cancellation does not cover our own playout.** Capture uses Apple's voice processor
-  (echo cancellation, gain control, noise suppression), but it only cancels audio that its
-  own `AVAudioEngine` rendered, and playout runs on a separate engine - in KojaApp, through
-  RealityKit spatial audio. On speakers, a listener's playout can feed back into their
-  microphone uncancelled. The fix is at the app's audio-graph level: route voice playout
-  through the capture engine, or keep the two graphs and accept headphones.
+- **The microphone indicator stays on while muted.** Muting sets
+  `isVoiceProcessingInputMuted` rather than stopping capture, so the voice processor keeps
+  rendering the reference playout needs for echo cancellation. The OS therefore reports the
+  microphone as in use, as it does in FaceTime.
 - **Apple platforms other than macOS need libdatachannel slices.** `datachannel.xcframework`
   ships `macos-arm64` and `linux-x86_64`. iOS or visionOS clients need their slices added in
   AlloDataChannel's `Scripts/build-libdatachannel.sh` first.
