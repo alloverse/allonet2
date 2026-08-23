@@ -393,15 +393,24 @@ public final class VoiceEngine
     /// Each stream decides its own playout rate from how much it has buffered; this hands the
     /// latest one to its rate node. An AU parameter set is safe off the render thread, and the
     /// controller slews far too slowly for 50 ms to be coarse.
+    ///
+    /// Cancellation returns rather than falling through to one last pass: by then `stop` has
+    /// detached the nodes this would write to, and a replacement ticker may already be running.
     private func startRateTicker()
     {
         guard rateTicker == nil else { return }
         rateTicker = Task { [weak self] in
-            while !Task.isCancelled
+            while true
             {
-                try? await Task.sleep(nanoseconds: 50_000_000)
+                do { try await Task.sleep(nanoseconds: 50_000_000) }
+                catch is CancellationError { return }   // the only way out, and not a failure
+                catch
+                {
+                    self?.logger.error("Playout rate steering stopped: \(error)")
+                    return
+                }
                 guard let self else { return }
-                for source in self.sources.values where source.rateNode.rate != source.stream.playoutRate
+                for source in sources.values where source.rateNode.rate != source.stream.playoutRate
                 {
                     source.rateNode.rate = source.stream.playoutRate
                 }
