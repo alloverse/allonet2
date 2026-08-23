@@ -161,7 +161,8 @@ public final class VoiceEngine
     }
 
     /// Open the microphone and send every 20 ms frame on `stream`, until `stopCapture()`.
-    /// Throws if the input device has no channels or the engine will not start.
+    /// Throws if the input device has no channels or the engine will not start; playout that
+    /// was already running keeps running either way.
     public func startCapture(sending stream: DataChannelMediaStream) throws
     {
         guard !isCapturing else { return }
@@ -170,6 +171,31 @@ public final class VoiceEngine
         let input = engine.inputNode   // first touch: this is what prompts for microphone access
         guard input.outputFormat(forBus: 0).channelCount > 0 else { throw Failure.noInputChannels }
 
+        let hadPlayout = engine.isRunning
+        do
+        {
+            try configureCapture(on: input, sending: stream)
+            try start()
+        }
+        catch
+        {
+            input.removeTap(onBus: 0)
+            captureStream = nil
+            converter = nil
+            // Enabling voice processing stopped the engine everyone else is playing through.
+            if hadPlayout, !engine.isRunning
+            {
+                do { try start() }
+                catch let restartError { logger.error("Playout stopped with the failed capture: \(restartError)") }
+            }
+            throw error
+        }
+        isCapturing = true
+        applyMute()
+    }
+
+    private func configureCapture(on input: AVAudioInputNode, sending stream: DataChannelMediaStream) throws
+    {
         // Voice processing can only be toggled on a stopped engine, and it re-creates the
         // input format - so a listener who starts speaking restarts the graph once.
         if voiceProcessing, !voiceProcessingEnabled
@@ -192,7 +218,7 @@ public final class VoiceEngine
                 throw Failure.cannotConvert(from: inputFormat, to: voiceFormat)
             }
             // Discrete channel layout has no downmix rule; without a map the converter emits
-            // silence. See docs/voice-implementation.md, Capture.
+            // silence. See docs/voice-implementation.md, One engine.
             if inputFormat.channelCount != voiceFormat.channelCount { converter.channelMap = [0] }
             self.converter = converter
         }
@@ -208,16 +234,6 @@ public final class VoiceEngine
             let capturedAt = Date()   // the hop to the main actor below is not part of capture
             Task { @MainActor in self.accept(buffer, capturedAt: capturedAt) }
         }
-
-        do { try start() }
-        catch
-        {
-            input.removeTap(onBus: 0)
-            captureStream = nil
-            throw error
-        }
-        isCapturing = true
-        applyMute()
     }
 
     public func stopCapture()
