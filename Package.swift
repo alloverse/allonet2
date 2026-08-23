@@ -11,7 +11,8 @@ import PackageDescription
 // because a target referencing an Apple-only dependency breaks the *manifest* on Linux -
 // even when only the server product is being built.
 let applePlatformTargets: [Target] = [
-    .target(name: "AlloAudio", dependencies: ["allonet2"]),
+    // AlloOpus so VoiceEngine can install the codec itself; nobody else has to remember to.
+    .target(name: "AlloAudio", dependencies: ["allonet2", "AlloOpus"]),
     // Was the googlewebrtc client transport; now the user-facing client on top of the same
     // libdatachannel transport the server uses. Apple-only for its audio, not its network.
     .target(name: "alloclient", dependencies: [
