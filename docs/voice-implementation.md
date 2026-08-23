@@ -43,6 +43,37 @@ drift against the device and eventually underrun or overflow.
   playout starts again is as old as the pause: up to `maximumDepth * 2` frames the listener
   already missed, played before anything current, leaving the playhead behind the sender for
   the rest of the stream. Regression test: `replayDoesNotStartOnFramesBufferedBeforeTheStop`.
+- **Overflow moves the playhead.** A stalled consumer drops the oldest frames, including the one
+  the playhead named; leaving it put concealed its way across every dropped slot, and past 25 of
+  them the concealment limit re-primed and threw away what was still there. Test:
+  `overflowMovesThePlayheadToTheOldestRetainedFrame`.
+
+### Depth shrinks by playing faster
+
+A buffer that primes deep stays deep - measured, that was most of the 74-91 ms - because nothing
+ever spent the surplus. This does.
+
+- **One accounted depth.** `jitterBuffer.depth + ring.availableToRead() / 960` frames, against
+  `jitterBuffer.targetDepth`. The ring cushion is *inside* that target, not on top of it: the
+  pump now waits rather than concealing while the ring still holds a frame, so ring samples buy
+  the same tolerance a buffered frame does. Counting them separately would have asked for
+  `targetDepth + 2` frames of queue - deeper than the buffer this replaced.
+- **`PlayoutRateController`** turns the error into a rate: 0.02 per frame of error, clamped to
+  +/-2 %, slewed at most 0.01 per 100 ms, with a half-frame deadband. The slew is what keeps it
+  from chasing the sawtooth of a pump that refills in whole frames; measured on loopback the rate
+  never left +/-0.1 %. All four are tunables, not magic.
+- **The pump conceals only on an imminent underrun.** It asks `wouldConceal` first and waits a
+  tick if the ring still holds a frame, so a late arrival plays in its own slot instead of being
+  written off and then dropped as `late`.
+- **The rate node is `AVAudioUnitVarispeed`, not `AVAudioUnitTimePitch`.** The pitch-preserving
+  one reports **85 ms** of latency on macOS 26.5.2 at every `overlap` setting (4096 samples at
+  48 kHz); varispeed reports 1.0 ms. Eighty-five milliseconds is more queue than this whole
+  change reclaims, and a capture-to-render measurement would not have shown it, because the
+  measurement stops in the source node's render block - upstream of the unit. That is why
+  `VoiceEngine.outputLatency` now reports `outputPresentationLatency` for the whole graph
+  downstream of the render block rather than the output device alone. The cost of varispeed is
+  that a correcting stream is up to 34 cents off pitch; a pitch-preserving stretch that fits the
+  latency budget would have to be written by hand (WSOLA in the pump), which is a card of its own.
 
 ## Stream lifetime
 
@@ -189,12 +220,35 @@ Not a controlled comparison - a run primes at whatever depth its first arrivals 
 that is where most of the number lives - but routing playout through the environment node cost
 no latency.
 
-Capture-to-render, same wall clock; the output device adds 1.3 ms on top
-(`outputNode.presentationLatency`). An earlier run sat at 250 ms in both directions for
-minutes with zero underruns: the jitter buffer primes at whatever depth the first bursty
-arrivals suggest and **never shrinks**, so prime-time backlog becomes permanent latency. The
-jitter buffer and the ring buffer account for nearly all of the number; the network and the
-codec are a few ms. Reproduce with `VOICEDEMO_LATENCY_LOG` and `Scripts/voice-latency.sh`.
+2026-08-23, rate-steered depth, on a Mac mini (M1) running macOS 26.5.2. Two 90 s runs back to
+back on the same machine, same tree, tone mode, place and demos on loopback:
+
+| | receiver A | receiver B |
+|---|---|---|
+| before, p50 / p95 | 78 / 87 ms | 77 / 87 ms |
+| after, p50 / p95 | **58 / 68 ms** | **57 / 69 ms** |
+| before, jitter / ring | 0-1 frames / 47-74 ms | 0-1 frames / 48-79 ms |
+| after, depth vs target | 1.5-3.7 / 3 frames | 1.8-3.6 / 3 frames |
+| after, playout rate | 0.999-1.001 | 0.999-1.001 |
+| after, late / concealed | 0 / 0 | 0 / 0 |
+
+Twenty milliseconds, and the startup concealment is gone with it. The run needed almost no
+correction - loopback barely drifts - so most of that came from the cushion and from no longer
+concealing over the ring; the controller is what stops it drifting back, and what a run that
+primes deep needs. `aBufferThatPrimedTooDeepShrinksToTargetWithoutDropping` is that case on a
+simulated clock: six frames too deep, converged, nothing dropped.
+
+The next 20 ms on the table is `targetDepth`: it rounds the jitter estimate *up* to a whole
+frame, so a fraction of a millisecond of measured jitter costs a full 20 ms of queue. On this
+loopback run that alone is the difference between a target of 2 frames and the 3 it used.
+
+Capture-to-render, same wall clock; the graph downstream of the render block adds 2.3 ms on top
+(`VoiceEngine.outputLatency`: 1.0 ms of rate node, 1.3 ms of device). An earlier run sat at
+250 ms in both directions for minutes with zero underruns: the jitter buffer primed at whatever
+depth the first bursty arrivals suggested and **never shrank**, so prime-time backlog became
+permanent latency - which is what the rate controller now spends. The jitter buffer and the ring
+buffer still account for nearly all of the number; the network and the codec are a few ms.
+Reproduce with `VOICEDEMO_LATENCY_LOG` and `Scripts/voice-latency.sh`.
 
 Earlier the same day, by ear through speakers with a real microphone: voice round-trips, zero
 `late` frames either way, no howling with mic and speakers far apart.
