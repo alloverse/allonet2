@@ -144,13 +144,22 @@ public final class JitterBuffer: @unchecked Sendable
         frames[frame.sequence] = frame
 
         // Consumer not draining: drop the oldest rather than grow without bound.
+        var dropped = false
         while frames.count > configuration.maximumDepth * 2, let oldest = frames.keys.min(by: { $1.isNewerSequence(than: $0) })
         {
             frames.removeValue(forKey: oldest)
             counters.update { $0.overflowed += 1 }
-            // The playhead named the frame just dropped; leaving it there would conceal its way
-            // across every dropped slot before reaching audio that is still buffered.
-            if playhead == oldest { playhead = frames.keys.min(by: { $1.isNewerSequence(than: $0) }) }
+            dropped = true
+        }
+        // Playout cannot be left behind what survived. Matching the playhead against each frame
+        // dropped is not enough: the frame it names may itself be one that never arrived, so it
+        // matches nothing, and resuming then conceals a slot per tick until the concealment limit
+        // throws away every frame that was still good.
+        if dropped, let current = playhead,
+           let oldestRetained = frames.keys.min(by: { $1.isNewerSequence(than: $0) }),
+           oldestRetained.isNewerSequence(than: current)
+        {
+            playhead = oldestRetained
         }
     }
 

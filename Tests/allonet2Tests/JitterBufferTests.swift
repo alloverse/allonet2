@@ -185,6 +185,31 @@ struct JitterBufferTests
         #expect(counters.snapshot.concealed == 0)
     }
 
+    /// The playhead can name a frame that never arrived. Then it matches nothing that overflow
+    /// drops, so it stays behind every frame still buffered - and resuming conceals a slot per
+    /// tick until the concealment limit throws all of that good audio away.
+    @Test func overflowCatchesThePlayheadUpEvenWhenItsOwnFrameWasLost()
+    {
+        let counters = VoiceCountersBox()
+        let buffer = Self.makeBuffer(counters: counters)
+        buffer.insert(Self.frame(0), arrival: Self.arrival(0))
+        buffer.insert(Self.frame(2), arrival: Self.arrival(2))
+        #expect(buffer.nextStep(codecSupportsFEC: false) == .decode(Self.frame(0)))
+        // Frame 1 never arrives, so the playhead names a gap rather than a frame.
+
+        let cap = buffer.configuration.maximumDepth * 2
+        for sequence in UInt32(3)...UInt32(cap + 25)
+        {
+            buffer.insert(Self.frame(sequence), arrival: Self.arrival(sequence))
+        }
+        #expect(counters.snapshot.overflowed > 0)
+        #expect(buffer.depth == cap)
+
+        let oldestRetained = UInt32(cap + 25) - UInt32(cap) + 1
+        #expect(buffer.nextStep(codecSupportsFEC: false) == .decode(Self.frame(oldestRetained)))
+        #expect(counters.snapshot.concealed == 0, "playout concealed its way towards audio that was already here")
+    }
+
     @Test func growsTheTargetDepthWithObservedJitter()
     {
         let buffer = Self.makeBuffer()
