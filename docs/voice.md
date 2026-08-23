@@ -92,6 +92,7 @@ frame ends up exactly one of `decoded`, `late`, `duplicate`, `malformed`, `overf
 still buffered; every 20 ms of playout is exactly one of `decoded`, `fecRecovered` or
 `concealed`. `late` means the network was slower than the buffer depth; `overflowed` means
 nothing is draining playout. They call for opposite fixes, so they are never merged.
+The place status page renders them read-only, per available stream and per active forwarding.
 
 ## Codec
 
