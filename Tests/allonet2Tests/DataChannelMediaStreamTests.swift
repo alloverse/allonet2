@@ -276,6 +276,59 @@ struct DataChannelMediaStreamTests
         #expect(stream.counters.snapshot.concealed == 1)
     }
 
+    /// The whole thesis, on a simulated clock: a stream that primed far too deep gives the depth
+    /// back by playing slightly faster, and loses nothing on the way. The ring is drained at
+    /// `playoutRate` here because that is what the rate node in front of the spatialiser does.
+    @Test func aBufferThatPrimedTooDeepShrinksToTargetWithoutDropping()
+    {
+        let frameCount = DataChannelMediaStream.frameDuration
+        let tick = 0.01
+        let clock = Clock()
+        let stream = DataChannelMediaStream(mediaId: "voice-mic", direction: .recvonly,
+                                            monotonicNow: { clock.now }) { _ in true }
+        let ring = AudioRingBuffer(channels: 1, capacityFrames: Int(DataChannelMediaStream.sampleRate), canceller: {})
+        let decoder = RawPCMVoiceCodec()
+        let payload = Data(count: frameCount * MemoryLayout<Float>.size)
+
+        // Ten frames arrive back to back before playout starts: the burst the jitter buffer used
+        // to prime on and then keep forever.
+        var nextSequence: UInt32 = 0
+        func arrive()
+        {
+            // Arrival derived from the timestamp, so transit is exactly constant and the jitter
+            // estimate stays at zero: this test is about depth, not about jitter.
+            let timestamp = nextSequence &* UInt32(frameCount)
+            stream.jitterBuffer.insert(VoiceFrame(kind: .pcmFloat32, sequence: nextSequence,
+                                                  timestamp: timestamp, payload: payload),
+                                       arrival: Double(timestamp) / DataChannelMediaStream.sampleRate)
+            nextSequence += 1
+        }
+        for _ in 0..<10 { arrive() }
+        clock.now = Double(nextSequence &* UInt32(frameCount)) / DataChannelMediaStream.sampleRate
+
+        var scratch = [Float](repeating: 0, count: frameCount)
+        var owed = 0.0
+        for step in 0..<3000   // 30 s
+        {
+            stream.refill(ring, using: decoder)
+            // The device, sped up or slowed down by the rate node.
+            owed += tick * DataChannelMediaStream.sampleRate * Double(stream.playoutRate)
+            let drain = min(Int(owed), ring.availableToRead())
+            owed -= Double(Int(owed))
+            scratch.withUnsafeMutableBufferPointer { _ = ring.read(into: [$0.baseAddress!], frames: min(drain, frameCount)) }
+            if step.isMultiple(of: 2) { arrive() }
+            clock.now += tick
+        }
+
+        #expect(stream.targetFrames == 2)
+        #expect(abs(stream.bufferedFrames - stream.targetFrames) <= 2, "\(stream.bufferedFrames) frames buffered against a target of \(stream.targetFrames)")
+        let counters = stream.counters.snapshot
+        #expect(counters.rateAdjusted > 0, "the controller has to have asked for a rate to have done anything")
+        #expect(counters.late == 0)
+        #expect(counters.overflowed == 0)
+        #expect(counters.concealed == 0, "catching up by playing faster costs no audio")
+    }
+
     /// The RTP path is gone, so a stream that isn't a data channel is a caller error and has to
     /// name itself; silently returning no forwarder would leave a listener waiting for audio.
     @MainActor
@@ -375,5 +428,17 @@ private final class GatedClock: @unchecked Sendable
         lock.unlock()
         if hold { gate.hold() }
         return arrival
+    }
+}
+
+/// A clock a test moves by hand, so the pump's dt and the jitter estimate are not the host's.
+private final class Clock: @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var value: Double = 0
+    var now: Double
+    {
+        get { lock.lock(); defer { lock.unlock() }; return value }
+        set { lock.lock(); value = newValue; lock.unlock() }
     }
 }
