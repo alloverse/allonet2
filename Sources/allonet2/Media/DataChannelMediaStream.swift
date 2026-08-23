@@ -73,7 +73,7 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     /// a receiver learns that a stream has ended.
     public func close()
     {
-        stopPump()
+        stopPlayout()
         closeChannel()
     }
 
@@ -192,14 +192,16 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
 
     // MARK: - Playout
 
-    /// The seam the rest of the app already renders from. Starts decoding on first call.
+    /// The seam the rest of the app already renders from. Starts decoding on first call, and
+    /// again after the ring it handed out was cancelled: a stream can be played, stopped and
+    /// played again.
     public func render() -> AudioRingBuffer
     {
         lock.lock(); defer { lock.unlock() }
         if let ringBuffer { return ringBuffer }
 
         let ring = AudioRingBuffer(channels: 1, capacityFrames: Int(Self.sampleRate), canceller: { [weak self] in
-            self?.stopPump()
+            self?.stopPlayout()
         })
         ringBuffer = ring
         startPump(filling: ring)
@@ -237,11 +239,14 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         timer.resume()
     }
 
-    private func stopPump()
+    /// Stop decoding and let go of the ring, so `render()` builds a new one rather than handing
+    /// out the dead one. Arrived-at by cancelling the ring, which is how a player stops playout.
+    private func stopPlayout()
     {
         lock.lock(); defer { lock.unlock() }
         pump?.cancel()
         pump = nil
+        ringBuffer = nil
     }
 
     private func refill(_ ring: AudioRingBuffer, using decoder: any VoiceDecoder)

@@ -15,6 +15,59 @@ struct DataChannelMediaStreamTests
         DataChannelMediaStream(mediaId: "voice-mic", direction: .recvonly) { _ in true }
     }
 
+    /// Uncompressed frames, so what comes out of the ring is what went in.
+    private func deliver(_ count: Int, from first: UInt32, to stream: DataChannelMediaStream)
+    {
+        let frameDuration = DataChannelMediaStream.frameDuration
+        for sequence in first..<(first + UInt32(count))
+        {
+            let samples = [Float](repeating: Float(sequence), count: frameDuration)
+            let payload = samples.withUnsafeBytes { Data($0) }
+            stream.deliver(VoiceFrame(kind: .pcmFloat32,
+                                      sequence: sequence,
+                                      timestamp: sequence &* UInt32(frameDuration),
+                                      payload: payload).encoded)
+        }
+    }
+
+    /// The pump decodes on its own queue every 10 ms, so poll rather than sleep a fixed time.
+    private func audioArrives(in ring: AudioRingBuffer, timeout: TimeInterval = 5) async throws -> Bool
+    {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline
+        {
+            if ring.availableToRead() >= DataChannelMediaStream.frameDuration { return true }
+            try await Task.sleep(nanoseconds: 5_000_000)
+        }
+        return false
+    }
+
+    /// A player stops playout by cancelling the ring, which stops the decode pump. Playing the
+    /// same stream again handed back that dead ring, and nothing ever filled it.
+    @Test func playsAgainAfterItsRingWasCancelled() async throws
+    {
+        VoiceCodecs.makeDecoder = { RawPCMVoiceCodec() }
+        let stream = receiver()
+
+        let ring = stream.render()
+        deliver(5, from: 0, to: stream)
+        #expect(try await audioArrives(in: ring))
+
+        ring.cancel()
+
+        let restarted = stream.render()
+        #expect(restarted !== ring)
+
+        // Drain what is buffered, so what arrives next can only come from a running pump.
+        var sink = [Float](repeating: 0, count: DataChannelMediaStream.frameDuration)
+        while restarted.availableToRead() > 0
+        {
+            sink.withUnsafeMutableBufferPointer { _ = restarted.read(into: [$0.baseAddress!], frames: $0.count) }
+        }
+        deliver(5, from: 5, to: stream)
+        #expect(try await audioArrives(in: restarted), "playing the stream a second time is silent")
+    }
+
     @Test func rejectsOversizedMessagesBeforeFanningThemOut()
     {
         let stream = receiver()
