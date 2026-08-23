@@ -306,7 +306,8 @@ import allonet2
 
     /// Loudest sample of a 1 kHz tone through one spatialised source, configured the way playout
     /// configures its own, and ignoring the blocks where a changed gain is still ramping.
-    private func settledPeak(distance: Float = 1.5, volume: Float = 1, occlusion: Float = 0) throws -> Float
+    private func settledPeak(distance: Float = 1.5, volume: Float = 1, occlusion: Float = 0,
+                             throughRateNode: Bool = false) throws -> Float
     {
         let mono = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48000, channels: 1, interleaved: false)!
         let engine = AVAudioEngine()
@@ -326,7 +327,17 @@ import allonet2
             return noErr
         }
         engine.attach(source)
-        engine.connect(source, to: environment, fromBus: 0, toBus: environment.nextAvailableInputBus, format: mono)
+        if throughRateNode
+        {
+            let rateNode = AVAudioUnitVarispeed()
+            engine.attach(rateNode)
+            engine.connect(source, to: rateNode, format: mono)
+            engine.connect(rateNode, to: environment, fromBus: 0, toBus: environment.nextAvailableInputBus, format: mono)
+        }
+        else
+        {
+            engine.connect(source, to: environment, fromBus: 0, toBus: environment.nextAvailableInputBus, format: mono)
+        }
         source.renderingAlgorithm = VoiceEngine.renderingAlgorithm
         source.position = AVAudio3DPoint(x: 0, y: 0, z: -distance)
         source.volume = volume
@@ -360,6 +371,17 @@ import allonet2
         let audible = try settledPeak(volume: 1)
         #expect(audible > 0.1, "the tone has to be there for silence to mean anything")
         let silenced = try settledPeak(volume: 0)
+        #expect(silenced <= audible * silenceFloor, "a silenced source rendered at \(silenced), against \(audible)")
+    }
+
+    /// Playout puts a rate node between the source and the environment node, and the mixing
+    /// properties are set on the source - the head of the chain, not the node the mixer sees.
+    /// If that stopped carrying them, distant voices would come back without a sound to say so.
+    @Test func volumeStillSilencesThroughTheRateNode() throws
+    {
+        let audible = try settledPeak(volume: 1, throughRateNode: true)
+        #expect(audible > 0.1)
+        let silenced = try settledPeak(volume: 0, throughRateNode: true)
         #expect(silenced <= audible * silenceFloor, "a silenced source rendered at \(silenced), against \(audible)")
     }
 
