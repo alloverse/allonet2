@@ -106,6 +106,9 @@ public final class VoiceEngine
         guard !engine.isRunning else { return }
         do { try engine.start() }
         catch { throw Failure.engineFailed(underlying: error) }
+        // A mono output channel count means the spatialiser was flattened downstream, which is
+        // the one thing about this graph you cannot hear your way to.
+        logger.info("Engine running: environment out \(environment.outputFormat(forBus: 0)), device out \(engine.outputNode.outputFormat(forBus: 0))")
     }
 
     private func stopIfIdle()
