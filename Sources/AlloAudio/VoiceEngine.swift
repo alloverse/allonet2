@@ -409,24 +409,50 @@ public final class VoiceEngine
         distance < (wasAudible ? maxDistance : maxDistance * 0.98)
     }
 
+    /// The occlusion at which a source is silenced outright rather than muffled. The raycast
+    /// only ever answers "clear" or "blocked", but the parameter is a dB scale, so the threshold
+    /// is a value rather than a flag.
+    public static let blockedOcclusion: Float = -100
+
+    /// Whether a source at this range and this much occlusion is heard at all, as a node volume.
+    ///
+    /// Two independent reasons to fall silent, neither able to clobber the other: out of range
+    /// (`isAudible`) and blocked by geometry. The environment node's own occlusion is mostly a
+    /// lowpass - at -100 dB it still passes about -25 dB of signal - so a wall would otherwise
+    /// muffle voices rather than block them.
+    public nonisolated static func volume(audible: Bool, occlusion: Float) -> Float
+    {
+        audible && occlusion > blockedOcclusion ? 1 : 0
+    }
+
     /// Silence `mediaId`, or let it be heard again, without tearing the source down.
     public func setAudible(_ audible: Bool, for mediaId: String)
     {
         guard let source = sources[mediaId], source.audible != audible else { return }
         sources[mediaId]!.audible = audible
-        source.node.volume = audible ? 1 : 0
+        applyVolume(to: mediaId)
+    }
+
+    private func applyVolume(to mediaId: String)
+    {
+        guard let source = sources[mediaId] else { return }
+        source.node.volume = Self.volume(audible: source.audible, occlusion: source.occlusion)
     }
 
     /// Whether `mediaId` is currently heard. Unknown streams are not.
     public func isAudible(_ mediaId: String) -> Bool { sources[mediaId]?.audible ?? false }
 
     /// Attenuation from something between the source and the listener, in dB (0 clear,
-    /// -100 fully blocked). The raycast that decides this belongs to the caller.
+    /// `blockedOcclusion` fully blocked). The raycast that decides this belongs to the caller.
+    ///
+    /// Anything between the two muffles through the environment node's occlusion filter;
+    /// `blockedOcclusion` itself also silences, because that filter alone does not.
     public func setOcclusion(_ dB: Float, for mediaId: String)
     {
         guard let source = sources[mediaId], source.occlusion != dB else { return }
         sources[mediaId]!.occlusion = dB
         source.node.occlusion = dB
+        applyVolume(to: mediaId)
     }
 
     /// Distance attenuation, shared by every source. Defaults to referenceDistance 1.5 m,

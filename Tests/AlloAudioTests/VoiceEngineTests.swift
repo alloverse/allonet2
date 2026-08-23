@@ -120,6 +120,21 @@ import allonet2
         #expect(VoiceEngine.isAudible(distance: 9.7, maxDistance: 10, wasAudible: false))
     }
 
+    /// A wall used to take a voice to -inf; the environment node's occlusion filter only takes it
+    /// to about -25 dB, which across a place is still an audible conversation through a wall.
+    @Test func occludedSourcesAreSilencedRatherThanMuffled()
+    {
+        #expect(VoiceEngine.volume(audible: true, occlusion: 0) == 1)
+        #expect(VoiceEngine.volume(audible: true, occlusion: VoiceEngine.blockedOcclusion) == 0)
+
+        // Partial occlusion still muffles through the filter rather than cutting out.
+        #expect(VoiceEngine.volume(audible: true, occlusion: -40) == 1)
+
+        // Range and geometry silence independently; neither answer overrides the other.
+        #expect(VoiceEngine.volume(audible: false, occlusion: 0) == 0)
+        #expect(VoiceEngine.volume(audible: false, occlusion: VoiceEngine.blockedOcclusion) == 0)
+    }
+
     /// A removed tap's buffers are still queued as hops to this actor; by the time they run,
     /// capture may have restarted on a different stream, which must not be sent that audio.
     @Test func dropsAudioCapturedByAReplacedTap() throws
