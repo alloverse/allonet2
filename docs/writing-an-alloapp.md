@@ -8,14 +8,13 @@ everything below; Koja's own domain server is a (much larger) alloapp too.
 
 ## Skeleton
 
-An SPM executable depending on this package's `alloheadless` product:
+An SPM executable depending on this package's `allonet2` product:
 
 ```swift
 // Package.swift:
 //   .package(url: "https://github.com/alloverse/allonet2", branch: "main")
-//   .product(name: "alloheadless", package: "allonet2")
+//   .product(name: "allonet2", package: "allonet2")
 import allonet2
-import alloheadless
 
 let identity = Identity(expectation: .app, displayName: "StatusLight",
                         emailAddress: "", authenticationToken: appToken)
@@ -88,7 +87,7 @@ client.responders["custom"] = { request async -> Interaction in
 
 ## Deploying
 
-Linux is a first-class target for alloapps: `alloheadless` rides libdatachannel, and this
+Linux is a first-class target for alloapps: the transport rides libdatachannel, and this
 repo's `Dockerfile` is a working Linux build recipe to crib from (the CI builds amd64 +
 arm64). The process only needs outbound reachability to the place's HTTP port and UDP —
 no inbound ports, so any VM or container host works.

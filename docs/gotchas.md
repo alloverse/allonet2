@@ -52,8 +52,6 @@ Hard-won non-obvious facts. Fold a new one in here when it doesn't fit a topic d
   `onMain` before touching anything. The one deliberate exception is the incoming-data path:
   `didReceiveData` is `nonisolated` so decoding can't queue behind the main thread, and it reads
   `dataDelegate` rather than the isolated `delegate`.
-- `DataChannelTransport` implements media forwarding; `UIWebRTCTransport` throws fatalError
-  (a client doesn't forward).
 
 ## Process lifetime
 

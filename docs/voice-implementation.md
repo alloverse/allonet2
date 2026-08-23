@@ -9,7 +9,7 @@ offer/answer round trip per stream per receiver, serialised through the place. A
 removing a data channel in-band costs nothing on the signalling path, so `DataChannelForwarder`
 never calls `scheduleRenegotiation()`; the E2E tests assert the renegotiation counter stays
 at zero through connect, stream open, forwarding and listener churn. `PlaceServerSFU` is
-unchanged: it still reconciles desired/available/active streams; only `Transport.forward()`
+unchanged: it still reconciles desired/available/active streams; only `forward()`
 behaves differently underneath it.
 
 The second reason was getting googlewebrtc out of the client. Voice was the last thing using
