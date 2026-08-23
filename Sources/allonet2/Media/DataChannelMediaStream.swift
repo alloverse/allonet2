@@ -228,9 +228,11 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     /// to it, which can be after playout has been restarted on a new one.
     private var playoutGeneration = 0
 
-    /// Decoded audio kept queued ahead of the device; refilling to a level self-clocks.
-    /// See docs/voice-implementation.md, Playout is self-clocking.
-    private static let targetBufferedFrames = frameDuration * 3
+    /// Decoded audio kept queued ahead of the device, in frames: refilling to a level
+    /// self-clocks, and now that the pump waits rather than concealing over it, it is jitter
+    /// tolerance too. See docs/voice-implementation.md, Playout is self-clocking.
+    public static let ringCushionFrames = 2
+    private static let ringCushionSamples = frameDuration * ringCushionFrames
 
     private func startPump(filling ring: AudioRingBuffer, generation: Int)
     {
@@ -284,12 +286,13 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     ///   would go on taking frames the replacement pump is priming from, into a ring nobody reads.
     func refill(_ ring: AudioRingBuffer, using decoder: any VoiceDecoder, generation: Int? = nil)
     {
+        steerPlayoutRate(ring)
         let frameCount = Self.frameDuration
         // Read before the critical section below; nothing the decoder does belongs under the lock.
         let supportsFEC = decoder.supportsFEC
         var scratch = [Float](repeating: 0, count: frameCount)
 
-        while ring.availableToRead() < Self.targetBufferedFrames, ring.availableToWrite() >= frameCount
+        while ring.availableToRead() < Self.ringCushionSamples, ring.availableToWrite() >= frameCount
         {
             let ringCanCoverTheSlot = ring.availableToRead() >= frameCount
 
@@ -355,6 +358,51 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
                                               sequence: playedSequence).bits, ordering: .relaxed)
             }
         }
+    }
+
+    // MARK: - Depth
+
+    private let playoutRateBits = ManagedAtomic<UInt32>(Float(1).bitPattern)
+    private var rateController = PlayoutRateController()
+    private var lastRateUpdate: Double?
+
+    /// Everything queued for this stream, in 20 ms frames: the jitter buffer's frames plus the
+    /// ring buffer's samples. One number, because with the pump waiting instead of concealing
+    /// the two are one queue, and the whole queue is what absorbs jitter - and what is latency.
+    public var bufferedFrames: Float
+    {
+        lock.lock(); let ring = ringBuffer; lock.unlock()
+        return depth(with: ring)
+    }
+
+    /// The depth `bufferedFrames` is steered to: what observed jitter says playout needs
+    /// queued, wherever in the queue it happens to sit.
+    public var targetFrames: Float { Float(jitterBuffer.targetDepth) }
+
+    /// How fast playout should run to reach `targetFrames`: 1 is the sender's clock, 1.02 plays
+    /// 2 % fast. `VoiceEngine` feeds it to the rate node in front of the spatialiser. Lock-free,
+    /// so the caller applying it need not be on any particular thread.
+    public var playoutRate: Float { Float(bitPattern: playoutRateBits.load(ordering: .relaxed)) }
+
+    private func depth(with ring: AudioRingBuffer?) -> Float
+    {
+        Float(jitterBuffer.depth) + Float(ring?.availableToRead() ?? 0) / Float(Self.frameDuration)
+    }
+
+    /// Update the rate from the depth this tick sees. A stream that was stopped and played again
+    /// has a new pump while the old one may still have a tick in flight, so the controller is
+    /// locked rather than owned by one queue; the depths are read outside it.
+    private func steerPlayoutRate(_ ring: AudioRingBuffer)
+    {
+        let error = depth(with: ring) - targetFrames
+        let now = monotonicNow()
+        lock.lock()
+        let dt = lastRateUpdate.map { now - $0 } ?? 0
+        lastRateUpdate = now
+        let rate = rateController.update(error: error, dt: dt)
+        lock.unlock()
+        playoutRateBits.store(rate.bitPattern, ordering: .relaxed)
+        if rate != 1 { counters.update { $0.rateAdjusted += 1 } }
     }
 
     // MARK: - Latency

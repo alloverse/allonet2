@@ -189,7 +189,7 @@ struct DataChannelMediaStreamTests
         let preStop = VoiceFrame(kind: .pcmFloat32, sequence: 5, timestamp: 5 * 960,
                                  payload: [Float](repeating: 5, count: 960).withUnsafeBytes { Data($0) }).encoded
         let delivered = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async { stream.deliver(preStop); delivered.signal() }
+        DispatchQueue.global().async { clock.parkThisThread(); stream.deliver(preStop); delivered.signal() }
         #expect(clock.entered.wait(timeout: .now() + 5) == .success, "deliver never reached the clock")
 
         stopped.cancel()
@@ -346,8 +346,9 @@ private final class GatedPCMVoiceCodec: VoiceDecoder, @unchecked Sendable
     }
 }
 
-/// A monotonic clock whose first reading parks the caller: the seam that holds a frame in the
-/// gap between `deliver`'s receive check and its insert.
+/// A monotonic clock that parks one nominated thread's next reading: the seam that holds a frame
+/// in the gap between `deliver`'s receive check and its insert. The playout pump reads this clock
+/// too, to time its rate steering, so the thread has to be nominated or the pump takes the gate.
 private final class GatedClock: @unchecked Sendable
 {
     var entered: DispatchSemaphore { gate.entered }
@@ -356,12 +357,23 @@ private final class GatedClock: @unchecked Sendable
     private let gate = OneShotGate()
     private let lock = NSLock()
     private var seconds = 0.0
+    private var parked: Thread?
+
+    /// Park this thread's next reading. Call it on the thread that is about to deliver.
+    func parkThisThread()
+    {
+        lock.lock(); parked = Thread.current; lock.unlock()
+    }
 
     /// One frame duration per reading, so arrivals stay evenly spaced and the jitter estimate flat.
     func now() -> Double
     {
-        lock.lock(); seconds += 0.02; let arrival = seconds; lock.unlock()
-        gate.hold()
+        lock.lock()
+        seconds += 0.02
+        let arrival = seconds
+        let hold = parked === Thread.current
+        lock.unlock()
+        if hold { gate.hold() }
         return arrival
     }
 }

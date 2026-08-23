@@ -51,6 +51,9 @@ public struct VoiceCounters: Equatable, Sendable, Codable, CustomStringConvertib
     public var concealed = 0
     /// 20 ms blocks written into the playout ring buffer.
     public var played = 0
+    /// Pump ticks that asked playout for a rate other than 1, because buffered depth was away
+    /// from its target. Steady at zero once a stream has settled.
+    public var rateAdjusted = 0
 
     /// Loudest sample seen since the last reset, 0...1. Zero with frames flowing means the
     /// audio is silent: a muted or unpermitted microphone, or playout that never got samples.
@@ -71,6 +74,7 @@ public struct VoiceCounters: Equatable, Sendable, Codable, CustomStringConvertib
         add("overflowed", overflowed)
         add("dup", duplicate); add("reordered", reordered); add("decoded", decoded)
         add("fec", fecRecovered); add("concealed", concealed); add("played", played)
+        add("rateAdjusted", rateAdjusted)
         if capturedPeak > 0 { parts.append(String(format: "capPeak=%.2f", capturedPeak)) }
         if playedPeak > 0 { parts.append(String(format: "playPeak=%.2f", playedPeak)) }
         return parts.isEmpty ? "(none)" : parts.joined(separator: " ")
