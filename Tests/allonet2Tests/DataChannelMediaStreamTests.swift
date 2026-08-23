@@ -242,6 +242,40 @@ struct DataChannelMediaStreamTests
         #expect(seen.count == 1)
     }
 
+    /// Concealment is what an underrun sounds like, so playout must not spend it early: a jitter
+    /// buffer that runs dry while the ring still holds audio waits for the next tick instead.
+    @Test func concealsOnlyOnceTheRingCannotCoverTheSlot() throws
+    {
+        let frameCount = DataChannelMediaStream.frameDuration
+        let stream = receiver()
+        let ring = AudioRingBuffer(channels: 1, capacityFrames: Int(DataChannelMediaStream.sampleRate), canceller: {})
+        let decoder = RawPCMVoiceCodec()
+
+        // Exactly enough to prime, so one tick empties the jitter buffer into the ring.
+        for sequence in UInt32(0)..<2
+        {
+            let payload = Data(count: frameCount * MemoryLayout<Float>.size)
+            let frame = VoiceFrame(kind: .pcmFloat32, sequence: sequence, timestamp: sequence &* 960, payload: payload)
+            stream.jitterBuffer.insert(frame, arrival: Double(sequence) * 0.02)
+        }
+        stream.refill(ring, using: decoder)
+        #expect(stream.counters.snapshot.played == 2)
+        #expect(stream.jitterBuffer.depth == 0)
+
+        // One frame consumed: the ring is below its cushion, but still holds audio to play.
+        var scratch = [Float](repeating: 0, count: frameCount)
+        func drainOneFrame() { scratch.withUnsafeMutableBufferPointer { _ = ring.read(into: [$0.baseAddress!], frames: frameCount) } }
+        drainOneFrame()
+        stream.refill(ring, using: decoder)
+        #expect(stream.counters.snapshot.concealed == 0, "a slot the ring can still cover is not an underrun")
+
+        // Nothing left downstream either: now it really is one.
+        drainOneFrame()
+        #expect(ring.availableToRead() == 0)
+        stream.refill(ring, using: decoder)
+        #expect(stream.counters.snapshot.concealed == 1)
+    }
+
     /// The RTP path is gone, so a stream that isn't a data channel is a caller error and has to
     /// name itself; silently returning no forwarder would leave a listener waiting for audio.
     @MainActor

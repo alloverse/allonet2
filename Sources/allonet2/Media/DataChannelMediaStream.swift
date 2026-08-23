@@ -276,10 +276,13 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         jitterBuffer.reset()
     }
 
-    /// - Parameter generation: the playout this pump belongs to. `cancel()` does not drain the
-    ///   queue, so a tick already running when its pump was stopped would go on taking frames
-    ///   the replacement pump is priming from, into a ring nobody reads.
-    private func refill(_ ring: AudioRingBuffer, using decoder: any VoiceDecoder, generation: Int)
+    /// One pump tick: move whole frames from the jitter buffer into the ring until the ring is
+    /// back at its cushion. Internal so a test can step it without a timer.
+    ///
+    /// - Parameter generation: the playout this pump belongs to, or nil when no pump drives it.
+    ///   `cancel()` does not drain the queue, so a tick already running when its pump was stopped
+    ///   would go on taking frames the replacement pump is priming from, into a ring nobody reads.
+    func refill(_ ring: AudioRingBuffer, using decoder: any VoiceDecoder, generation: Int? = nil)
     {
         let frameCount = Self.frameDuration
         // Read before the critical section below; nothing the decoder does belongs under the lock.
@@ -288,10 +291,19 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
 
         while ring.availableToRead() < Self.targetBufferedFrames, ring.availableToWrite() >= frameCount
         {
+            let ringCanCoverTheSlot = ring.availableToRead() >= frameCount
+
             // One critical section: a check this tick could be suspended after is no check at
             // all, because the frame it then takes belongs to the playout that replaced it.
             lock.lock()
-            guard generation == playoutGeneration else { lock.unlock(); return }
+            if let generation, generation != playoutGeneration { lock.unlock(); return }
+            // Concealment is for an imminent underrun, not for a slot the ring can still cover:
+            // waiting a tick lets a merely late frame arrive and play in its own slot.
+            if ringCanCoverTheSlot, jitterBuffer.wouldConceal(codecSupportsFEC: supportsFEC)
+            {
+                lock.unlock()
+                return
+            }
             let step = jitterBuffer.nextStep(codecSupportsFEC: supportsFEC)
             lock.unlock()
 

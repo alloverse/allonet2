@@ -154,6 +154,17 @@ public final class JitterBuffer: @unchecked Sendable
         }
     }
 
+    /// Whether `nextStep` would conceal: the playhead's frame is missing and nothing carries
+    /// FEC for it. Playout asks first, so a gap that decoded audio already queued downstream can
+    /// still cover waits for the frame instead of spending the slot on concealment. Priming is
+    /// not concealment, so this is false until playout has started.
+    public func wouldConceal(codecSupportsFEC: Bool) -> Bool
+    {
+        lock.lock(); defer { lock.unlock() }
+        guard let current = playhead, frames[current] == nil else { return false }
+        return !(codecSupportsFEC && frames[current &+ 1] != nil)
+    }
+
     /// Decide what the next 20 ms of playout should be, and advance.
     public func nextStep(codecSupportsFEC: Bool) -> Step
     {
