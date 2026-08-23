@@ -147,6 +147,80 @@ import allonet2
     }
 }
 
+/// What `setAudible` rests on, rendered offline so it needs no audio device. Both facts cost a
+/// measurement to learn and neither is in the documentation: a source silenced the wrong way is
+/// still quietly audible across the place, and a peak taken too early says the opposite of the
+/// truth.
+@Suite struct EnvironmentNodeSilencingTests
+{
+    /// Loudest sample of a 1 kHz tone through one spatialised source, ignoring the blocks where
+    /// a changed gain is still ramping.
+    private func settledPeak(volume: Float = 1, occlusion: Float = 0) throws -> Float
+    {
+        let mono = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48000, channels: 1, interleaved: false)!
+        let engine = AVAudioEngine()
+        let environment = AVAudioEnvironmentNode()
+        engine.attach(environment)
+        engine.connect(environment, to: engine.mainMixerNode, format: nil)
+
+        var phase = 0.0
+        let step = 2 * Double.pi * 1000 / 48000
+        let source = AVAudioSourceNode(format: mono) { _, _, frameCount, audioBufferList in
+            for buffer in UnsafeMutableAudioBufferListPointer(audioBufferList)
+            {
+                let samples = buffer.mData!.assumingMemoryBound(to: Float.self)
+                for i in 0..<Int(frameCount) { samples[i] = Float(sin(phase)) * 0.5; phase += step }
+            }
+            return noErr
+        }
+        engine.attach(source)
+        engine.connect(source, to: environment, fromBus: 0, toBus: environment.nextAvailableInputBus, format: mono)
+        source.renderingAlgorithm = .auto
+        source.position = AVAudio3DPoint(x: 0, y: 0, z: -1.5)
+        source.volume = volume
+        source.occlusion = occlusion
+
+        let stereo = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48000, channels: 2, interleaved: false)!
+        try engine.enableManualRenderingMode(.offline, format: stereo, maximumFrameCount: 4096)
+        try engine.start()
+        defer { engine.stop() }
+
+        let output = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: 4096)!
+        var peak: Float = 0
+        for block in 0..<8
+        {
+            _ = try engine.renderOffline(4096, to: output)
+            guard block >= 4, let channels = output.floatChannelData else { continue }
+            for channel in 0..<Int(output.format.channelCount)
+            {
+                for i in 0..<Int(output.frameLength) { peak = max(peak, abs(channels[channel][i])) }
+            }
+        }
+        return peak
+    }
+
+    /// `AVAudioMixing.volume` does reach an environment node's input, and zero really is silence -
+    /// but the gain ramps, so the first block still carries the old level. Measuring there once
+    /// produced a confident, wrong report that this whole mechanism was a no-op.
+    @Test func volumeZeroSilencesASpatialisedSource() throws
+    {
+        let audible = try settledPeak(volume: 1)
+        #expect(audible > 0.1, "the tone has to be there for silence to mean anything")
+        #expect(try settledPeak(volume: 0) == 0)
+    }
+
+    /// Occlusion is a lowpass plus a little attenuation, and clamps at -100 dB: even at the value
+    /// the raycast uses for "blocked" it leaves a source clearly audible. It is not a way to
+    /// silence one, whatever its dB units suggest.
+    @Test func occlusionIsNotAWayToSilenceASource() throws
+    {
+        let audible = try settledPeak()
+        let blocked = try settledPeak(occlusion: -100)
+        #expect(blocked > audible / 100, "-100 dB of occlusion is about -25 dB of signal, not silence")
+        #expect(blocked < audible)
+    }
+}
+
 @Suite struct SpatialMappingTests
 {
     @Test func positionsMapStraightAcross()

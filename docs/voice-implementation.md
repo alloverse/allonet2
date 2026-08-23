@@ -113,6 +113,12 @@ quiet rather than gone, where the old system's gain went to -inf. `VoiceEngine.i
 that cutoff - decided per frame by the position system, applied as the source node's volume,
 with a 2 % dead band so a source hovering at the edge doesn't chatter.
 
+Volume, and not occlusion: occlusion is mostly a lowpass, it clamps at -100 dB, and even there it
+leaves about -25 dB of signal - audible across a place. `EnvironmentNodeSilencingTests` pins both,
+and the reason the second one is easy to get wrong: the gain *ramps*, so a level measured in the
+first render block still shows the old one. Measuring there is how silencing was once reported,
+confidently and wrongly, as a no-op.
+
 `VoiceSourceComponent` ties an entity to the stream coming out of it, so the system reads
 everything it needs off the scene and holds no reference back to `SpatialAudioPlayer`.
 
