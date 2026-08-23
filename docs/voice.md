@@ -112,6 +112,10 @@ channel are a trust boundary and both are bounded:
 
 ## Known limitations
 
+- **The voice processor sets the whole I/O unit's sample rate from the input device.** Measured
+  with a USB webcam microphone: device output is stereo but 16 kHz while capture is on, so
+  playback is band-limited to 8 kHz for the speaker's own ears. Spatialisation is unaffected.
+  `voicedemo` logs the formats at `Engine running:`.
 - **The microphone indicator stays on while muted.** Muting sets
   `isVoiceProcessingInputMuted` rather than stopping capture, so the voice processor keeps
   rendering the reference playout needs for echo cancellation. The OS therefore reports the
