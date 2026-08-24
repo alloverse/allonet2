@@ -64,6 +64,7 @@ extension PlaceServer
         assert(success) // bug if this doesn't succeed
         outstandingPlaceChanges.removeAll()
         pendingRemovals.removeAll()
+        sweepOrphans()
         for client in clients.values {
             let lastContents = client.ackdRevision.flatMap { place.getHistory(at: $0) } ?? PlaceContents(logger: logger)
             let changeSet = place.current.changeSet(from: lastContents)
@@ -303,6 +304,34 @@ extension PlaceServer
             changes += place.current.components.componentsForEntity(rid).map { PlaceChange.componentRemoved(e, $0.value) }
         }
         await appendChanges(changes)
+    }
+
+    /// The invariant, enforced where every change commits: a client force-unwraps a child's
+    /// parent, so the place must never broadcast a revision that holds one whose parent is gone.
+    /// The per-interaction checks stop an app naming a missing parent, but a race the checks
+    /// can't see (a parent removed while its child was still pending, a bulk owner-cleanup that
+    /// doesn't reparent) can still commit an orphan; drop it and its subtree, loudly, before any
+    /// client hears about it.
+    private func sweepOrphans()
+    {
+        let present = Set(place.current.entities.keys)
+        let orphans = place.current.entities.keys.filter {
+            if let parent = place.current.components[Relationships.self][$0]?.parent { return !present.contains(parent) }
+            return false
+        }
+        guard !orphans.isEmpty else { return }
+
+        let doomed = Set(orphans + orphans.flatMap { descendants(of: $0, in: place.current) })
+        logger.warning("Dropping \(doomed.count) orphaned entities whose parent is gone (\(orphans)) - an alloapp let a child outlive its parent; the place won't broadcast a dangling tree.")
+        var changes: [PlaceChange] = []
+        for rid in doomed
+        {
+            guard let e = place.current.entities[rid] else { continue }
+            changes.append(.entityRemoved(e))
+            changes += place.current.components.componentsForEntity(rid).map { PlaceChange.componentRemoved(e, $0.value) }
+        }
+        let ok = place.applyChangeSet(PlaceChangeSet(changes: changes, fromRevision: place.current.revision, toRevision: place.current.revision + 1))
+        assert(ok)
     }
 
     /// Entities that exist once this beat's queued changes commit: committed, plus pending adds,

@@ -64,6 +64,25 @@ import Foundation
         #expect(server.place.current.components[Relationships.self][kid.id] == nil, "child is reparented to root")
     }
 
+    @Test func anOrphanReachingCommitIsSweptBeforeBroadcast() async throws
+    {
+        // A parent removed by a path that doesn't reparent (a bulk owner-cleanup, a race with a
+        // still-pending child) would commit a dangling child. The commit-time sweep is the backstop.
+        let server = makeServer()
+        let client = await makeAppClient(on: server)
+        let parent = try await server.createEntity(from: EntityDescription(), for: client)
+        let kid = try await server.createEntity(from: child(parent.id), for: client)
+        await server.heartbeat.awaitNextSync()
+        #expect(server.place.current.entities[kid.id] != nil)
+
+        // Remove only the parent, bypassing removeEntity's cascade/reparent.
+        await server.appendChanges([.entityRemoved(server.place.current.entities[parent.id]!)])
+        await server.heartbeat.awaitNextSync()
+
+        #expect(server.place.current.entities[parent.id] == nil)
+        #expect(server.place.current.entities[kid.id] == nil, "an orphaned child never survives a commit")
+    }
+
     @Test func creatingUnderAMissingParentIsRefused() async throws
     {
         let server = makeServer()
