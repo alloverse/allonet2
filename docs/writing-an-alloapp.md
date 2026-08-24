@@ -40,14 +40,15 @@ down when its session dies).
 
 ## Your widget is entities
 
-Compose it from the standard components (`StandardComponents.swift`): `Transform`,
+Compose it from the standard components (`StandardComponents.swift`): E g `Transform`,
 `Relationships` (parenting), `Model`, `Text`, `Opacity`, `Billboard`, `Collision` +
-`InputTarget` (tappable), `Grabbable`. What renders portably today: **primitive meshes**
-(`.box`, `.plane`, `.cylinder`, `.sphere`) with `.color` or `.image(asset:)` materials, and
-`Text`. `Model.Mesh.asset` (arbitrary 3D models) is not rendered by visors yet, and
-`.builtin` names resolve against the *visor's* own app bundle — a third-party widget can't
-add to that. So: primitives, text, and image textures (published through the
-[asset store](assets.md)).
+`InputTarget` (tappable), `Grabbable`. 
+
+Your entity can render visibly a few different ways: **primitive meshes**
+(`.box`, `.plane`, `.cylinder`, `.sphere`) with `.color` or `.image(asset:)` materials;
+`Text`; and **`.asset(id:)` meshes**: a published self-contained `glb` (compressed GLTF)
+is the entity's whole visual, materials included — see [assets.md](assets.md#meshes).
+(`.builtin` meshes are reserved, do not use.)
 
 Mutate with `client.createEntity(from:)` / `removeEntity` / `changeEntity`, or the sugar on
 an entity you hold:
