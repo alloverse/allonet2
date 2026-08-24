@@ -10,6 +10,13 @@ Hard-won non-obvious facts. Fold a new one in here when it doesn't fit a topic d
   (returns nil → crash otherwise).
 - Test encoding must use CBOREncoder/CBORDecoder (not JSON) — a JSON round-trip loses AnyValue
   dictionary structure.
+- The place refuses to hold a dangling `Relationships.parent`: `createEntity`/`changeEntity`
+  reject a parent that won't exist, and `removeEntity` honours its mode (`.cascade` removes the
+  subtree, `.reparent` drops the children to root). A receiving client force-unwraps the parent
+  (`RealityViewMapper`), so a broken tree crashes every visor — the invariant lives at the
+  place, not each client. The parent check is against *projected* state (committed + this beat's
+  pending adds), because a child created moments after its parent, before the heartbeat commits,
+  parents to an entity that is only pending.
 
 ## Connection lifecycle and trust
 

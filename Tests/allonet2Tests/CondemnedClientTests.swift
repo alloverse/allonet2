@@ -137,7 +137,7 @@ import PotentCBOR
         server.fatalDisconnectGrace = 10 // Out of the picture; this tests the quarantine itself.
         let (client, transport) = makeClient(on: server, in: \.clients)
         client.announced = true
-        let avatar = await server.createEntity(from: EntityDescription(), for: client)
+        let avatar = try await server.createEntity(from: EntityDescription(), for: client)
         client.avatar = avatar.id
         await server.heartbeat.awaitNextSync()
         #expect(server.place.current.entities[avatar.id] != nil)
@@ -292,7 +292,7 @@ import PotentCBOR
         client.announced = true
 
         // Queued, not yet committed by a heartbeat...
-        let ent = await server.createEntity(from: EntityDescription(), for: client)
+        let ent = try await server.createEntity(from: EntityDescription(), for: client)
         // ...when the client is condemned and immediately acts on the answer.
         await sendUnauthorizedInteraction(to: server, from: client)
         server.session(didDisconnect: client.session)

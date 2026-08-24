@@ -245,12 +245,24 @@ extension PlaceServer
         return false
     }
 
-    func createEntity(from description:EntityDescription, for client: ConnectedClient) async -> EntityData
+    func createEntity(from description:EntityDescription, for client: ConnectedClient) async throws(AlloverseError) -> EntityData
     {
         let (ent, changes) = description.changes(for: client.cid)
+        // Every parent a new entity names must resolve, to an entity that exists once this beat
+        // commits or one created here; otherwise the place would hold a child nothing can render.
+        var willExist = projectedEntities
+        for case .entityAdded(let e) in changes { willExist.insert(e.id) }
+        for change in changes
+        {
+            guard case .componentAdded(let eid, let comp) = change,
+                  let rel = comp.decodedIfAvailable() as? Relationships else { continue }
+            guard willExist.contains(rel.parent) else {
+                throw AlloverseError(code: PlaceErrorCode.notFound, description: "Can't parent entity \(eid) to \(rel.parent): no such entity")
+            }
+        }
         client.logger.info("Creating entity \(ent.id) with \(description.components.count) components and \(description.children.count) children")
         await appendChanges(changes)
-        
+
         return ent
     }
     
@@ -258,7 +270,6 @@ extension PlaceServer
     {
         var clogger = self.logger
         if let cid = client?.cid { clogger = clogger.forClient(cid) }
-        clogger.info("Removing entity \(id)")
         let ent = place.current.entities[id]
 
         guard let ent = ent else {
@@ -267,14 +278,70 @@ extension PlaceServer
         guard client == nil || ent.ownerClientId == client!.cid else {
             throw AlloverseError(code: PlaceErrorCode.unauthorized, description: "That's not your entity to remove")
         }
-        
-        await appendChanges([
-            .entityRemoved(ent)
-        ] + place.current.components.componentsForEntity(id).map {
-            PlaceChange.componentRemoved(ent, $0.value)
-        })
-                
-        // TODO: Handle child entities
+
+        // The mode decides the children's fate; either way no child is left parented to a gone entity.
+        var changes: [PlaceChange] = []
+        let removed: [EntityID]
+        switch mode
+        {
+        case .cascade:
+            removed = [id] + descendants(of: id, in: place.current)
+        case .reparent:
+            removed = [id]
+            for childId in children(of: id, in: place.current)
+            {
+                guard let childEnt = place.current.entities[childId],
+                      let rel = place.current.components[Relationships.self][childId] else { continue }
+                changes.append(.componentRemoved(childEnt, AnyComponent(rel)))
+            }
+        }
+        for rid in removed
+        {
+            guard let e = place.current.entities[rid] else { continue }
+            clogger.info("Removing entity \(rid)")
+            changes.append(.entityRemoved(e))
+            changes += place.current.components.componentsForEntity(rid).map { PlaceChange.componentRemoved(e, $0.value) }
+        }
+        await appendChanges(changes)
+    }
+
+    /// Entities that exist once this beat's queued changes commit: committed, plus pending adds,
+    /// minus pending removes. A child created moments after its parent, before the heartbeat,
+    /// parents to an entity that is pending rather than committed.
+    private var projectedEntities: Set<EntityID>
+    {
+        var ids = Set(place.current.entities.keys)
+        for change in outstandingPlaceChanges
+        {
+            switch change
+            {
+            case .entityAdded(let e): ids.insert(e.id)
+            case .entityRemoved(let e): ids.remove(e.id)
+            default: break
+            }
+        }
+        return ids
+    }
+
+    /// Entities parented directly to `id`.
+    private func children(of id: EntityID, in contents: PlaceContents) -> [EntityID]
+    {
+        contents.components[Relationships.self].compactMap { $0.value.parent == id ? $0.key : nil }
+    }
+
+    /// Every transitive descendant of `id`, cycle-safe against a hostile Relationships loop.
+    private func descendants(of id: EntityID, in contents: PlaceContents) -> [EntityID]
+    {
+        var out: [EntityID] = []
+        var seen: Set<EntityID> = [id]
+        var stack = children(of: id, in: contents)
+        while let next = stack.popLast()
+        {
+            guard seen.insert(next).inserted else { continue }
+            out.append(next)
+            stack += children(of: next, in: contents)
+        }
+        return out
     }
     
     func removeEntites(ownedBy cid: ClientId) async
@@ -300,7 +367,19 @@ extension PlaceServer
         /*guard client == nil || ent.ownerAgentId == client!.cid.uuidString else {
             throw AlloverseError(code: PlaceErrorCode.unauthorized, description: "That's not your entity to modify")
         }*/ // Re-enable this when we have ACLs
-        
+
+        // A re-parent to a gone entity, or to self, would orphan or cycle the tree.
+        for comp in addOrChange
+        {
+            guard let rel = comp.decodedIfAvailable() as? Relationships else { continue }
+            guard rel.parent != eid else {
+                throw AlloverseError(code: PlaceErrorCode.invalidRequest, description: "Entity \(eid) can't be its own parent")
+            }
+            guard projectedEntities.contains(rel.parent) else {
+                throw AlloverseError(code: PlaceErrorCode.notFound, description: "Can't parent \(eid) to \(rel.parent): no such entity")
+            }
+        }
+
         let addOrChanges = addOrChange.map
         {
             if let _ = place.current.components[$0.componentTypeId]?[eid]

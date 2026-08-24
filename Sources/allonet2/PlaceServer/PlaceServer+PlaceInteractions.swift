@@ -53,7 +53,7 @@ extension PlaceServer
         case .announce(let version, let identity, let avatarDescription):
             try await handle(announce: inter, from: client, ilogger: ilogger)
         case .createEntity(let description):
-            let ent = await self.createEntity(from: description, for: client)
+            let ent = try await self.createEntity(from: description, for: client)
             ilogger.info("Spawned entity with id \(ent.id)")
             client.session.send(interaction: inter.makeResponse(with: .createEntityResponse(entityId: ent.id)))
         case .removeEntity(let eid, let mode):
@@ -119,7 +119,7 @@ extension PlaceServer
         await web.assets.publishers.admit(client.assetToken)
 
         // Time to create the avatar
-        let avatar = await self.createEntity(from: avatarDescription, for: client)
+        let avatar = try await self.createEntity(from: avatarDescription, for: client)
         client.avatar = avatar.id
         
         // Find a SpawnPoint if available and move the avatar to it
