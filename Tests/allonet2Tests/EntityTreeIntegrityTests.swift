@@ -15,14 +15,14 @@ import Foundation
                     alloAppAuthToken: "apptoken", requiresAuthentication: true)
     }
 
-    private func makeAppClient(on server: PlaceServer) async -> ConnectedClient
+    private func makeAppClient(on server: PlaceServer) async throws -> ConnectedClient
     {
         let status = ConnectionStatus()
         let transport = MockTransport(with: TransportConnectionOptions(routing: .direct), status: status)
         let client = ConnectedClient(session: AlloSession(side: .server, transport: transport), status: status)
         client.identity = Identity(expectation: .app, displayName: "App", emailAddress: "", authenticationToken: "apptoken")
         transport.clientId = client.cid
-        try? await server.authenticate(identity: client.identity!, from: client, in: client.logger)
+        try await server.authenticate(identity: client.identity!, from: client, in: client.logger)
         return client
     }
 
@@ -34,7 +34,7 @@ import Foundation
     @Test func cascadeRemovesTheWholeSubtree() async throws
     {
         let server = makeServer()
-        let client = await makeAppClient(on: server)
+        let client = try await makeAppClient(on: server)
         let root = try await server.createEntity(from: EntityDescription(), for: client)
         let mid = try await server.createEntity(from: child(root.id), for: client)
         let leaf = try await server.createEntity(from: child(mid.id), for: client)
@@ -48,20 +48,28 @@ import Foundation
         #expect(server.place.current.entities[leaf.id] == nil, "cascade removes transitive descendants")
     }
 
-    @Test func reparentDropsChildrenToRoot() async throws
+    @Test func reparentRemovalIsRefused() async throws
     {
         let server = makeServer()
-        let client = await makeAppClient(on: server)
+        let client = try await makeAppClient(on: server)
         let root = try await server.createEntity(from: EntityDescription(), for: client)
-        let kid = try await server.createEntity(from: child(root.id), for: client)
         await server.heartbeat.awaitNextSync()
+        await #expect(throws: AlloverseError.self, "only cascade is supported") {
+            try await server.removeEntity(with: root.id, mode: .reparent, for: client)
+        }
+    }
 
-        try await server.removeEntity(with: root.id, mode: .reparent, for: client)
+    @Test func reparentingBeneathADescendantIsRefused() async throws
+    {
+        let server = makeServer()
+        let client = try await makeAppClient(on: server)
+        let a = try await server.createEntity(from: EntityDescription(), for: client)
+        let b = try await server.createEntity(from: child(a.id), for: client)
         await server.heartbeat.awaitNextSync()
-
-        #expect(server.place.current.entities[root.id] == nil)
-        #expect(server.place.current.entities[kid.id] != nil, "reparent keeps the child")
-        #expect(server.place.current.components[Relationships.self][kid.id] == nil, "child is reparented to root")
+        await #expect(throws: AlloverseError.self, "parenting A under its own child B is a cycle") {
+            try await server.changeEntity(eid: a.id, addOrChange: [AnyComponent(Relationships(parent: b.id))],
+                                          remove: [], for: client)
+        }
     }
 
     @Test func anOrphanReachingCommitIsSweptBeforeBroadcast() async throws
@@ -69,7 +77,7 @@ import Foundation
         // A parent removed by a path that doesn't reparent (a bulk owner-cleanup, a race with a
         // still-pending child) would commit a dangling child. The commit-time sweep is the backstop.
         let server = makeServer()
-        let client = await makeAppClient(on: server)
+        let client = try await makeAppClient(on: server)
         let parent = try await server.createEntity(from: EntityDescription(), for: client)
         let kid = try await server.createEntity(from: child(parent.id), for: client)
         await server.heartbeat.awaitNextSync()
@@ -86,7 +94,7 @@ import Foundation
     @Test func creatingUnderAMissingParentIsRefused() async throws
     {
         let server = makeServer()
-        let client = await makeAppClient(on: server)
+        let client = try await makeAppClient(on: server)
         await #expect(throws: AlloverseError.self) {
             _ = try await server.createEntity(from: self.child(EntityID.random()), for: client)
         }
@@ -95,7 +103,7 @@ import Foundation
     @Test func reparentingToAMissingEntityIsRefused() async throws
     {
         let server = makeServer()
-        let client = await makeAppClient(on: server)
+        let client = try await makeAppClient(on: server)
         let e = try await server.createEntity(from: EntityDescription(), for: client)
         await server.heartbeat.awaitNextSync()
         await #expect(throws: AlloverseError.self) {

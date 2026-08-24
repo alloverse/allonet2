@@ -118,8 +118,16 @@ extension PlaceServer
         // that has run would leave a token behind that nothing ever takes away.
         await web.assets.publishers.admit(client.assetToken)
 
-        // Time to create the avatar
-        let avatar = try await self.createEntity(from: avatarDescription, for: client)
+        // Time to create the avatar. The client is already admitted, so a broken avatar (one whose
+        // parents don't resolve) can't just throw and leave it half-announced with publishing
+        // rights and no avatar; condemn it so the disconnect path tears that down.
+        let avatar: EntityData
+        do { avatar = try await self.createEntity(from: avatarDescription, for: client) }
+        catch
+        {
+            await condemn(client)
+            throw error
+        }
         client.avatar = avatar.id
         
         // Find a SpawnPoint if available and move the avatar to it

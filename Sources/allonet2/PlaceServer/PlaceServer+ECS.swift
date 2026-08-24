@@ -255,8 +255,7 @@ extension PlaceServer
         for case .entityAdded(let e) in changes { willExist.insert(e.id) }
         for change in changes
         {
-            guard case .componentAdded(let eid, let comp) = change,
-                  let rel = comp.decodedIfAvailable() as? Relationships else { continue }
+            guard case .componentAdded(let eid, let comp) = change, let rel = try relationship(in: comp) else { continue }
             guard willExist.contains(rel.parent) else {
                 throw AlloverseError(code: PlaceErrorCode.notFound, description: "Can't parent entity \(eid) to \(rel.parent): no such entity")
             }
@@ -280,23 +279,15 @@ extension PlaceServer
             throw AlloverseError(code: PlaceErrorCode.unauthorized, description: "That's not your entity to remove")
         }
 
-        // The mode decides the children's fate; either way no child is left parented to a gone entity.
-        var changes: [PlaceChange] = []
-        let removed: [EntityID]
-        switch mode
-        {
-        case .cascade:
-            removed = [id] + descendants(of: id, in: place.current)
-        case .reparent:
-            removed = [id]
-            for childId in children(of: id, in: place.current)
-            {
-                guard let childEnt = place.current.entities[childId],
-                      let rel = place.current.components[Relationships.self][childId] else { continue }
-                changes.append(.componentRemoved(childEnt, AnyComponent(rel)))
-            }
+        // Reparenting children to root reaches committed state through paths the checks can't
+        // see and detaches subtrees on the wire in an order visors mishandle; not worth its bugs
+        // until something needs it, so fail loudly rather than half-support it. The invariant is
+        // held by cascade plus the commit-time sweep.
+        guard mode == .cascade else {
+            throw AlloverseError(code: PlaceErrorCode.invalidRequest, description: "Only cascade removal is supported")
         }
-        for rid in removed
+        var changes: [PlaceChange] = []
+        for rid in [id] + descendants(of: id, using: childIndex(place.current))
         {
             guard let e = place.current.entities[rid] else { continue }
             clogger.info("Removing entity \(rid)")
@@ -321,17 +312,55 @@ extension PlaceServer
         }
         guard !orphans.isEmpty else { return }
 
-        let doomed = Set(orphans + orphans.flatMap { descendants(of: $0, in: place.current) })
+        let index = childIndex(place.current)
+        let doomed = Set(orphans + orphans.flatMap { descendants(of: $0, using: index) })
         logger.warning("Dropping \(doomed.count) orphaned entities whose parent is gone (\(orphans)) - an alloapp let a child outlive its parent; the place won't broadcast a dangling tree.")
         var changes: [PlaceChange] = []
         for rid in doomed
         {
             guard let e = place.current.entities[rid] else { continue }
+            // Applied directly, not through appendChanges, so its simulation cleanup is run by hand:
+            // a swept avatar that kept moving would queue a Transform update for a gone entity.
+            noteRemovalForSimulation(of: rid)
             changes.append(.entityRemoved(e))
             changes += place.current.components.componentsForEntity(rid).map { PlaceChange.componentRemoved(e, $0.value) }
         }
         let ok = place.applyChangeSet(PlaceChangeSet(changes: changes, fromRevision: place.current.revision, toRevision: place.current.revision + 1))
         assert(ok)
+    }
+
+    /// Ends the movement and grab a removed entity was party to. `appendChanges` does this inline
+    /// for queued removals; the sweep applies directly, so it calls this itself.
+    private func noteRemovalForSimulation(of id: EntityID)
+    {
+        pendingRemovals.insert(id)
+        for client in clients.values
+        {
+            if client.avatar == id { client.stopMoving() }
+            let grab = client.latestIntent?.grab
+            if grab?.entity == id || grab?.grabber == id || client.grabBase?.actuated == id { client.stopGrabbing() }
+        }
+    }
+
+    /// A parent -> its direct children, built in one pass so a cascade over N entities isn't N
+    /// rescans of the Relationships dictionary.
+    private func childIndex(_ contents: PlaceContents) -> [EntityID: [EntityID]]
+    {
+        var index: [EntityID: [EntityID]] = [:]
+        for (eid, rel) in contents.components[Relationships.self] { index[rel.parent, default: []].append(eid) }
+        return index
+    }
+
+    /// The `Relationships` in `comp`, or nil when it is another component. Throws rather than traps
+    /// on a malformed payload: this runs on untrusted create/change input, and `decodedIfAvailable`
+    /// force-tries the decode.
+    private func relationship(in comp: AnyComponent) throws(AlloverseError) -> Relationships?
+    {
+        guard comp.componentTypeId == Relationships.componentTypeId else { return nil }
+        guard let rel = comp.decoded(as: Relationships.self) else {
+            throw AlloverseError(code: PlaceErrorCode.invalidRequest, description: "Malformed Relationships payload")
+        }
+        return rel
     }
 
     /// Entities that exist once this beat's queued changes commit: committed, plus pending adds,
@@ -352,34 +381,29 @@ extension PlaceServer
         return ids
     }
 
-    /// Entities parented directly to `id`.
-    private func children(of id: EntityID, in contents: PlaceContents) -> [EntityID]
-    {
-        contents.components[Relationships.self].compactMap { $0.value.parent == id ? $0.key : nil }
-    }
-
     /// Every transitive descendant of `id`, cycle-safe against a hostile Relationships loop.
-    private func descendants(of id: EntityID, in contents: PlaceContents) -> [EntityID]
+    private func descendants(of id: EntityID, using index: [EntityID: [EntityID]]) -> [EntityID]
     {
         var out: [EntityID] = []
         var seen: Set<EntityID> = [id]
-        var stack = children(of: id, in: contents)
+        var stack = index[id] ?? []
         while let next = stack.popLast()
         {
             guard seen.insert(next).inserted else { continue }
             out.append(next)
-            stack += children(of: next, in: contents)
+            stack += index[next] ?? []
         }
         return out
     }
-    
+
     func removeEntites(ownedBy cid: ClientId) async
     {
+        // Cascade, not reparent: a client's whole subtree goes when it leaves.
         for (eid, ent) in place.current.entities
         {
             if ent.ownerClientId == cid
             {
-                try? await removeEntity(with: eid, mode: .reparent, for: nil)
+                try? await removeEntity(with: eid, mode: .cascade, for: nil)
             }
         }
     }
@@ -397,12 +421,13 @@ extension PlaceServer
             throw AlloverseError(code: PlaceErrorCode.unauthorized, description: "That's not your entity to modify")
         }*/ // Re-enable this when we have ACLs
 
-        // A re-parent to a gone entity, or to self, would orphan or cycle the tree.
+        // A re-parent to a gone entity, to self, or beneath its own descendant would orphan or
+        // cycle the tree - and a cycle corrupts every transformToWorld through it.
         for comp in addOrChange
         {
-            guard let rel = comp.decodedIfAvailable() as? Relationships else { continue }
-            guard rel.parent != eid else {
-                throw AlloverseError(code: PlaceErrorCode.invalidRequest, description: "Entity \(eid) can't be its own parent")
+            guard let rel = try relationship(in: comp) else { continue }
+            guard rel.parent != eid, !descendants(of: eid, using: childIndex(place.current)).contains(rel.parent) else {
+                throw AlloverseError(code: PlaceErrorCode.invalidRequest, description: "Parenting \(eid) to \(rel.parent) would make a cycle")
             }
             guard projectedEntities.contains(rel.parent) else {
                 throw AlloverseError(code: PlaceErrorCode.notFound, description: "Can't parent \(eid) to \(rel.parent): no such entity")

@@ -82,6 +82,13 @@ public struct AnyComponent: Codable, Equatable
         else { return nil }
         return try! AnyValueDecoder.default.decode(type, from: anyValue) // if the type is registered, it should decode
     }
+    /// This component as `T`, or nil if it is a different type or its payload is malformed. Unlike
+    /// `decodedIfAvailable`, it does not `try!` the decode, so untrusted input can't trap the process.
+    public func decoded<T: Component>(as _: T.Type) -> T?
+    {
+        guard componentTypeId == T.componentTypeId else { return nil }
+        return try? AnyValueDecoder.default.decode(T.self, from: anyValue)
+    }
     public func decodeCustom() -> CustomComponent
     {
         return CustomComponent(typeId: componentTypeId, fields: anyValue)
