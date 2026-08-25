@@ -351,6 +351,32 @@ extension PlaceServer
         return index
     }
 
+    /// The child index as it will be once this beat's queued relationship changes commit. A cycle
+    /// check must use this, not committed state: two entities reparented beneath each other in one
+    /// beat each miss the other's still-pending edge and would commit a mutual cycle.
+    private func projectedChildIndex() -> [EntityID: [EntityID]]
+    {
+        var parentOf: [EntityID: EntityID] = [:]
+        for (eid, rel) in place.current.components[Relationships.self] { parentOf[eid] = rel.parent }
+        for change in outstandingPlaceChanges
+        {
+            switch change
+            {
+            case .componentAdded(let eid, let c), .componentUpdated(let eid, let c):
+                if let rel = c.decoded(as: Relationships.self) { parentOf[eid] = rel.parent }
+            case .componentRemoved(let e, let c) where c.componentTypeId == Relationships.componentTypeId:
+                parentOf[e.id] = nil
+            case .entityRemoved(let e):
+                parentOf[e.id] = nil
+            default:
+                break
+            }
+        }
+        var index: [EntityID: [EntityID]] = [:]
+        for (child, parent) in parentOf { index[parent, default: []].append(child) }
+        return index
+    }
+
     /// The `Relationships` in `comp`, or nil when it is another component. Throws rather than traps
     /// on a malformed payload: this runs on untrusted create/change input, and `decodedIfAvailable`
     /// force-tries the decode.
@@ -398,7 +424,9 @@ extension PlaceServer
 
     func removeEntites(ownedBy cid: ClientId) async
     {
-        // Cascade, not reparent: a client's whole subtree goes when it leaves.
+        // Cascade, not reparent: a client's whole subtree goes when it leaves. Owner-blind on
+        // purpose - a still-connected client's entity parented under the departing one goes too,
+        // which the simpler code is worth until cross-owner parenting is actually a thing.
         for (eid, ent) in place.current.entities
         {
             if ent.ownerClientId == cid
@@ -426,7 +454,7 @@ extension PlaceServer
         for comp in addOrChange
         {
             guard let rel = try relationship(in: comp) else { continue }
-            guard rel.parent != eid, !descendants(of: eid, using: childIndex(place.current)).contains(rel.parent) else {
+            guard rel.parent != eid, !descendants(of: eid, using: projectedChildIndex()).contains(rel.parent) else {
                 throw AlloverseError(code: PlaceErrorCode.invalidRequest, description: "Parenting \(eid) to \(rel.parent) would make a cycle")
             }
             guard projectedEntities.contains(rel.parent) else {

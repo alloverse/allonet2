@@ -4,7 +4,8 @@ import Foundation
 
 /// The place must never hold a tree with a child parented to an entity that isn't there: a
 /// receiving client force-unwraps the parent, so a dangling reference crashes every visor.
-/// removeEntity honours its mode, and a parent that doesn't resolve is refused at the door.
+/// Removal cascades, a parent that won't resolve or would cycle is refused, and any orphan that
+/// still reaches a commit is swept before broadcast.
 @MainActor
 @Suite struct EntityTreeIntegrityTests
 {
@@ -89,6 +90,20 @@ import Foundation
 
         #expect(server.place.current.entities[parent.id] == nil)
         #expect(server.place.current.entities[kid.id] == nil, "an orphaned child never survives a commit")
+    }
+
+    @Test func aMutualCycleWithinOneHeartbeatIsRefused() async throws
+    {
+        let server = makeServer()
+        let client = try await makeAppClient(on: server)
+        let a = try await server.createEntity(from: EntityDescription(), for: client)
+        let b = try await server.createEntity(from: EntityDescription(), for: client)
+        await server.heartbeat.awaitNextSync()
+        // Queue A -> B, then B -> A in the same beat: the second must see the first's pending edge.
+        try await server.changeEntity(eid: a.id, addOrChange: [AnyComponent(Relationships(parent: b.id))], remove: [], for: client)
+        await #expect(throws: AlloverseError.self, "B under A after A under B is a cycle") {
+            try await server.changeEntity(eid: b.id, addOrChange: [AnyComponent(Relationships(parent: a.id))], remove: [], for: client)
+        }
     }
 
     @Test func creatingUnderAMissingParentIsRefused() async throws
