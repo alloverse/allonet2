@@ -53,7 +53,7 @@ extension PlaceServer
         case .announce(let version, let identity, let avatarDescription):
             try await handle(announce: inter, from: client, ilogger: ilogger)
         case .createEntity(let description):
-            let ent = await self.createEntity(from: description, for: client)
+            let ent = try await self.createEntity(from: description, for: client)
             ilogger.info("Spawned entity with id \(ent.id)")
             client.session.send(interaction: inter.makeResponse(with: .createEntityResponse(entityId: ent.id)))
         case .removeEntity(let eid, let mode):
@@ -118,8 +118,16 @@ extension PlaceServer
         // that has run would leave a token behind that nothing ever takes away.
         await web.assets.publishers.admit(client.assetToken)
 
-        // Time to create the avatar
-        let avatar = await self.createEntity(from: avatarDescription, for: client)
+        // Time to create the avatar. The client is already admitted, so a broken avatar (one whose
+        // parents don't resolve) can't just throw and leave it half-announced with publishing
+        // rights and no avatar; condemn it so the disconnect path tears that down.
+        let avatar: EntityData
+        do { avatar = try await self.createEntity(from: avatarDescription, for: client) }
+        catch
+        {
+            await condemn(client)
+            throw error
+        }
         client.avatar = avatar.id
         
         // Find a SpawnPoint if available and move the avatar to it
