@@ -91,6 +91,11 @@ flags as Run arguments.
 
 `swift run demoapp alloplace2://localhost:9080` connects the minimal example alloapp.
 
+Wondering whether your entity actually made it into the world, and with which components?
+`GET /debug/entities?token=<-t value>` on the place's HTTP port dumps the live world state as
+JSON `{revision, entities: [{id, owner, components}]}` — filter it with jq instead of scraping
+`/dashboard`. Gated on the app token; a place started without `-t` refuses (nothing to gate on).
+
 ### Linux
 
 CI builds and the Docker image run on Linux (amd64 + arm64) using the `alloheadless`
