@@ -137,7 +137,7 @@ public struct Identity: Equatable, Hashable, Codable, Sendable
 @MainActor
 public enum EntityRemovalMode: String, Codable
 {
-    case reparent // Child entities are reparented to root
+    case reparent // Children would survive at root. Unimplemented: the place refuses it with invalidRequest; see docs/gotchas.md.
     case cascade  // Child entities are also removed
 }
 
