@@ -3,15 +3,13 @@ import Foundation
 import FlyingFox
 @testable import allonet2
 
-/// A component type deliberately never registered with the `ComponentRegistry`, so the endpoint
-/// takes its unregistered-fallback path — the case placeprobe carried across the process boundary.
+/// Never registered with `ComponentRegistry`, to exercise the unregistered-fallback path.
 private struct DebugUnregisteredComponent: Component
 {
     var secret: String
     var n: Int
 }
 
-/// The place's app token in these tests; the secret that unlocks the dump.
 private let debugToken = "debug-token"
 
 // MARK: - Over a real socket
@@ -22,11 +20,10 @@ private let debugToken = "debug-token"
 @MainActor
 struct DebugEntitiesHTTPTests
 {
-    /// One entity carrying a registered component (dumped as its concrete JSON) and an unregistered
-    /// one (dumped under the typed fallback).
+    /// One entity carrying a registered and an unregistered component.
     private func sampleContents(owner: UUID) -> PlaceContents
     {
-        TestComponent.register() // deterministic: another suite's setUp might not have run
+        TestComponent.register() // the registry is process-global; another suite may not have run
         return PlaceContents(
             revision: 42,
             entities: ["e1": EntityData(id: "e1", ownerClientId: owner)],
@@ -75,7 +72,6 @@ struct DebugEntitiesHTTPTests
 
     // MARK: Auth gate
 
-    /// The token that grants app privileges is the one that unlocks the dump; nothing else does.
     @Test func gatesOnTheAppToken() async throws
     {
         try await withDebugServer(contents: { self.sampleContents(owner: UUID()) }) { base in
@@ -93,8 +89,7 @@ struct DebugEntitiesHTTPTests
         }
     }
 
-    /// A place with no app token authenticates every app, so there is no secret to gate on and the
-    /// dump would be world-readable. It is refused outright rather than exposed.
+    /// No token means every app is trusted, so the dump would be world-readable: refuse instead.
     @Test func refusesWhenNoAppTokenIsConfigured() async throws
     {
         try await withDebugServer(appToken: "", contents: { self.sampleContents(owner: UUID()) }) { base in
@@ -108,9 +103,7 @@ struct DebugEntitiesHTTPTests
 
     // MARK: JSON shape
 
-    /// One object per entity: id, owner, and a components map. A registered component is its concrete
-    /// JSON; an unregistered one is a typed fallback carrying its wire fields.
-    @Test func dumpsEntitiesAndComponentsInPlaceprobeShape() async throws
+    @Test func dumpsEntitiesAndComponents() async throws
     {
         let owner = UUID()
         try await withDebugServer(contents: { self.sampleContents(owner: owner) }) { base in
@@ -129,11 +122,10 @@ struct DebugEntitiesHTTPTests
 
             let components = try #require(entity["components"] as? [String: Any])
 
-            // Registered: dumped as the concrete component's own JSON.
             let transform = try #require(components["TestComponent"] as? [String: Any])
             #expect(transform["radius"] as? Double == 3.5)
 
-            // Unregistered: typed fallback with the wire fields, nothing silently dropped.
+            // Unknown type: typed fallback carrying its wire fields.
             let unknown = try #require(components["DebugUnregisteredComponent"] as? [String: Any])
             #expect(unknown["unregisteredType"] as? String == "DebugUnregisteredComponent")
             let fields = try #require(unknown["fields"] as? [String: Any])
