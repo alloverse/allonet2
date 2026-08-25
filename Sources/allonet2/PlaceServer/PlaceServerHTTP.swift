@@ -27,6 +27,7 @@ class PlaceServerHTTP
     private var http: HTTPServer! = nil
     private let appDescription: AppDescription
     private var status: PlaceServerStatus!
+    private var debug: PlaceServerDebug!
     let assets: PlaceServerAssets
     private unowned let server: PlaceServer
     private let port: UInt16
@@ -35,6 +36,7 @@ class PlaceServerHTTP
     {
         self.server = server
         self.status = PlaceServerStatus(server: server)
+        self.debug = PlaceServerDebug(appToken: server.alloAppAuthToken) { [unowned server] in server.place.current }
         self.port = port
         self.appDescription = appDescription
         self.assets = PlaceServerAssets(directory: assetsDirectory)
@@ -45,6 +47,7 @@ class PlaceServerHTTP
         await self.http.appendRoute("GET /") { return try await self.landingPage($0) }
         await self.http.appendRoute("POST /") { return try await self.handleIncomingClient($0) }
         try await self.status.start(on: http)
+        await self.debug.register(on: http)
         await self.assets.register(on: http)
 
         try await http.start()
