@@ -165,7 +165,7 @@ class PlaceServerSFU
         
         clogger.info("START forwarding \(fid)")
         do {
-            let sfu = try server.transportClass.forward(mediaStream: placestream.stream, from: placestream.sender.session.transport, to: target.session.transport)
+            let sfu = try target.session.transport.forward(mediaStream: placestream.stream, from: placestream.sender.session.transport)
             active[fid] = sfu
         } catch (let e)
         {

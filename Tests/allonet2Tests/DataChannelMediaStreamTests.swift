@@ -41,6 +41,22 @@ struct DataChannelMediaStreamTests
         #expect(stream.counters.snapshot.malformed == 0)
         #expect(seen.count == 1)
     }
+
+    /// The RTP path is gone, so a stream that isn't a data channel is a caller error and has to
+    /// name itself; silently returning no forwarder would leave a listener waiting for audio.
+    @MainActor
+    @Test func refusesToForwardAStreamThatIsNotADataChannel() throws
+    {
+        let options = TransportConnectionOptions(routing: .direct, bindAddress: "127.0.0.1")
+        let sender = MockTransport(with: options, status: ConnectionStatus())
+        let receiver = DataChannelTransport(with: options, status: ConnectionStatus())
+        defer { receiver.disconnect() }
+
+        #expect(throws: ForwardingError.notADataChannelStream("mic"))
+        {
+            try receiver.forward(mediaStream: MockMediaStream(mediaId: "mic"), from: sender)
+        }
+    }
 }
 
 /// Frames are emitted on whatever thread delivered them.

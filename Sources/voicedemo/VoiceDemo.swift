@@ -15,7 +15,6 @@
 
 import Foundation
 import allonet2
-import alloheadless
 import AlloAudio
 import AlloOpus
 import Logging
@@ -61,7 +60,7 @@ struct VoiceDemo
 @MainActor
 final class VoiceDemoClient: AlloClient
 {
-    private var voiceTransport: HeadlessWebRTCTransport!
+    private var voiceTransport: DataChannelTransport!
     private let capture = VoiceCapture()
     private let playout = VoicePlayout()
     private var outgoing: DataChannelMediaStream?
@@ -73,7 +72,7 @@ final class VoiceDemoClient: AlloClient
 
     override func reset()
     {
-        voiceTransport = HeadlessWebRTCTransport(with: self.connectionOptions, status: connectionStatus)
+        voiceTransport = DataChannelTransport(with: self.connectionOptions, status: connectionStatus)
         reset(with: voiceTransport)
     }
 

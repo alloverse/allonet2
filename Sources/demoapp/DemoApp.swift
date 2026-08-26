@@ -8,7 +8,6 @@
 import Foundation
 import OpenCombineShim
 import allonet2
-import alloheadless
 
 @main @MainActor
 class DemoApp

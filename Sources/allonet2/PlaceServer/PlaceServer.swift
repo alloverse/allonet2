@@ -21,7 +21,6 @@ public class PlaceServer : AlloSessionDelegate
     
     let name: String
     let httpPort:UInt16
-    let transportClass: Transport.Type
     let options: TransportConnectionOptions
     let alloAppAuthToken: String
     
@@ -61,7 +60,6 @@ public class PlaceServer : AlloSessionDelegate
         name: String,
         httpPort: UInt16 = 9080,
         customApp: AppDescription = .alloverse,
-        transportClass: Transport.Type,
         options: TransportConnectionOptions,
         alloAppAuthToken: String,
         requiresAuthentication: Bool = false,
@@ -82,7 +80,6 @@ public class PlaceServer : AlloSessionDelegate
         
         self.name = name
         self.httpPort = httpPort
-        self.transportClass = transportClass
         self.options = options
         self.alloAppAuthToken = alloAppAuthToken
         self.web = PlaceServerHTTP(server: self, port: httpPort, appDescription: customApp, assetsDirectory: assetsDirectory)

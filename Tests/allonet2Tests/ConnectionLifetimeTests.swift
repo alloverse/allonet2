@@ -1,5 +1,4 @@
 import Testing
-import alloheadless
 @testable import allonet2
 
 /// A client builds a fresh transport and session per connection attempt, so anything that
@@ -10,7 +9,7 @@ import alloheadless
 {
     @Test func transportDiesWithItsLastReference() async throws
     {
-        var transport: HeadlessWebRTCTransport? = HeadlessWebRTCTransport(
+        var transport: DataChannelTransport? = DataChannelTransport(
             with: TransportConnectionOptions(routing: .direct, portRange: 21400..<21500),
             status: ConnectionStatus())
         weak var released = transport

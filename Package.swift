@@ -17,7 +17,6 @@ let applePlatformTargets: [Target] = [
     .target(name: "alloclient", dependencies: [
         .product(name: "OpenCombineShim", package: "opencombine"),
         "allonet2",
-        "alloheadless",
         "AlloAudio",
         "AlloOpus",
     ]),
@@ -28,7 +27,7 @@ let applePlatformTargets: [Target] = [
         .product(name: "GLTFKit2", package: "GLTFKit2"),
     ]),
     .testTarget(name: "AlloRealityTests", dependencies: ["AlloReality"]),
-    .executableTarget(name: "voicedemo", dependencies: ["alloheadless", "AlloAudio", "AlloOpus"]),
+    .executableTarget(name: "voicedemo", dependencies: ["allonet2", "AlloAudio", "AlloOpus"]),
 ]
 let applePlatformProducts: [Product] = [
     .library(name: "AlloAudio", targets: ["AlloAudio"]),
@@ -53,10 +52,6 @@ let package = Package(
         .library(
             name: "allonet2",
             targets: ["allonet2"],
-        ),
-        .library(
-            name: "alloheadless",
-            targets: ["alloheadless"]
         ),
         .library(
             name: "AlloOpus",
@@ -100,6 +95,7 @@ let package = Package(
             dependencies: [
                 "PotentCodables",
                 "FlyingFox",
+                "AlloDataChannel",
                 "Version",
                 .product(name: "kvSIMD", package: "kvSIMD.swift"),
                 .product(name: "SIMDTools", package:"simd-tools"),
@@ -110,14 +106,6 @@ let package = Package(
             ],
             plugins: [
                 .plugin(name: "PackageBuildInfoPlugin", package: "PackageBuildInfo")
-            ]
-        ),
-        .target(
-            name: "alloheadless",
-            dependencies: [
-                .product(name: "OpenCombineShim", package: "opencombine"),
-                "AlloDataChannel",
-                "allonet2"
             ]
         ),
         // Vendored libopus (BSD-3). Built from source rather than linked from the system so
@@ -169,7 +157,6 @@ let package = Package(
             name: "allonet2Tests",
             dependencies: [
                 "allonet2",
-                "alloheadless",
                 "FlyingFox",
                 .product(name: "FlyingSocks", package: "FlyingFox") // reading back an ephemeral port
             ]
@@ -180,19 +167,19 @@ let package = Package(
         ),
         // End-to-end: a real PlaceServer and real clients over real libdatachannel loopback.
         .testTarget(
-            name: "alloheadlessTests",
-            dependencies: ["alloheadless", "allonet2"]
+            name: "VoiceE2ETests",
+            dependencies: ["allonet2"]
         ),
         .executableTarget(
             name: "AlloPlace",
             dependencies: [
-                "alloheadless",
+                "allonet2",
                 .product(name: "ArgumentParser", package: "swift-argument-parser")
             ]
         ),
         .executableTarget(
             name: "demoapp",
-            dependencies: ["alloheadless"]
+            dependencies: ["allonet2"]
         ),
     ],
     swiftLanguageModes: [.v5]

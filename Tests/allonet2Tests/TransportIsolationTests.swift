@@ -1,5 +1,4 @@
 import XCTest
-import alloheadless
 @testable import allonet2
 
 /// libdatachannel calls back from its own thread pool, so everything the transport hands upwards
@@ -13,7 +12,7 @@ final class TransportIsolationTests: XCTestCase
     func testDelegateCallbacksArriveOnMain() async throws
     {
         let recorder = ThreadRecordingDelegate()
-        let transport = HeadlessWebRTCTransport(
+        let transport = DataChannelTransport(
             with: TransportConnectionOptions(routing: .direct, portRange: 21200..<21300),
             status: ConnectionStatus())
         transport.delegate = recorder
@@ -33,7 +32,7 @@ final class TransportIsolationTests: XCTestCase
     @MainActor
     func testOfferCarriesGatheredCandidates() async throws
     {
-        let transport = HeadlessWebRTCTransport(
+        let transport = DataChannelTransport(
             with: TransportConnectionOptions(routing: .direct, portRange: 21300..<21400),
             status: ConnectionStatus())
         _ = transport.createDataChannel(label: .interactions, reliable: true)

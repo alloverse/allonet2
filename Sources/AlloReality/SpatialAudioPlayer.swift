@@ -81,7 +81,7 @@ public class SpatialAudioPlayer
     }
 
     private var listener: allonet2.Entity? = nil
-    private var streamIds = Set<String>()
+    private var streamIds = Set<MediaStreamId>()
     /// Ask the place to forward the streams we want to hear — none while deafened.
     /// `speakerEnabled` is passed in because a $speakerEnabled sink fires on willSet.
     private func updateListener(speakerEnabled: Bool)

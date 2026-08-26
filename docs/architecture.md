@@ -7,11 +7,10 @@ source of truth; update this doc when they move.
 
 | Target | Kind | What it is |
 |---|---|---|
-| `allonet2` | library | Core: ECS world model and wire types, `AlloSession`, `AlloClient` base, `PlaceServer` (interactions, ECS sync, SFU, assets, HTTP, dashboard), simulations, logging, errors. Linux-capable. |
-| `alloclient` | library | Visor-side transport: `UIWebRTCTransport` on LiveKitWebRTC, mic capture, `AlloUserClient`. Apple-only in practice (AVFAudio, the webrtc xcframework). |
-| `alloheadless` | library | App/place-side transport: `HeadlessWebRTCTransport` on libdatachannel (the `Packages/AlloDataChannel` submodule), `AlloAppClient`. This is what Linux and Docker use. |
+| `allonet2` | library | Core: ECS world model and wire types, `DataChannelTransport` on libdatachannel (the `Packages/AlloDataChannel` submodule), `AlloSession`, `AlloClient` + `AlloAppClient`, `PlaceServer` (interactions, ECS sync, SFU, assets, HTTP, dashboard), simulations, logging, errors. Linux-capable. |
+| `alloclient` | library | Visor-side client: microphone capture and `AlloUserClient`, on the same transport. Apple-only in practice (AVFAudio). |
 | `AlloReality` | library | RealityKit layer: `RealityViewMapper` mirrors `PlaceState` into an entity tree; spatial audio playback + attenuation. Apple-only. |
-| `AlloPlace` | executable | The place server CLI (ArgumentParser) wiring `PlaceServer` to `HeadlessWebRTCTransport`. |
+| `AlloPlace` | executable | The place server CLI (ArgumentParser) around `PlaceServer`. |
 | `demoapp` | executable | Minimal example alloapp: spawns an avatar, orbits it, answers a `custom` interaction. |
 
 `Package.swift` has no platform conditions; Apple-only-ness is enforced by what a consumer
@@ -40,9 +39,13 @@ links. Swift tools 6.1, language mode 5, platforms macOS 15 / iOS 18 / visionOS 
 
 ## Wire and transports
 
-- `Transport` protocol (`TransportProtocol.swift`): offer/answer lifecycle, data channels,
-  media forwarding. Implementations: `UIWebRTCTransport` (alloclient) and
-  `HeadlessWebRTCTransport` (alloheadless); only the headless one forwards media.
+- `DataChannelTransport` (`Transport/DataChannelTransport.swift`) is the only transport, on
+  libdatachannel: offer/answer lifecycle, data channels, media forwarding. `PlaceServer` and the
+  clients construct it by name.
+- The `Transport` protocol it conforms to (`Transport/TransportProtocol.swift`) survives **for
+  the tests**: `MockTransport` in `allonet2Tests` is what lets a session, a client or a whole
+  place be driven without ICE, timing or a network. Nothing in `Sources` chooses between
+  implementations, so don't add a second one to production code without a reason of its own.
 - `AlloSession` wraps a `Transport` with the three fixed data channels — `interactions`
   (reliable, stream id 1), `worldstate` (unreliable, id 2; `PlaceChangeSet` down, `Intent`
   up), `logs` (reliable, id 3) — CBOR-encoded via PotentCodables (`AlloSession.swift`;
@@ -79,8 +82,8 @@ links. Swift tools 6.1, language mode 5, platforms macOS 15 / iOS 18 / visionOS 
 
 ## Threading
 
-Everything above the transports is `@MainActor`, with two deliberate exceptions. Both
-transports marshal their callbacks onto main, except the incoming-data decode path, which is
+Everything above the transport is `@MainActor`, with two deliberate exceptions. The transport
+marshals its callbacks onto main, except the incoming-data decode path, which is
 `nonisolated` so CBOR parsing can't queue behind the main thread. And `PlaceServerAssets` is
 explicitly *not* `@MainActor`: asset hashing and file I/O run in FlyingFox's own task tree,
 with only the publish-token set actor-isolated — don't hang shared mutable state off it

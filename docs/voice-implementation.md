@@ -9,7 +9,7 @@ offer/answer round trip per stream per receiver, serialised through the place. A
 removing a data channel in-band costs nothing on the signalling path, so `DataChannelForwarder`
 never calls `scheduleRenegotiation()`; the E2E tests assert the renegotiation counter stays
 at zero through connect, stream open, forwarding and listener churn. `PlaceServerSFU` is
-unchanged: it still reconciles desired/available/active streams; only `Transport.forward()`
+unchanged: it still reconciles desired/available/active streams; only `forward()`
 behaves differently underneath it.
 
 The second reason was getting googlewebrtc out of the client. Voice was the last thing using
@@ -56,7 +56,7 @@ so `AlloSession` reports each removal once.
 
 libdatachannel calls back from its own threads, and `@Published` emits on `willSet`, so the
 value a sink is handed is the one *about to be replaced*. The rule everywhere on this path:
-subscribe to be woken, hop to the main actor (`onMain` in `HeadlessWebRTCTransport`), then
+subscribe to be woken, hop to the main actor (`onMain` in `DataChannelTransport`), then
 read the property - never act on the value the sink delivered. Tests use `waitUntil`, which
 reads the property on a short poll, for the same reason.
 

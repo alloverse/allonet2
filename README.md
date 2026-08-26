@@ -9,8 +9,8 @@ WebRTC" background lives in [docs/history.md](docs/history.md).
 Allonet connects three kinds of software:
 
 * **Alloapps**: "widget" apps that run in a 3D space. Headless clients with app identity
-  (`AlloAppClient`, on the `alloheadless` product) — they run server-side but have an API that
-  feels client-side.
+  (`AlloAppClient`, in `allonet2`) — they run server-side but have an API that feels
+  client-side.
 * **Visors**: the 3D applications that visualize a place for a user — basically a 3D web
   browser (`AlloUserClient` on `alloclient`, rendered via `AlloReality`).
 * **Places**: the simulation server / network hub that users and apps connect to
@@ -98,8 +98,8 @@ JSON `{revision, entities: [{id, owner, components}]}` — filter it with jq ins
 
 ### Linux
 
-CI builds and the Docker image run on Linux (amd64 + arm64) using the `alloheadless`
-transport; `alloclient` and `AlloReality` are Apple-only. See `Dockerfile`.
+CI builds and the Docker image run on Linux (amd64 + arm64); `alloclient` and `AlloReality`
+are Apple-only. See `Dockerfile`.
 
 ## Documentation
 

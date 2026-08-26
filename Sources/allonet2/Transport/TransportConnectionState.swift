@@ -9,8 +9,7 @@ import Foundation
 
 /// Tracks the lifecycle of a WebRTC transport connection.
 ///
-/// Replaces `didFullyConnect` boolean and implicit state tracking in both
-/// UIWebRTCTransport and HeadlessWebRTCTransport.
+/// Replaces the `didFullyConnect` boolean and the implicit state tracking that preceded it.
 public enum TransportConnectionState: StateMachineState
 {
     /// Transport created but no offer/answer generated yet.

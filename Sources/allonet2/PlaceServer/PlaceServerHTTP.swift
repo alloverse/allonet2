@@ -110,7 +110,7 @@ class PlaceServerHTTP
         let offer = try await JSONDecoder().decode(SignallingPayload.self, from: request.bodyData)
         
         let connectionStatus = ConnectionStatus()
-        let transport = server.transportClass.init(with: server.options, status: connectionStatus)
+        let transport = DataChannelTransport(with: server.options, status: connectionStatus)
         let session = AlloSession(side: .server, transport: transport)
         session.delegate = server
         let client = ConnectedClient(session: session, status: connectionStatus)
