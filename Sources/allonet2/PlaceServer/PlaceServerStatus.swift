@@ -352,7 +352,9 @@ class PlaceServerStatus: WSMessageHandler
         return "\(error) (\(Self.relativeTime(since: at)))"
     }
 
-    private static func relativeTime(since date: Date, now: Date = Date()) -> String
+    /// How long ago `date` was, at the coarsest unit that still says something: seconds under a
+    /// minute, minutes under an hour, hours beyond. Internal so a test can pin `now`.
+    static func relativeTime(since date: Date, now: Date = Date()) -> String
     {
         let seconds = max(0, Int(now.timeIntervalSince(date)))
         switch seconds
