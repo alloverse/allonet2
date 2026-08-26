@@ -100,6 +100,35 @@ struct DataChannelMediaStreamTests
         #expect(try await audioArrives(in: second), "a stale ring's cancellation stopped the current pump")
     }
 
+    /// Frames buffered when playout stopped are as old as the pause. Replaying them ahead of what
+    /// arrives next repeats audio the listener already missed, and leaves the playhead behind the
+    /// sender for the rest of the stream.
+    @Test func replayDoesNotStartOnFramesBufferedBeforeTheStop() async throws
+    {
+        VoiceCodecs.makeDecoder = { RawPCMVoiceCodec() }
+        let stream = receiver()
+
+        // More than the pump queues ahead of the ring, so the rest strands in the jitter buffer.
+        let ring = stream.render()
+        deliver(20, from: 0, to: stream)
+        #expect(try await audioArrives(in: ring))
+        #expect(stream.jitterBuffer.depth > 0, "nothing was left buffered, so the stop is untested")
+
+        ring.cancel()
+        #expect(stream.jitterBuffer.depth == 0, "the stop left stale frames buffered")
+
+        // A gap the sender's silence would leave, short enough not to trip the resync distance.
+        let restarted = stream.render()
+        deliver(5, from: 60, to: stream)
+        #expect(try await audioArrives(in: restarted))
+
+        var samples = [Float](repeating: 0, count: DataChannelMediaStream.frameDuration)
+        let read = samples.withUnsafeMutableBufferPointer { restarted.read(into: [$0.baseAddress!], frames: $0.count) }
+        // deliver() writes each frame's own sequence into its samples.
+        let oldest = samples.prefix(read).min() ?? 0
+        #expect(oldest >= 60, "replay rendered frame \(oldest), buffered before the stop")
+    }
+
     @Test func rejectsOversizedMessagesBeforeFanningThemOut()
     {
         let stream = receiver()

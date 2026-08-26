@@ -39,6 +39,10 @@ drift against the device and eventually underrun or overflow.
   every slot concealed, and which direction broke was a coin flip at priming. It now re-primes.
   Regression test: `resumesFromTheNextFrameAfterAnUnderrun`.
 - FEC reaches one frame back, so two consecutive losses conceal the older slot.
+- **Stopping playout resets the buffer.** Nothing arrives while stopped, so what is left when
+  playout starts again is as old as the pause: up to `maximumDepth * 2` frames the listener
+  already missed, played before anything current, leaving the playhead behind the sender for
+  the rest of the stream. Regression test: `replayDoesNotStartOnFramesBufferedBeforeTheStop`.
 
 ## Stream lifetime
 

@@ -262,6 +262,8 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         pump?.cancel()
         pump = nil
         ringBuffer = nil
+        // Nothing arrives while stopped, so whatever is left is as stale as the pause is long.
+        jitterBuffer.reset()
     }
 
     private func refill(_ ring: AudioRingBuffer, using decoder: any VoiceDecoder)

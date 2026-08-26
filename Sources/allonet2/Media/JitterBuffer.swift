@@ -68,6 +68,24 @@ public final class JitterBuffer: @unchecked Sendable
     /// Frames currently buffered.
     public var depth: Int { lock.lock(); defer { lock.unlock() }; return frames.count }
 
+    /// Throw away everything the buffer has learned and everything it holds: buffered frames,
+    /// the playhead, the sequence history and the jitter estimate. The next frame in primes a
+    /// fresh playout, wherever in the sequence space it sits. Counters are cumulative and stay.
+    ///
+    /// Playout that stopped and started again is a new stream in all but its id: the frames
+    /// still buffered are as old as the pause, and playing them before what arrives next
+    /// replays audio the listener already missed.
+    public func reset()
+    {
+        lock.lock(); defer { lock.unlock() }
+        frames.removeAll()
+        playhead = nil
+        consecutiveConcealments = 0
+        seenHighestSequence = nil
+        jitter = 0
+        lastArrival = nil
+    }
+
     /// How many frames playout waits for before starting, derived from observed jitter.
     public var targetDepth: Int
     {
