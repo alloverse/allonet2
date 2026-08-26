@@ -56,21 +56,35 @@ public struct VoiceFrame: Equatable, Sendable
         return data
     }
 
-    /// Parse a frame off the wire; `data` may be a slice. Throws `VoiceFrameError.tooShort`
-    /// or `.unknownKind`. The payload aliases `data` rather than copying it.
-    public init(decoding data: Data) throws
+    /// Whether `data` begins with a header this build can decode: long enough, and naming a
+    /// `kind` it knows. The same check `init(decoding:)` makes, for callers that route frames
+    /// without parsing them - it reads one byte and allocates nothing.
+    public static func hasValidHeader(_ data: Data) -> Bool
     {
-        guard data.count >= Self.headerSize else
+        (try? decodeHeader(data)) != nil
+    }
+
+    /// The `kind` a well-formed header names. Throws `VoiceFrameError.tooShort` or `.unknownKind`.
+    private static func decodeHeader(_ data: Data) throws -> Kind
+    {
+        guard data.count >= headerSize else
         {
             throw VoiceFrameError.tooShort(byteCount: data.count)
         }
         // `data` may be a slice; index from its own start.
-        let base = data.startIndex
-        guard let kind = Kind(rawValue: data[base]) else
+        guard let kind = Kind(rawValue: data[data.startIndex]) else
         {
-            throw VoiceFrameError.unknownKind(data[base])
+            throw VoiceFrameError.unknownKind(data[data.startIndex])
         }
-        self.kind = kind
+        return kind
+    }
+
+    /// Parse a frame off the wire; `data` may be a slice. Throws `VoiceFrameError.tooShort`
+    /// or `.unknownKind`. The payload aliases `data` rather than copying it.
+    public init(decoding data: Data) throws
+    {
+        self.kind = try Self.decodeHeader(data)
+        let base = data.startIndex
         self.sequence = data.bigEndianUInt32(at: base + 1)
         self.timestamp = data.bigEndianUInt32(at: base + 5)
         self.payload = data[(base + Self.headerSize)...]
