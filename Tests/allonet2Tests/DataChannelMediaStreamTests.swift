@@ -242,6 +242,28 @@ struct DataChannelMediaStreamTests
         #expect(seen.count == 1)
     }
 
+    /// The SFU forwards raw bytes without decoding them, so a bad header has to be caught at the
+    /// door - length and kind, no payload parse - or it rides straight through to a receiver.
+    @Test func rejectsFramesWithAnInvalidHeaderBeforeFanningThemOut()
+    {
+        let stream = receiver()
+        let seen = FrameLog()
+        stream.observeFrames { seen.append($0) }
+
+        stream.deliver(Data(repeating: 0, count: 5))
+
+        var unknownKind = Data([0xFF])
+        unknownKind.append(Data(repeating: 0, count: VoiceFrame.headerSize - 1))
+        stream.deliver(unknownKind)
+
+        stream.deliver(VoiceFrame(kind: .opus, sequence: 0, timestamp: 0, payload: Data()).encoded)
+
+        let counters = stream.counters.snapshot
+        #expect(counters.received == 3)
+        #expect(counters.malformed == 2, "too short and an unknown kind byte are both invalid headers")
+        #expect(seen.count == 1, "only the frame with a valid header reaches forwarders")
+    }
+
     /// Concealment is what an underrun sounds like, so playout must not spend it early: a jitter
     /// buffer that runs dry while the ring still holds audio waits for the next tick instead.
     @Test func concealsOnlyOnceTheRingCannotCoverTheSlot() throws

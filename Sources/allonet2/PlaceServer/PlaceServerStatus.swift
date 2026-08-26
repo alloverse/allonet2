@@ -267,14 +267,18 @@ class PlaceServerStatus: WSMessageHandler
                 <thead><tr>
                     <th>Source client</th>
                     <th>PlaceStreamId</th>
+                    <th>Received</th>
+                    <th>Malformed</th>
                 </tr></thead>
             """ +
-            server.sfu.available.map { (psid, stream) in
-                
+            server.sfu.available.map { (psid, placeStream) in
+                let counters = (placeStream.stream as? DataChannelMediaStream)?.counters.snapshot
                 return """
                 \t\t\t\t<tr>
                 \t\t\t\t    <td>\(psid.shortClientId)</td>
                 \t\t\t\t    <td>\(psid.outgoingMediaId)</td>
+                \t\t\t\t    <td>\(formatCount(counters?.received))</td>
+                \t\t\t\t    <td>\(formatCount(counters?.malformed))</td>
                 \t\t\t\t</tr>
                 """
             }.joined(separator: "\n\t\t\t\t") +
@@ -303,25 +307,62 @@ class PlaceServerStatus: WSMessageHandler
                     <thead><tr>
                         <th>Source stream ID</th>
                         <th>Target client ID</th>
-                        <th>Message count</th>
+                        <th>Forwarded</th>
+                        <th>Dropped</th>
                         <th>Last error</th>
-                        <th>Errored at</th>
                     </tr></thead>
             """ +
             server.sfu.active.map { (fi, forwarder) in
+                let counters = (forwarder as? DataChannelForwarder)?.destination.counters.snapshot
                 return """
                 \t\t\t\t<tr>
                 \t\t\t\t    <td>\(fi.source)</td>
                 \t\t\t\t    <td>\(fi.target)</td>
-                \t\t\t\t    <td>\(forwarder.forwardedMessageCount)</td>
-                \t\t\t\t    <td>\(forwarder.lastError)</td>
-                \t\t\t\t    <td>\(forwarder.lastErrorAt)</td>
+                \t\t\t\t    <td>\(formatCount(counters?.forwardedOut))</td>
+                \t\t\t\t    <td>\(formatCount(counters?.forwardDropped))</td>
+                \t\t\t\t    <td>\(lastErrorCell(forwarder))</td>
                 \t\t\t\t</tr>
                 """
             }.joined(separator: "\n\t\t\t\t") +
             "</table>"
-        
+
         return "\(available)\n\(desired)\n\(active)"
+    }
+
+    /// Thousands-separated; "-" for a counter that doesn't apply, e.g. a non-`DataChannelForwarder`
+    /// (a mock in tests) with no destination counters to read.
+    private func formatCount(_ n: Int?) -> String
+    {
+        guard let n else { return "-" }
+        return Self.countFormatter.string(from: NSNumber(value: n)) ?? String(n)
+    }
+
+    private static let countFormatter: NumberFormatter = {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.usesGroupingSeparator = true
+        formatter.groupingSeparator = ","
+        return formatter
+    }()
+
+    private func lastErrorCell(_ forwarder: MediaStreamForwarder) -> String
+    {
+        guard let error = forwarder.lastError else { return "-" }
+        guard let at = forwarder.lastErrorAt else { return "\(error)" }
+        return "\(error) (\(Self.relativeTime(since: at)))"
+    }
+
+    /// How long ago `date` was, at the coarsest unit that still says something: seconds under a
+    /// minute, minutes under an hour, hours beyond. Internal so a test can pin `now`.
+    static func relativeTime(since date: Date, now: Date = Date()) -> String
+    {
+        let seconds = max(0, Int(now.timeIntervalSince(date)))
+        switch seconds
+        {
+        case 0..<60: return "\(seconds) s ago"
+        case 60..<3600: return "\(seconds / 60) min ago"
+        default: return "\(seconds / 3600) h ago"
+        }
     }
     
 // - MARK: Logs
