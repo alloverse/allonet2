@@ -8,6 +8,8 @@
 //
 //  VOICEDEMO_TONE=440 sends a sine at that frequency instead of the microphone. No capture
 //  engine, no voice processing, no permission prompt: a sender an agent can run headless.
+//  VOICEDEMO_WAV=<path> loops a recording (wav/m4a/aiff) the same headless way, so a listening
+//  test has speech to localise rather than a tone nobody can. Wins over VOICEDEMO_TONE.
 //  VOICEDEMO_NO_VPIO=1 captures without the OS voice processor, in the device's native format.
 //  VOICEDEMO_LATENCY_LOG=<path> measures mouth-to-speaker latency; see Latency.swift.
 //  VOICEDEMO_BIND=127.0.0.1 gathers ICE on loopback only, to match `AlloPlace -b 127.0.0.1`.
@@ -31,6 +33,19 @@ struct VoiceDemo
         let url = URL(string: CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "alloplace2://localhost:9080")!
         print("Connecting to \(url) (libopus \(Opus.version()))")
 
+        // Decode before connecting: a bad path should fail as itself, not as a client that joins
+        // the place and then says nothing.
+        var recording: Recording?
+        if let path = ProcessInfo.processInfo.environment["VOICEDEMO_WAV"]
+        {
+            do { recording = try Recording(path: path) }
+            catch
+            {
+                FileHandle.standardError.write(Data("VOICEDEMO_WAV: \(error)\n".utf8))
+                exit(1)
+            }
+        }
+
         let client = VoiceDemoClient(
             url: url,
             identity: Identity(expectation: .none, displayName: "VoiceDemo", emailAddress: "", authenticationToken: ""),
@@ -41,6 +56,7 @@ struct VoiceDemo
         {
             client.latency = try LatencyLog(path: path)
         }
+        client.recording = recording
         client.stayConnected()
 
         // macOS prompts for microphone access on first run; a human has to answer it.
@@ -63,8 +79,9 @@ final class VoiceDemoClient: AlloClient
     private let engine = VoiceEngine(voiceProcessing: ProcessInfo.processInfo.environment["VOICEDEMO_NO_VPIO"] == nil)
     private var outgoing: DataChannelMediaStream?
     private var incoming: [MediaStreamId: DataChannelMediaStream] = [:]
-    private var tone: DispatchSourceTimer?
+    private var generator: DispatchSourceTimer?
     var latency: LatencyLog?
+    var recording: Recording?
     private var outgoingMediaId: MediaStreamId?
     private var lastPolled: [MediaStreamId: UInt32] = [:]
 
@@ -86,21 +103,36 @@ final class VoiceDemoClient: AlloClient
         let placeStreamId = PlaceStreamId(shortClientId: cid!.shortClientId, incomingMediaId: mediaId)
         outgoingMediaId = placeStreamId.outgoingMediaId
 
-        if let hz = ProcessInfo.processInfo.environment["VOICEDEMO_TONE"].flatMap(Double.init)
+        let source: String
+        if let recording
+        {
+            startGenerating(into: stream) {
+                do { return Array(try recording.nextFrame()) }
+                catch
+                {
+                    FileHandle.standardError.write(Data("Stopped sending: \(error)\n".utf8))
+                    return nil
+                }
+            }
+            source = String(format: "recording, %.0f s looping", recording.duration)
+        }
+        else if let hz = ProcessInfo.processInfo.environment["VOICEDEMO_TONE"].flatMap(Double.init)
         {
             startTone(hz: hz, into: stream)
+            source = "tone \(hz) Hz"
         }
         else
         {
             engine.onFrameSent = { [weak self] sequence, at in self?.noteCapture(sequence, at: at) }
             try engine.startCapture(sending: stream)
+            source = "microphone, voice processing: \(engine.voiceProcessingEnabled)"
         }
         if latency != nil { startLatencyPolling() }
         try await changeEntity(entityId: avatarId, addOrChange: [
             LiveMedia(mediaId: placeStreamId.outgoingMediaId,
                       format: .audio(codec: .opus, sampleRate: 48000, channelCount: 1))
         ])
-        print("Sending \(placeStreamId.outgoingMediaId), " + (tone != nil ? "tone" : "voice processing: \(engine.voiceProcessingEnabled)"))
+        print("Sending \(placeStreamId.outgoingMediaId), \(source)")
     }
 
     /// Sine on a timer, not an audio clock - deliberately a little jittery.
@@ -109,18 +141,33 @@ final class VoiceDemoClient: AlloClient
         let frameCount = DataChannelMediaStream.frameDuration
         var phase = 0.0
         let step = 2 * Double.pi * hz / DataChannelMediaStream.sampleRate
-        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "voicedemo.tone"))
+        startGenerating(into: stream) {
+            var samples = [Float](repeating: 0, count: frameCount)
+            for i in 0..<frameCount { samples[i] = Float(sin(phase)) * 0.25; phase += step }
+            return samples
+        }
+    }
+
+    /// Send one frame every 20 ms from `nextFrame`, off a timer rather than an audio clock.
+    /// Returning nil stops the timer for good; the reason belongs on stderr before it does.
+    private func startGenerating(into stream: DataChannelMediaStream, _ nextFrame: @escaping () -> [Float]?)
+    {
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "voicedemo.generator"))
         timer.schedule(deadline: .now(), repeating: .milliseconds(20), leeway: .milliseconds(2))
         let latency = self.latency
         let mediaId = outgoingMediaId
-        timer.setEventHandler {
-            var samples = [Float](repeating: 0, count: frameCount)
-            for i in 0..<frameCount { samples[i] = Float(sin(phase)) * 0.25; phase += step }
+        timer.setEventHandler { [weak self] in
+            guard let samples = nextFrame()
+            else
+            {
+                Task { @MainActor in self?.generator?.cancel(); self?.generator = nil }
+                return
+            }
             let at = Date()
-            let sequence = samples.withUnsafeBufferPointer { stream.send(samples: $0.baseAddress!, frameCount: frameCount) }
+            let sequence = samples.withUnsafeBufferPointer { stream.send(samples: $0.baseAddress!, frameCount: samples.count) }
             if let sequence, let mediaId { latency?.note(capture: mediaId, sequence: sequence, at: at) }
         }
-        tone = timer
+        generator = timer
         timer.resume()
     }
 
