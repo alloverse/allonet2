@@ -48,7 +48,7 @@ public class DataChannelTransport: Transport
     
     private var peer: AlloWebRTCPeer
     private var channels: [String: AlloWebRTCPeer.DataChannel] = [:]
-    private var mediaStreams: [String: DataChannelMediaStream] = [:]
+    private var mediaStreams: [MediaStreamId: DataChannelMediaStream] = [:]
     private var connectionStatus: ConnectionStatus
     private var cancellables = Set<AnyCancellable>()
     let connectionState = StateMachine<TransportConnectionState>(.idle, label: "DataChannelTransport")
@@ -332,7 +332,7 @@ public class DataChannelTransport: Transport
     ///   contain no period; the place prefixes it with the sender's short client id to build
     ///   the id listeners see.
     /// - Throws: `MediaStreamIdError.containsPeriod` for an id the place could not encode.
-    public func createOutgoingMediaStream(mediaId: String) throws -> DataChannelMediaStream
+    public func createOutgoingMediaStream(mediaId: MediaStreamId) throws -> DataChannelMediaStream
     {
         guard !mediaId.contains(".") else { throw MediaStreamIdError.containsPeriod(mediaId) }
         return try openOutgoingMediaStream(mediaId: mediaId)
@@ -340,7 +340,7 @@ public class DataChannelTransport: Transport
 
     /// The place's own outgoing ids are already two-component, so forwarding skips the check
     /// the client-facing API makes.
-    private func openOutgoingMediaStream(mediaId: String) throws -> DataChannelMediaStream
+    private func openOutgoingMediaStream(mediaId: MediaStreamId) throws -> DataChannelMediaStream
     {
         let label = DataChannelLabel.media(mediaId)
         guard let channel = createMediaChannel(label: label) as? AlloWebRTCPeer.DataChannel else

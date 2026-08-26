@@ -9,9 +9,9 @@ import Foundation
 /// status endpoint reports, since the Bool the channel hands back carries no cause.
 public enum ForwardingError: Error, Equatable, CustomStringConvertible
 {
-    case sendFailed(String)
+    case sendFailed(MediaStreamId)
     /// The only stream a transport carries is a data channel; nothing else can be copied.
-    case notADataChannelStream(String)
+    case notADataChannelStream(MediaStreamId)
 
     public var description: String
     {

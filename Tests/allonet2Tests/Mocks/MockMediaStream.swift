@@ -3,10 +3,10 @@ import Foundation
 
 final class MockMediaStream: MediaStream
 {
-    let mediaId: String
+    let mediaId: MediaStreamId
     let streamDirection: MediaStreamDirection
 
-    init(mediaId: String, direction: MediaStreamDirection = .recvonly)
+    init(mediaId: MediaStreamId, direction: MediaStreamDirection = .recvonly)
     {
         self.mediaId = mediaId
         self.streamDirection = direction

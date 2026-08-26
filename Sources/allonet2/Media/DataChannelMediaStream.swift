@@ -15,7 +15,7 @@ import Logging
 /// m-line, no renegotiation - the channel *is* the stream.
 public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
 {
-    public let mediaId: String
+    public let mediaId: MediaStreamId
     public let streamDirection: MediaStreamDirection
     public let counters: VoiceCountersBox
     public let jitterBuffer: JitterBuffer
@@ -48,7 +48,7 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     /// - Parameter monotonicNow: seconds on a clock that only moves forward, used to measure
     ///   arrival jitter. Override it to drive the jitter buffer from a test's own clock.
     public init(
-        mediaId: String,
+        mediaId: MediaStreamId,
         direction: MediaStreamDirection,
         counters: VoiceCountersBox = VoiceCountersBox(),
         jitterBuffer: JitterBuffer? = nil,

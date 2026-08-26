@@ -83,7 +83,7 @@ public class AlloUserClient : AlloClient
 final class MicrophoneTrack: AudioTrack
 {
     /// Matches what KojaApp registers in its `LiveMedia` component.
-    static let mediaId = "voice-mic"
+    static let mediaId: MediaStreamId = "voice-mic"
 
     private weak var transport: DataChannelTransport?
     private let capture = VoiceCapture()

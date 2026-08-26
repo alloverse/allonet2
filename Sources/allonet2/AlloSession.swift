@@ -45,7 +45,7 @@ public class AlloSession : NSObject, TransportDelegate
     
     // TODO: This should be called streams, because it includes both incoming and outgoing
     @Published
-    public private(set) var incomingStreams: [String: MediaStream] = [:]
+    public private(set) var incomingStreams: [MediaStreamId: MediaStream] = [:]
     
     /// Requests awaiting an answer, keyed by request id. Stored as "how to finish this caller"
     /// rather than as a continuation, so a response, a timeout and a disconnect can all complete

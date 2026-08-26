@@ -114,7 +114,7 @@ public enum DataChannelLabel: RawRepresentable, Hashable, Sendable
     case logs
     /// One voice stream. Channel-per-stream is what lets the SFU route frames without
     /// looking inside them, and removes the stream id from the frame header.
-    case media(String)
+    case media(MediaStreamId)
 
     static let mediaPrefix = "voice/"
 
@@ -170,12 +170,30 @@ public enum MediaStreamDirection: UInt32
     public var isSend: Bool { self == .sendonly || self == .sendrecv }
 }
 
+/// Names one voice stream, and is the suffix of its data channel's label (`voice/<id>`).
+///
+/// It has two shapes, and which one a value carries depends on where it is read:
+///
+/// - **In the sender's own namespace** - what a peer passes to
+///   `DataChannelTransport.createOutgoingMediaStream`, and what the place sees on an incoming
+///   stream - it is a single component and must contain no period, e.g. `"voice-mic"`. An id
+///   with a period is refused with `MediaStreamIdError.containsPeriod`, because the place
+///   builds the id below by joining on one.
+/// - **Everywhere else** - the place's outgoing streams, listeners, `LiveMedia.mediaId`,
+///   `LiveMediaListener.mediaIds` - it is a `PlaceStreamId` as a string, two components
+///   separated by a period: `"<shortClientId>.<mediaId>"`, e.g. `"3F2504E0.voice-mic"`. That
+///   is what `PlaceStreamId.outgoingMediaId` writes and `String.psi` parses back.
+///
+/// An alias, not a wrapper: it enforces nothing at compile time, and exists so a `String` in a
+/// signature or a dictionary key says which of the two it is. See docs/voice.md.
+public typealias MediaStreamId = String
+
 // TODO: XXX, there is confusion whether this represents a 'stream' or a 'track'. In GoogleWebRTC, a Stream is a bundle of tracks. libdatachannel doesn't use this abstraction. This API uses MediaStream interchangeably as both, and mediaID can be either the streamId or streamId+trackId. This is confusing. Fix it!
 public protocol MediaStream: CustomStringConvertible
 {
     // PlaceServer side for incoming streams: This will be a single-component stream ID in the client's own namespace
     // In all other cases (clients, place outgoing streams): This will be a two-component PlaceStreamId
-    var mediaId: String { get }
+    var mediaId: MediaStreamId { get }
     var streamDirection: MediaStreamDirection { get }
     
     // XXX: Move to AudioTrack and add an array of audiotracks here
@@ -202,15 +220,15 @@ public struct PlaceStreamId: Equatable, Hashable, Codable, CustomStringConvertib
 {
     // Shortened version of the sending client's ID (to fit in sdp)
     public let shortClientId: String
-    // A single MediaStream ID in the namespace of the sending client. "streamId-trackId". Should not contain a period.
-    public let incomingMediaId: String
+    // A single MediaStream ID in the namespace of the sending client. Should not contain a period.
+    public let incomingMediaId: MediaStreamId
     // String version of the place stream ID, that is used in WebRTC as the MID sent to receiving clients. Contains a period separating the shortened client ID and the mediaId.
-    public var outgoingMediaId: String {
+    public var outgoingMediaId: MediaStreamId {
         return "\(shortClientId).\(incomingMediaId)"
     }
     public var description: String { return outgoingMediaId }
-    
-    public init(shortClientId: String, incomingMediaId: String) {
+
+    public init(shortClientId: String, incomingMediaId: MediaStreamId) {
         self.shortClientId = shortClientId
         self.incomingMediaId = incomingMediaId
     }
@@ -223,7 +241,7 @@ public struct PlaceStreamId: Equatable, Hashable, Codable, CustomStringConvertib
 /// unparseable and every listener silently ignores the stream.
 public enum MediaStreamIdError: Error, Equatable, CustomStringConvertible
 {
-    case containsPeriod(String)
+    case containsPeriod(MediaStreamId)
 
     public var description: String
     {

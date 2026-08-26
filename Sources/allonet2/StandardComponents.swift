@@ -311,7 +311,7 @@ public struct Billboard: Component
 /// The LiveMedia component describes an available media stream that can be consumed in real time by other connected agents. For example, it can be attached to the "mouth" of an avatar to correspond to live audio chat for that avatar, with the corresponding mediaId track broadcasting the user's microphone audio.
 public struct LiveMedia: Component
 {
-    public var mediaId: String // PlaceStreamId
+    public var mediaId: MediaStreamId
     @MainActor
     public enum AudioCodec: Codable, Equatable
     {
@@ -331,7 +331,7 @@ public struct LiveMedia: Component
     }
     public var format: Format
     
-    public init(mediaId: String, format: Format) {
+    public init(mediaId: MediaStreamId, format: Format) {
         self.mediaId = mediaId
         self.format = format
     }
@@ -342,8 +342,8 @@ public struct LiveMedia: Component
 /// The LiveMediaListener component tells the AlloPlace which `LiveMedia` streams that the agent that owns this entity wants to receive. By adding a mediaId to this list, a corresponding WebRTC audio track will come in with that ID as `mid`. The receiving agent process can then play that audio back at the spatial location of the entity with the corresponding `LiveMedia` component.
 public struct LiveMediaListener: Component
 {
-    public var mediaIds: Set<String>
-    public init(mediaIds: Set<String>)
+    public var mediaIds: Set<MediaStreamId>
+    public init(mediaIds: Set<MediaStreamId>)
     {
         self.mediaIds = mediaIds
     }

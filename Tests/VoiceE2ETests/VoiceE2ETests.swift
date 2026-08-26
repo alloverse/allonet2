@@ -334,7 +334,7 @@ enum TestPlaceError: Error, CustomStringConvertible
 {
     case noFreePort
     case noAvatar
-    case streamNeverArrived(String)
+    case streamNeverArrived(MediaStreamId)
 
     var description: String
     {
@@ -368,7 +368,7 @@ final class TestClient
 
     /// Open an outgoing voice channel. Uncompressed PCM, so assertions are about the
     /// transport, not a codec.
-    func startSpeaking(mediaId: String) throws -> DataChannelMediaStream
+    func startSpeaking(mediaId: MediaStreamId) throws -> DataChannelMediaStream
     {
         VoiceCodecs.makeEncoder = { RawPCMVoiceCodec() }
         guard let transport = client.transportForTesting else { throw TestPlaceError.noAvatar }
@@ -376,7 +376,7 @@ final class TestClient
     }
 
     /// Publish the LiveMedia component that makes the stream visible to other clients.
-    func advertise(mediaId: String) async throws -> String
+    func advertise(mediaId: MediaStreamId) async throws -> MediaStreamId
     {
         guard let avatarId = client.avatarId else { throw TestPlaceError.noAvatar }
         let placeStreamId = PlaceStreamId(shortClientId: client.cid!.shortClientId, incomingMediaId: mediaId)
@@ -387,7 +387,7 @@ final class TestClient
     }
 
     /// Ask the place to forward these streams to us.
-    func listen(to mediaIds: [String]) async throws
+    func listen(to mediaIds: [MediaStreamId]) async throws
     {
         guard let avatarId = client.avatarId else { throw TestPlaceError.noAvatar }
         try await client.changeEntity(entityId: avatarId, addOrChange: [
@@ -395,7 +395,7 @@ final class TestClient
         ])
     }
 
-    func awaitStream(_ mediaId: String, timeout: TimeInterval = 15) async throws -> DataChannelMediaStream
+    func awaitStream(_ mediaId: MediaStreamId, timeout: TimeInterval = 15) async throws -> DataChannelMediaStream
     {
         try await waitUntil(timeout: timeout) { self.client.streams[mediaId] != nil }
         guard let stream = client.streams[mediaId] else { throw TestPlaceError.streamNeverArrived(mediaId) }
@@ -407,7 +407,7 @@ final class TestClient
 @MainActor
 final class VoiceCapturingClient: AlloAppClient
 {
-    private(set) var streams: [String: DataChannelMediaStream] = [:]
+    private(set) var streams: [MediaStreamId: DataChannelMediaStream] = [:]
     private(set) var transportForTesting: DataChannelTransport!
 
     override func reset()

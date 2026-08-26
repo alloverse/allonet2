@@ -34,7 +34,7 @@ final class LatencyLog
     private let input: FileHandle
     private var partialLine = ""
     private var captured: [String: Double] = [:]        // "<mediaId> <sequence>" -> capture time
-    private var samples: [String: [Double]] = [:]
+    private var samples: [MediaStreamId: [Double]] = [:]
 
     init(path: String) throws
     {
@@ -49,12 +49,12 @@ final class LatencyLog
     deinit { close(out) }
 
     /// Safe to call off the main actor: it only appends to the file descriptor.
-    func note(capture mediaId: String, sequence: UInt32, at: Date)
+    func note(capture mediaId: MediaStreamId, sequence: UInt32, at: Date)
     {
         append("capture \(mediaId) \(sequence) \(at.timeIntervalSince1970)")
     }
 
-    func note(render mediaId: String, sequence: UInt32, at: Date)
+    func note(render mediaId: MediaStreamId, sequence: UInt32, at: Date)
     {
         append("render \(mediaId) \(sequence) \(at.timeIntervalSince1970)")
         ingestCaptures()
@@ -63,7 +63,7 @@ final class LatencyLog
     }
 
     /// Pipeline latency since the last call, in seconds.
-    func report() -> [(stream: String, p50: Double, p95: Double, count: Int)]
+    func report() -> [(stream: MediaStreamId, p50: Double, p95: Double, count: Int)]
     {
         defer { samples.removeAll() }
         return samples.map { mediaId, values in

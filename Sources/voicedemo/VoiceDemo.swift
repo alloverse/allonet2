@@ -64,11 +64,11 @@ final class VoiceDemoClient: AlloClient
     private let capture = VoiceCapture()
     private let playout = VoicePlayout()
     private var outgoing: DataChannelMediaStream?
-    private var incoming: [String: DataChannelMediaStream] = [:]
+    private var incoming: [MediaStreamId: DataChannelMediaStream] = [:]
     private var tone: DispatchSourceTimer?
     var latency: LatencyLog?
-    private var outgoingMediaId: String?
-    private var lastPolled: [String: UInt32] = [:]
+    private var outgoingMediaId: MediaStreamId?
+    private var lastPolled: [MediaStreamId: UInt32] = [:]
 
     override func reset()
     {
@@ -156,7 +156,7 @@ final class VoiceDemoClient: AlloClient
     {
         guard let avatarId else { return }
         let mine = PlaceStreamId(shortClientId: cid!.shortClientId, incomingMediaId: "voice-mic").outgoingMediaId
-        var wanted = Set<String>()
+        var wanted = Set<MediaStreamId>()
         for (_, media) in placeState.current.components[LiveMedia.self] where media.mediaId != mine
         {
             wanted.insert(media.mediaId)
