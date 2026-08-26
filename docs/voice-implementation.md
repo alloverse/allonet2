@@ -106,22 +106,32 @@ speaking entity's position, and the occlusion raycast's verdict (0 dB clear, -10
 The field entity is the unit fix - a place is drawn as a diorama, so distances at the scene
 root are centimetres or less and only field-relative ones are metres.
 
-`AVAudioEnvironmentNode` now owns the attenuation the old `SpatialAudioAttenuationSystem`
-computed by hand: inverse model, referenceDistance 1.5 m, maximumDistance 10 m, rolloff 2.0,
-still settable through the system's statics. It spatialises **mono inputs only**, which is why
-every source node is one channel. The rendering algorithm is `.auto`: whether the listener is
-wearing headphones is not knowable from here.
+Falloff is ours, not the environment node's. `VoiceEngine.gain(atDistance:)` is the entire curve:
+full gain within `referenceDistance` (1.5 m), then `20 * log10(referenceDistance / distance) *
+rolloff` dB, faded to zero over the last tenth before `maxDistance` (10 m) so the cutoff has no
+audible step. The environment node's own attenuation is neutralised with a zero rolloff, which is
+unity gain at every distance, so the two cannot multiply. Letting it own the curve instead was
+tried and rejected by ear: its `.inverse` model dives in the first few metres, plateaus mid-room,
+and then ends in a hard cut, because `maximumDistance` only stops attenuation growing rather than
+silencing. `VoiceEngine.referenceDistance` / `.maxDistance` / `.rolloff` are the knobs, and one
+public function is what lets the app's earshot ring draw the curve playout actually renders.
 
-`maximumDistance` is not a cutoff: it only stops attenuation growing, so beyond it a source is
-quiet rather than gone, where the old system's gain went to -inf. `VoiceEngine.isAudible` is
-that cutoff - decided per frame by the position system, applied as the source node's volume,
-with a 2 % dead band so a source hovering at the edge doesn't chatter.
+That gain reaches a source as its node volume, multiplied with the two independent silencing
+reasons (`VoiceEngine.volume(audible:occlusion:)`). The engine keeps the listener position, so a
+listener who moves re-applies every source's gain without the position system having to ask.
+
+The environment node spatialises **mono inputs only**, which is why every source node is one
+channel. The rendering algorithm is `.auto`: whether the listener is wearing headphones is not
+knowable from here.
+
+`VoiceEngine.isAudible` is a second, harder cutoff on top of the curve, decided per frame by the
+position system, with a 2 % dead band so a source hovering at the edge doesn't chatter.
 
 Volume, and not occlusion: occlusion is mostly a lowpass, it clamps at -100 dB, and even there it
 leaves about -25 dB of signal - audible across a place. So a blocked raycast silences through the
 same volume the distance cutoff uses (`VoiceEngine.volume(audible:occlusion:)`, the two reasons
 kept apart so neither overrides the other), the way the hand-rolled gain went to -inf; occlusions
-between the two ends still muffle through the filter, which is what it is good for. `EnvironmentNodeSilencingTests` pins both,
+between the two ends still muffle through the filter, which is what it is good for. `EnvironmentNodeRenderingTests` pins both,
 and the reason the second one is easy to get wrong: the gain *ramps*, so a level measured in the
 first render block still shows the old one. Measuring there is how silencing was once reported,
 confidently and wrongly, as a no-op.

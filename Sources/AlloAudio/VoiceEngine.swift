@@ -94,11 +94,7 @@ public final class VoiceEngine
         guard !graphReady else { return }
         graphReady = true
         engine.attach(environment)
-        let attenuation = environment.distanceAttenuationParameters
-        attenuation.distanceAttenuationModel = .inverse
-        attenuation.referenceDistance = 1.5
-        attenuation.maximumDistance = 10
-        attenuation.rolloffFactor = 2
+        Self.neutraliseDistanceAttenuation(environment)
         engine.connect(environment, to: engine.mainMixerNode, format: nil)
     }
 
@@ -329,6 +325,7 @@ public final class VoiceEngine
         var positioned = false   // gates audible: silent until setPosition first runs for this id
         var occlusion: Float = 0
         var audible = false
+        var appliedVolume: Float?   // nil until the first apply, which must reach the node
     }
     private var sources: [String: Source] = [:]
 
@@ -387,6 +384,18 @@ public final class VoiceEngine
 
     // MARK: - Spatialisation
 
+    /// Turn the environment node's own distance attenuation off, so `gain(atDistance:)` is the
+    /// only falloff and the two cannot multiply. A zero rolloff is unity gain at every distance;
+    /// the other two parameters stop meaning anything once it is zero.
+    nonisolated static func neutraliseDistanceAttenuation(_ environment: AVAudioEnvironmentNode)
+    {
+        let attenuation = environment.distanceAttenuationParameters
+        attenuation.distanceAttenuationModel = .inverse
+        attenuation.referenceDistance = 1
+        attenuation.maximumDistance = 100_000
+        attenuation.rolloffFactor = 0
+    }
+
     /// The head axes a right-handed, -Z-forward transform describes - RealityKit's convention
     /// and the environment node's - ready for `setListener`.
     public nonisolated static func listenerAxes(of transform: simd_float4x4) -> (forward: SIMD3<Float>, up: SIMD3<Float>)
@@ -402,7 +411,12 @@ public final class VoiceEngine
         environment.listenerPosition = AVAudio3DPoint(position)
         environment.listenerVectorOrientation = AVAudio3DVectorOrientation(forward: AVAudio3DVector(simd_normalize(forward)),
                                                                            up: AVAudio3DVector(simd_normalize(up)))
+        guard simd_distance_squared(listenerPosition, position) > 1e-6 else { return }
+        listenerPosition = position
+        for mediaId in sources.keys { applyVolume(to: mediaId) }   // every source's distance changed
     }
+
+    private var listenerPosition: SIMD3<Float> = .zero
 
     /// Where the entity speaking `mediaId` is, in the same space as the listener. Called once
     /// per rendered frame per source, so unchanged positions are dropped rather than pushed
@@ -420,18 +434,53 @@ public final class VoiceEngine
             sources[mediaId]!.positioned = true
             setAudible(true, for: mediaId)
         }
+        applyVolume(to: mediaId)   // the distance changed, and with it the falloff gain
     }
 
-    /// Whether a source `distance` metres from the listener can be heard at all. The environment
-    /// node's `maximumDistance` only stops attenuating further, so a distant source stays faintly
-    /// audible unless someone silences it; `wasAudible` gives the threshold a 2 % dead band, so a
-    /// source hovering at the edge does not chatter between the two answers.
+    // MARK: - Distance falloff
+
+    /// Distance (metres) within which a source is heard at full gain.
+    public nonisolated(unsafe) static var referenceDistance: Float = 1.5
+    /// Distance (metres) at which a source is silent, and stays silent beyond.
+    public nonisolated(unsafe) static var maxDistance: Float = 10
+    /// How fast the falloff runs: 1 is the realistic inverse-distance law, 0.5 carries a voice
+    /// twice as far, 2 half as far.
+    public nonisolated(unsafe) static var rolloff: Float = 2
+
+    /// How loud a source `distance` metres from the listener is, as a linear gain.
+    ///
+    /// The only place the falloff curve exists, so what is rendered and what is drawn - the app's
+    /// earshot ring, say - cannot disagree. Full gain within `referenceDistance`, then
+    /// `20 * log10(referenceDistance / distance) * rolloff` decibels, which linearly is
+    /// `referenceDistance / distance` raised to `rolloff`. Over the last tenth before
+    /// `maxDistance` that is faded to exactly zero, so the cutoff has no audible step.
     ///
     /// ```swift
-    /// let heard = VoiceEngine.isAudible(distance: d, maxDistance: 10, wasAudible: engine.isAudible(mediaId))
-    /// engine.setAudible(heard, for: mediaId)
+    /// let ringOpacity = VoiceEngine.gain(atDistance: simd_distance(myHead, speaker))
     /// ```
-    public nonisolated static func isAudible(distance: Float, maxDistance: Float, wasAudible: Bool) -> Bool
+    ///
+    /// - Parameter distance: metres between listener and source, in the space both are given in.
+    ///   Anything at or below `referenceDistance`, negative included, is full gain.
+    /// - Returns: linear amplitude in 0...1 - a multiplier on the source's samples, not decibels.
+    ///   Zero at `maxDistance` and beyond.
+    public nonisolated static func gain(atDistance distance: Float) -> Float
+    {
+        guard distance < maxDistance else { return 0 }
+        let curve = distance <= referenceDistance ? 1 : pow(referenceDistance / distance, rolloff)
+        let fadeStart = maxDistance * 0.9
+        guard distance > fadeStart else { return curve }
+        return curve * (maxDistance - distance) / (maxDistance - fadeStart)
+    }
+
+    /// Whether a source `distance` metres from the listener is heard at all: where
+    /// `gain(atDistance:)` reaches zero, with a 2 % dead band from `wasAudible` so a source
+    /// hovering at the edge does not chatter between the two answers.
+    ///
+    /// ```swift
+    /// engine.setAudible(VoiceEngine.isAudible(distance: d, wasAudible: engine.isAudible(mediaId)),
+    ///                   for: mediaId)
+    /// ```
+    public nonisolated static func isAudible(distance: Float, wasAudible: Bool) -> Bool
     {
         distance < (wasAudible ? maxDistance : maxDistance * 0.98)
     }
@@ -460,10 +509,16 @@ public final class VoiceEngine
         applyVolume(to: mediaId)
     }
 
+    /// The source's whole gain: the two silencing reasons times our own falloff, since the
+    /// environment node's distance attenuation is neutralised and contributes none.
     private func applyVolume(to mediaId: String)
     {
         guard let source = sources[mediaId] else { return }
-        source.node.volume = Self.volume(audible: source.audible, occlusion: source.occlusion)
+        let volume = Self.volume(audible: source.audible, occlusion: source.occlusion)
+            * Self.gain(atDistance: simd_distance(listenerPosition, source.position))
+        guard volume != source.appliedVolume else { return }
+        sources[mediaId]!.appliedVolume = volume
+        source.node.volume = volume
     }
 
     /// Whether `mediaId` is currently heard. Unknown streams are not.
@@ -480,17 +535,6 @@ public final class VoiceEngine
         sources[mediaId]!.occlusion = dB
         source.node.occlusion = dB
         applyVolume(to: mediaId)
-    }
-
-    /// Distance attenuation, shared by every source. Defaults to referenceDistance 1.5 m,
-    /// maximumDistance 10 m, rolloff 2.0, inverse-square.
-    public func setAttenuation(referenceDistance: Float, maximumDistance: Float, rolloffFactor: Float)
-    {
-        prepareGraph()
-        let attenuation = environment.distanceAttenuationParameters
-        attenuation.referenceDistance = referenceDistance
-        attenuation.maximumDistance = maximumDistance
-        attenuation.rolloffFactor = rolloffFactor
     }
 }
 

@@ -105,19 +105,19 @@ import allonet2
         #expect(engine.isCapturing == false)
     }
 
-    /// The environment node's maximumDistance only stops attenuating further, so without this
-    /// cutoff a source across the place stays quietly audible forever.
+    /// The falloff reaches zero at maxDistance, but a source is also stopped outright there, so
+    /// nothing past it can be dragged back by a rounding error or a changed curve.
     @Test func silencesSourcesPastMaxDistance()
     {
-        #expect(VoiceEngine.isAudible(distance: 0, maxDistance: 10, wasAudible: false))
-        #expect(VoiceEngine.isAudible(distance: 9, maxDistance: 10, wasAudible: false))
-        #expect(!VoiceEngine.isAudible(distance: 10, maxDistance: 10, wasAudible: true))
-        #expect(!VoiceEngine.isAudible(distance: 1000, maxDistance: 10, wasAudible: true))
+        #expect(VoiceEngine.isAudible(distance: 0, wasAudible: false))
+        #expect(VoiceEngine.isAudible(distance: 9, wasAudible: false))
+        #expect(!VoiceEngine.isAudible(distance: 10, wasAudible: true))
+        #expect(!VoiceEngine.isAudible(distance: 1000, wasAudible: true))
 
         // Dead band: a source hovering at the edge keeps whichever answer it had.
-        #expect(VoiceEngine.isAudible(distance: 9.9, maxDistance: 10, wasAudible: true))
-        #expect(!VoiceEngine.isAudible(distance: 9.9, maxDistance: 10, wasAudible: false))
-        #expect(VoiceEngine.isAudible(distance: 9.7, maxDistance: 10, wasAudible: false))
+        #expect(VoiceEngine.isAudible(distance: 9.9, wasAudible: true))
+        #expect(!VoiceEngine.isAudible(distance: 9.9, wasAudible: false))
+        #expect(VoiceEngine.isAudible(distance: 9.7, wasAudible: false))
     }
 
     /// A wall used to take a voice to -inf; the environment node's occlusion filter only takes it
@@ -198,20 +198,116 @@ import allonet2
     }
 }
 
-/// What `setAudible` rests on, rendered offline so it needs no audio device. Both facts cost a
-/// measurement to learn and neither is in the documentation: a source silenced the wrong way is
-/// still quietly audible across the place, and a peak taken too early says the opposite of the
-/// truth.
-@Suite struct EnvironmentNodeSilencingTests
+/// The falloff every voice is heard through. Its shape is a tuning decision that took ears to
+/// settle - the environment node's own inverse model attenuated hard early, plateaued mid-room and
+/// then cut off - so it is pinned here rather than left to whatever the audio unit does.
+@Suite struct FalloffCurveTests
 {
-    /// Loudest sample of a 1 kHz tone through one spatialised source, ignoring the blocks where
-    /// a changed gain is still ramping.
-    private func settledPeak(volume: Float = 1, occlusion: Float = 0) throws -> Float
+    private let reference = VoiceEngine.referenceDistance
+    private let maxDistance = VoiceEngine.maxDistance
+
+    /// The curve as the ruling states it, in dB, computed the long way round: what
+    /// `gain(atDistance:)` claims in its documentation has to be what it returns.
+    private func decibelCurve(at distance: Float) -> Float
+    {
+        pow(10, 20 * log10(reference / distance) * VoiceEngine.rolloff / 20)
+    }
+
+    /// The two paths through dB and through the exponent are not bit-identical in Float, so
+    /// agreement is a fraction, not equality.
+    private func expectGain(_ gain: Float, isWithin fraction: Float, of expected: Float, _ what: String)
+    {
+        #expect(abs(gain - expected) <= abs(expected) * fraction, "\(what): \(gain) is not \(expected)")
+    }
+
+    @Test func isFullGainWithinTheReferenceDistance()
+    {
+        #expect(VoiceEngine.gain(atDistance: 0) == 1)
+        #expect(VoiceEngine.gain(atDistance: -1) == 1, "a negative distance is not a boost")
+        #expect(VoiceEngine.gain(atDistance: reference / 2) == 1)
+        #expect(VoiceEngine.gain(atDistance: reference) == 1)
+    }
+
+    @Test func followsTheDecibelFormulaBeyondIt()
+    {
+        for distance: Float in [2, 3, 4.5, 6, 8, 8.9]
+        {
+            expectGain(VoiceEngine.gain(atDistance: distance), isWithin: 1e-5, of: decibelCurve(at: distance),
+                   "gain at \(distance) m is off the 20*log10(reference/distance)*rolloff curve")
+        }
+        // The shipping tuning, spelled out: rolloff 2 from 1.5 m is a quarter of the amplitude at
+        // twice the reference distance, a sixteenth at four times.
+        expectGain(VoiceEngine.gain(atDistance: 3), isWithin: 1e-5, of: 0.25, "gain at 3 m")
+        expectGain(VoiceEngine.gain(atDistance: 6), isWithin: 1e-5, of: 0.0625, "gain at 6 m")
+    }
+
+    @Test func neverGetsLouderWithDistance()
+    {
+        var previous = VoiceEngine.gain(atDistance: 0)
+        for step in 1...2000
+        {
+            let distance = Float(step) * maxDistance / 1000   // out to twice maxDistance
+            let gain = VoiceEngine.gain(atDistance: distance)
+            #expect(gain <= previous, "gain rose at \(distance) m")
+            previous = gain
+        }
+    }
+
+    @Test func isSilentAtMaxDistanceAndBeyond()
+    {
+        #expect(VoiceEngine.gain(atDistance: maxDistance) == 0)
+        #expect(VoiceEngine.gain(atDistance: maxDistance + 0.001) == 0)
+        #expect(VoiceEngine.gain(atDistance: 1000) == 0)
+        #expect(VoiceEngine.gain(atDistance: .infinity) == 0)
+    }
+
+    /// The fade to silence is what the old cutoff lacked: a source walking out of earshot has to
+    /// thin out, not stop. It starts a tenth before maxDistance, and up to there the raw curve is
+    /// untouched - so there is no step where the fade begins either.
+    @Test func fadesToZeroWithNoStepAtTheCutoff()
+    {
+        let fadeStart = maxDistance * 0.9
+        expectGain(VoiceEngine.gain(atDistance: fadeStart), isWithin: 1e-5, of: decibelCurve(at: fadeStart),
+               "the fade start is a step off the raw curve")
+        expectGain(VoiceEngine.gain(atDistance: fadeStart.nextDown), isWithin: 1e-5, of: decibelCurve(at: fadeStart.nextDown),
+               "the sample just before the fade is a step off the raw curve")
+
+        // Halfway through the fade, half the curve is left; at the very end, essentially nothing.
+        let middle = (fadeStart + maxDistance) / 2
+        expectGain(VoiceEngine.gain(atDistance: middle), isWithin: 1e-4, of: decibelCurve(at: middle) / 2,
+               "gain halfway through the fade")
+        #expect(VoiceEngine.gain(atDistance: maxDistance.nextDown) < decibelCurve(at: maxDistance) / 1000)
+    }
+
+    /// The cutoff and the curve are two answers to the same question, and a source that
+    /// `isAudible` says is heard must not be rendered at zero, nor the other way round.
+    @Test func audibilityAgreesWithTheCurve()
+    {
+        for step in 0...200
+        {
+            let distance = Float(step) * maxDistance / 100
+            #expect(VoiceEngine.isAudible(distance: distance, wasAudible: true) == (VoiceEngine.gain(atDistance: distance) > 0),
+                    "audibility and gain disagree at \(distance) m")
+        }
+    }
+}
+
+/// What silencing and the falloff actually do to the signal, rendered offline so it needs no
+/// audio device. None of it is in the documentation and all of it cost a measurement to learn: a
+/// source silenced the wrong way is still quietly audible across the place, a peak taken too
+/// early says the opposite of the truth, and an environment node left to attenuate distance
+/// itself multiplies its own curve onto ours.
+@Suite struct EnvironmentNodeRenderingTests
+{
+    /// Loudest sample of a 1 kHz tone through one spatialised source, configured the way playout
+    /// configures its own, and ignoring the blocks where a changed gain is still ramping.
+    private func settledPeak(distance: Float = 1.5, volume: Float = 1, occlusion: Float = 0) throws -> Float
     {
         let mono = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48000, channels: 1, interleaved: false)!
         let engine = AVAudioEngine()
         let environment = AVAudioEnvironmentNode()
         engine.attach(environment)
+        VoiceEngine.neutraliseDistanceAttenuation(environment)
         engine.connect(environment, to: engine.mainMixerNode, format: nil)
 
         var phase = 0.0
@@ -227,7 +323,7 @@ import allonet2
         engine.attach(source)
         engine.connect(source, to: environment, fromBus: 0, toBus: environment.nextAvailableInputBus, format: mono)
         source.renderingAlgorithm = .auto
-        source.position = AVAudio3DPoint(x: 0, y: 0, z: -1.5)
+        source.position = AVAudio3DPoint(x: 0, y: 0, z: -distance)
         source.volume = volume
         source.occlusion = occlusion
 
@@ -269,6 +365,36 @@ import allonet2
         let blocked = try settledPeak(occlusion: -100)
         #expect(blocked > audible / 100, "-100 dB of occlusion is about -25 dB of signal, not silence")
         #expect(blocked < audible)
+    }
+
+    /// Distance is ours to attenuate, and the environment node must contribute none of it - two
+    /// falloffs multiplied is what made the old curve dive early and then plateau.
+    @Test func aNeutralisedEnvironmentNodeAttenuatesNothing() throws
+    {
+        let near = try settledPeak(distance: VoiceEngine.referenceDistance)
+        #expect(near > 0.1, "the tone has to be there for the comparison to mean anything")
+        for distance: Float in [3, 6, 9, 12, 40]
+        {
+            let far = try settledPeak(distance: distance)
+            #expect(abs(far - near) <= near * 0.01, "the environment node still attenuates at \(distance) m: \(far) vs \(near)")
+        }
+    }
+
+    /// The curve as heard rather than as computed: `gain(atDistance:)` applied as the source's
+    /// volume comes out of the render at exactly that fraction of full gain.
+    @Test(arguments: [Float(3), 4.5, 6, 9, 9.5]) func aSourceRendersAtTheCurvesGain(distance: Float) throws
+    {
+        let full = try settledPeak(distance: VoiceEngine.referenceDistance)
+        let expected = full * VoiceEngine.gain(atDistance: distance)
+        let measured = try settledPeak(distance: distance, volume: VoiceEngine.gain(atDistance: distance))
+        #expect(abs(measured - expected) <= expected * 0.02,
+                "a source at \(distance) m rendered at \(measured), not the curve's \(expected)")
+    }
+
+    @Test func aSourcePastMaxDistanceRendersSilence() throws
+    {
+        let distance = VoiceEngine.maxDistance + 1
+        #expect(try settledPeak(distance: distance, volume: VoiceEngine.gain(atDistance: distance)) == 0)
     }
 }
 
