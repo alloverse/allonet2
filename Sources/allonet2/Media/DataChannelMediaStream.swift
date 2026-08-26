@@ -210,7 +210,7 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         playoutMark.store(0, ordering: .relaxed)
         lastPlayedFrame.store(0, ordering: .relaxed)
         ringBuffer = ring
-        startPump(filling: ring)
+        startPump(filling: ring, generation: generation)
         return ring
     }
 
@@ -222,7 +222,7 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     /// See docs/voice-implementation.md, Playout is self-clocking.
     private static let targetBufferedFrames = frameDuration * 3
 
-    private func startPump(filling ring: AudioRingBuffer)
+    private func startPump(filling ring: AudioRingBuffer, generation: Int)
     {
         guard let makeDecoder = VoiceCodecs.makeDecoder else
         {
@@ -243,7 +243,7 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         timer.schedule(deadline: .now(), repeating: .milliseconds(10), leeway: .milliseconds(2))
         timer.setEventHandler { [weak self, weak ring] in
             guard let self, let ring else { return }
-            self.refill(ring, using: decoder)
+            self.refill(ring, using: decoder, generation: generation)
         }
         pump = timer
         timer.resume()
@@ -266,13 +266,19 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         jitterBuffer.reset()
     }
 
-    private func refill(_ ring: AudioRingBuffer, using decoder: any VoiceDecoder)
+    /// - Parameter generation: the playout this pump belongs to. `cancel()` does not drain the
+    ///   queue, so a tick already running when its pump was stopped would go on taking frames
+    ///   the replacement pump is priming from, into a ring nobody reads.
+    private func refill(_ ring: AudioRingBuffer, using decoder: any VoiceDecoder, generation: Int)
     {
         let frameCount = Self.frameDuration
         var scratch = [Float](repeating: 0, count: frameCount)
 
         while ring.availableToRead() < Self.targetBufferedFrames, ring.availableToWrite() >= frameCount
         {
+            lock.lock(); let stale = generation != playoutGeneration; lock.unlock()
+            if stale { return }
+
             let step = jitterBuffer.nextStep(codecSupportsFEC: decoder.supportsFEC)
             // Priming: leave the ring empty; its underrun path already emits silence.
             if step == .priming { return }

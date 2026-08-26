@@ -7,7 +7,8 @@ import Testing
 import Foundation
 @testable import allonet2
 
-@Suite("Data channel media stream")
+// Serialized: these tests install their decoder in the process-wide `VoiceCodecs` registry.
+@Suite("Data channel media stream", .serialized)
 struct DataChannelMediaStreamTests
 {
     private func receiver() -> DataChannelMediaStream
@@ -129,6 +130,33 @@ struct DataChannelMediaStreamTests
         #expect(oldest >= 60, "replay rendered frame \(oldest), buffered before the stop")
     }
 
+    /// Cancelling a pump does not drain its queue. A tick already inside the decoder outlives the
+    /// stop, and must not go on taking frames the pump that replaced it is priming from.
+    @Test func aTickThatOutlivesItsPumpTakesNothingFromTheNextOne() async throws
+    {
+        let gate = GatedPCMVoiceCodec()
+        let stream = receiver()
+        // Only this render() gets the gated decoder; the pump that replaces it decodes freely.
+        VoiceCodecs.makeDecoder = { gate }
+        let stopped = stream.render()
+        VoiceCodecs.makeDecoder = { RawPCMVoiceCodec() }
+
+        deliver(5, from: 0, to: stream)
+        #expect(gate.entered.wait(timeout: .now() + 5) == .success, "the pump never reached the decoder")
+
+        stopped.cancel()
+        let restarted = stream.render()
+        deliver(5, from: 60, to: stream)
+        gate.release.signal()
+
+        #expect(try await audioArrives(in: restarted))
+        var samples = [Float](repeating: 0, count: DataChannelMediaStream.frameDuration)
+        let read = samples.withUnsafeMutableBufferPointer { restarted.read(into: [$0.baseAddress!], frames: $0.count) }
+        // deliver() writes each frame's own sequence into its samples.
+        #expect(samples.prefix(read).allSatisfy { $0 == 60 },
+                "replay started at frame \(samples.first ?? -1); the stale tick took 60 into the ring nobody reads")
+    }
+
     @Test func rejectsOversizedMessagesBeforeFanningThemOut()
     {
         let stream = receiver()
@@ -180,4 +208,26 @@ private final class FrameLog: @unchecked Sendable
     private var storage: [Data] = []
     func append(_ data: Data) { lock.lock(); storage.append(data); lock.unlock() }
     var count: Int { lock.lock(); defer { lock.unlock() }; return storage.count }
+}
+
+/// Uncompressed Float32, but the first `decode` signals `entered` and parks until `release` is
+/// signalled - the seam a test needs to hold a pump tick open across a stop.
+private final class GatedPCMVoiceCodec: VoiceDecoder, @unchecked Sendable
+{
+    let entered = DispatchSemaphore(value: 0)
+    let release = DispatchSemaphore(value: 0)
+
+    let kind = VoiceFrame.Kind.pcmFloat32
+    let supportsFEC = false
+
+    private let inner = RawPCMVoiceCodec()
+    private let gateLock = NSLock()
+    private var open = false
+
+    func decode(_ payload: Data?, fec: Bool, into output: UnsafeMutablePointer<Float>, capacity: Int) throws -> Int
+    {
+        gateLock.lock(); let first = !open; open = true; gateLock.unlock()
+        if first { entered.signal(); release.wait() }
+        return try inner.decode(payload, fec: fec, into: output, capacity: capacity)
+    }
 }
