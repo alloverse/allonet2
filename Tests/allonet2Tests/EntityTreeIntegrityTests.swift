@@ -11,7 +11,7 @@ import Foundation
 {
     private func makeServer() -> PlaceServer
     {
-        PlaceServer(name: "Test Place", transportClass: MockTransport.self,
+        PlaceServer(name: "Test Place",
                     options: TransportConnectionOptions(routing: .direct),
                     alloAppAuthToken: "apptoken", requiresAuthentication: true)
     }
