@@ -94,10 +94,11 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         }
         // Header only, so this costs no allocation on the SFU's path, which never parses the
         // payload at all.
-        guard VoiceFrame.hasValidHeader(data) else
+        do { _ = try VoiceFrame.validateHeader(data) }
+        catch
         {
             counters.update { $0.malformed += 1 }
-            logger.debug("Dropped voice frame with invalid header: \(data.count) bytes")
+            logger.debug("Dropped voice frame with invalid header: \(error)")
             return
         }
         observers.emit(data)

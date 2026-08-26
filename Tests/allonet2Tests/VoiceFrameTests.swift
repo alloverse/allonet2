@@ -47,6 +47,23 @@ struct VoiceFrameTests
         }
     }
 
+    /// Routing turns a frame away without parsing it, and has to be able to say which byte or
+    /// length it turned away on: the same errors the parser raises, off the same check.
+    @Test func headerValidationNamesWhatFailed() throws
+    {
+        #expect(try VoiceFrame.validateHeader(Data([1]) + Data(repeating: 0, count: 8)) == .pcmFloat32)
+
+        #expect(throws: VoiceFrameError.tooShort(byteCount: 8)) {
+            try VoiceFrame.validateHeader(Data(repeating: 0, count: 8))
+        }
+        #expect(throws: VoiceFrameError.unknownKind(0x7E)) {
+            try VoiceFrame.validateHeader(Data([0x7E]) + Data(repeating: 0, count: 8))
+        }
+
+        #expect("\(VoiceFrameError.tooShort(byteCount: 3))".contains("3 bytes"))
+        #expect("\(VoiceFrameError.unknownKind(0x7E))".contains("126"))
+    }
+
     @Test func comparesSequencesAcrossWraparound()
     {
         #expect(UInt32(5).isNewerSequence(than: 4))
