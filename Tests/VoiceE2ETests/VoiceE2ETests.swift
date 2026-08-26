@@ -8,7 +8,6 @@
 import XCTest
 import Foundation
 @testable import allonet2
-@testable import alloheadless
 
 @MainActor
 final class VoiceE2ETests: XCTestCase

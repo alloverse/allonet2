@@ -9,7 +9,6 @@ source of truth; update this doc when they move.
 |---|---|---|
 | `allonet2` | library | Core: ECS world model and wire types, `DataChannelTransport` on libdatachannel (the `Packages/AlloDataChannel` submodule), `AlloSession`, `AlloClient` + `AlloAppClient`, `PlaceServer` (interactions, ECS sync, SFU, assets, HTTP, dashboard), simulations, logging, errors. Linux-capable. |
 | `alloclient` | library | Visor-side client: microphone capture and `AlloUserClient`, on the same transport. Apple-only in practice (AVFAudio). |
-| `alloheadless` | library | Compatibility shim: one file, `@_exported import allonet2`. Everything it held moved into `allonet2` when there stopped being a second transport. Delete once no consumer imports it. |
 | `AlloReality` | library | RealityKit layer: `RealityViewMapper` mirrors `PlaceState` into an entity tree; spatial audio playback + attenuation. Apple-only. |
 | `AlloPlace` | executable | The place server CLI (ArgumentParser) around `PlaceServer`. |
 | `demoapp` | executable | Minimal example alloapp: spawns an avatar, orbits it, answers a `custom` interaction. |
