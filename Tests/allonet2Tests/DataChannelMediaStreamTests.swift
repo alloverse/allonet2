@@ -329,6 +329,41 @@ struct DataChannelMediaStreamTests
         #expect(counters.concealed == 0, "catching up by playing faster costs no audio")
     }
 
+    /// A cancelled pump's tick is kept from dequeuing, and has to be kept from steering too: it
+    /// measures the depth of a ring nobody reads, and the controller it would move belongs to the
+    /// playout that replaced it.
+    @Test func aStaleTickDoesNotSteerTheReplacementsRate()
+    {
+        let frameCount = DataChannelMediaStream.frameDuration
+        let clock = Clock()
+        let stream = DataChannelMediaStream(mediaId: "voice-mic", direction: .recvonly,
+                                            monotonicNow: { clock.now }) { _ in true }
+        let ring = AudioRingBuffer(channels: 1, capacityFrames: Int(DataChannelMediaStream.sampleRate), canceller: {})
+        let decoder = RawPCMVoiceCodec()
+        let payload = Data(count: frameCount * MemoryLayout<Float>.size)
+
+        // Far enough past target that any tick which steers at all leaves the rate off 1.
+        for sequence in UInt32(0)..<12
+        {
+            stream.jitterBuffer.insert(VoiceFrame(kind: .pcmFloat32, sequence: sequence,
+                                                  timestamp: sequence &* UInt32(frameCount), payload: payload),
+                                       arrival: Double(sequence) * 0.02)
+        }
+        #expect(stream.bufferedFrames - stream.targetFrames > PlayoutRateController.deadband,
+                "the depth has to be off target for steering to be visible")
+
+        // Playout was never started, so generation 0 is the live one and nothing else can be.
+        for _ in 0..<50
+        {
+            stream.refill(ring, using: decoder, generation: 1)
+            clock.now += 0.01
+        }
+
+        #expect(stream.playoutRate == 1, "a cancelled pump's tick steered the rate to \(stream.playoutRate)")
+        #expect(stream.counters.snapshot.rateAdjusted == 0)
+        #expect(stream.jitterBuffer.depth == 12, "the stale tick dequeued as well")
+    }
+
     /// The RTP path is gone, so a stream that isn't a data channel is a caller error and has to
     /// name itself; silently returning no forwarder would leave a listener waiting for audio.
     @MainActor

@@ -286,7 +286,7 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     ///   would go on taking frames the replacement pump is priming from, into a ring nobody reads.
     func refill(_ ring: AudioRingBuffer, using decoder: any VoiceDecoder, generation: Int? = nil)
     {
-        steerPlayoutRate(ring)
+        steerPlayoutRate(ring, generation: generation)
         let frameCount = Self.frameDuration
         // Read before the critical section below; nothing the decoder does belongs under the lock.
         let supportsFEC = decoder.supportsFEC
@@ -391,12 +391,17 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
 
     /// Update the rate from the depth this tick sees. A stream that was stopped and played again
     /// has a new pump while the old one may still have a tick in flight, so the controller is
-    /// locked rather than owned by one queue; the depths are read outside it.
-    private func steerPlayoutRate(_ ring: AudioRingBuffer)
+    /// locked rather than owned by one queue; the depths and the clock are read outside it.
+    ///
+    /// - Parameter generation: as `refill`. A tick the stop left behind measures the depth of a
+    ///   ring nobody reads, and the controller it would move belongs to the playout that
+    ///   replaced it, so it must not steer any more than it may dequeue.
+    private func steerPlayoutRate(_ ring: AudioRingBuffer, generation: Int?)
     {
         let error = depth(with: ring) - targetFrames
         let now = monotonicNow()
         lock.lock()
+        if let generation, generation != playoutGeneration { lock.unlock(); return }
         let dt = lastRateUpdate.map { now - $0 } ?? 0
         lastRateUpdate = now
         let rate = rateController.update(error: error, dt: dt)
