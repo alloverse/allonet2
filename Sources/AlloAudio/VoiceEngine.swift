@@ -348,7 +348,7 @@ public final class VoiceEngine
         engine.attach(source)
         // The environment node spatialises one mono source per input bus.
         engine.connect(source, to: environment, fromBus: 0, toBus: environment.nextAvailableInputBus, format: voiceFormat)
-        source.renderingAlgorithm = .auto   // HRTF is only right on headphones, which we can't detect
+        source.renderingAlgorithm = Self.renderingAlgorithm
         sources[stream.mediaId] = Source(node: source, ring: ring)
         // Starts silent: a position may not land until the next scene update, and rendering
         // before then would play this source at the listener's spot at full volume.
@@ -383,6 +383,11 @@ public final class VoiceEngine
     }
 
     // MARK: - Spatialisation
+
+    /// How a source is rendered to the output. HRTF unconditionally: customers listen on
+    /// headphones, and `.auto` never picks HRTF on a stereo device, so it left spatial voice as
+    /// flat equal-power panning. Choosing by output device is a carded follow-up.
+    static let renderingAlgorithm: AVAudio3DMixingRenderingAlgorithm = .HRTFHQ
 
     /// Turn the environment node's own distance attenuation off, so `gain(atDistance:)` is the
     /// only falloff and the two cannot multiply. A zero rolloff is unity gain at every distance;

@@ -121,8 +121,11 @@ reasons (`VoiceEngine.volume(audible:occlusion:)`). The engine keeps the listene
 listener who moves re-applies every source's gain without the position system having to ask.
 
 The environment node spatialises **mono inputs only**, which is why every source node is one
-channel. The rendering algorithm is `.auto`: whether the listener is wearing headphones is not
-knowable from here.
+channel. The rendering algorithm is `.HRTFHQ` unconditionally: customers listen on headphones, and
+`.auto` never picks HRTF on a stereo output device, which left spatial voice as flat equal-power
+panning. Choosing by output device is a separate card. HRTF has a gain floor - a source at volume
+0 renders at exactly -120 dB of full scale, on every block, rather than at digital zero - so
+silencing is inaudible but not free.
 
 `VoiceEngine.isAudible` is a second, harder cutoff on top of the curve, decided per frame by the
 position system, with a 2 % dead band so a source hovering at the edge doesn't chatter.

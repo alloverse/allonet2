@@ -299,6 +299,11 @@ import allonet2
 /// itself multiplies its own curve onto ours.
 @Suite struct EnvironmentNodeRenderingTests
 {
+    /// What "silent" can mean here: the HRTF path has a gain floor, so a source at volume 0 comes
+    /// out at exactly -120 dB of full scale on every block rather than at true digital zero.
+    /// Inaudible under anything, but not something an equality can be written against.
+    private let silenceFloor: Float = 2e-6
+
     /// Loudest sample of a 1 kHz tone through one spatialised source, configured the way playout
     /// configures its own, and ignoring the blocks where a changed gain is still ramping.
     private func settledPeak(distance: Float = 1.5, volume: Float = 1, occlusion: Float = 0) throws -> Float
@@ -322,7 +327,7 @@ import allonet2
         }
         engine.attach(source)
         engine.connect(source, to: environment, fromBus: 0, toBus: environment.nextAvailableInputBus, format: mono)
-        source.renderingAlgorithm = .auto
+        source.renderingAlgorithm = VoiceEngine.renderingAlgorithm
         source.position = AVAudio3DPoint(x: 0, y: 0, z: -distance)
         source.volume = volume
         source.occlusion = occlusion
@@ -346,14 +351,16 @@ import allonet2
         return peak
     }
 
-    /// `AVAudioMixing.volume` does reach an environment node's input, and zero really is silence -
-    /// but the gain ramps, so the first block still carries the old level. Measuring there once
-    /// produced a confident, wrong report that this whole mechanism was a no-op.
+    /// `AVAudioMixing.volume` does reach an environment node's input, and zero is silence in every
+    /// sense that matters - but the gain ramps, so the first block still carries the old level.
+    /// Measuring there once produced a confident, wrong report that this whole mechanism was a
+    /// no-op.
     @Test func volumeZeroSilencesASpatialisedSource() throws
     {
         let audible = try settledPeak(volume: 1)
         #expect(audible > 0.1, "the tone has to be there for silence to mean anything")
-        #expect(try settledPeak(volume: 0) == 0)
+        let silenced = try settledPeak(volume: 0)
+        #expect(silenced <= audible * silenceFloor, "a silenced source rendered at \(silenced), against \(audible)")
     }
 
     /// Occlusion is a lowpass plus a little attenuation, and clamps at -100 dB: even at the value
@@ -394,7 +401,9 @@ import allonet2
     @Test func aSourcePastMaxDistanceRendersSilence() throws
     {
         let distance = VoiceEngine.maxDistance + 1
-        #expect(try settledPeak(distance: distance, volume: VoiceEngine.gain(atDistance: distance)) == 0)
+        let full = try settledPeak(distance: VoiceEngine.referenceDistance)
+        let measured = try settledPeak(distance: distance, volume: VoiceEngine.gain(atDistance: distance))
+        #expect(measured <= full * silenceFloor, "a source \(distance) m away rendered at \(measured), against \(full)")
     }
 }
 
