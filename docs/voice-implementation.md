@@ -69,6 +69,15 @@ that created it, because an in-band channel starts delivering the moment it is a
 hop would drop the first frames. `DataChannelMediaStream` fans frames out through a locked
 observer list (`FrameObservers`) rather than `@Published`.
 
+**Touching the jitter buffer means holding the stream's lock across the decision and the
+touch.** Stopping playout empties the buffer and `render()` numbers a new playout, so a check
+a thread can be suspended after is no check at all: the network thread would insert a pre-stop
+frame into the cleared buffer, and a cancelled pump's last tick would dequeue the replacement's
+first frame into a ring nobody reads. Nothing expensive goes inside that section - the decoder
+is read before it and runs after it. Regression tests:
+`aFrameInFlightAcrossTheStopIsNotBuffered`,
+`aTickSuspendedBeforeItsDequeueTakesNothingFromTheNextPlayout`.
+
 ## One engine
 
 `VoiceEngine` owns the single `AVAudioEngine`: Apple's voice-processing input node on one

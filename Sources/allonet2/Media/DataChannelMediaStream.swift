@@ -95,12 +95,22 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         observers.emit(data)
 
         // The server routes without parsing; only a receiver needs the frame itself.
-        lock.lock(); let receiving = ringBuffer != nil; lock.unlock()
-        guard receiving else { return }
+        lock.lock(); let playout = ringBuffer != nil ? playoutGeneration : nil; lock.unlock()
+        guard let playout else { return }
         do
         {
             let frame = try VoiceFrame(decoding: data)
-            jitterBuffer.insert(frame, arrival: monotonicNow())
+            let arrival = monotonicNow()
+            lock.lock(); defer { lock.unlock() }
+            // Playout stopped while this frame was in flight, so its slot went with it. The
+            // reset left nothing to judge it by, and inserting it now would prime the
+            // replacement on pre-stop audio.
+            guard ringBuffer != nil, playout == playoutGeneration else
+            {
+                counters.update { $0.late += 1 }
+                return
+            }
+            jitterBuffer.insert(frame, arrival: arrival)
         }
         catch
         {
@@ -272,14 +282,19 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     private func refill(_ ring: AudioRingBuffer, using decoder: any VoiceDecoder, generation: Int)
     {
         let frameCount = Self.frameDuration
+        // Read before the critical section below; nothing the decoder does belongs under the lock.
+        let supportsFEC = decoder.supportsFEC
         var scratch = [Float](repeating: 0, count: frameCount)
 
         while ring.availableToRead() < Self.targetBufferedFrames, ring.availableToWrite() >= frameCount
         {
-            lock.lock(); let stale = generation != playoutGeneration; lock.unlock()
-            if stale { return }
+            // One critical section: a check this tick could be suspended after is no check at
+            // all, because the frame it then takes belongs to the playout that replaced it.
+            lock.lock()
+            guard generation == playoutGeneration else { lock.unlock(); return }
+            let step = jitterBuffer.nextStep(codecSupportsFEC: supportsFEC)
+            lock.unlock()
 
-            let step = jitterBuffer.nextStep(codecSupportsFEC: decoder.supportsFEC)
             // Priming: leave the ring empty; its underrun path already emits silence.
             if step == .priming { return }
 

@@ -134,7 +134,7 @@ struct DataChannelMediaStreamTests
     /// stop, and must not go on taking frames the pump that replaced it is priming from.
     @Test func aTickThatOutlivesItsPumpTakesNothingFromTheNextOne() async throws
     {
-        let gate = GatedPCMVoiceCodec()
+        let gate = GatedPCMVoiceCodec(holdAt: .decode)
         let stream = receiver()
         // Only this render() gets the gated decoder; the pump that replaces it decodes freely.
         VoiceCodecs.makeDecoder = { gate }
@@ -149,12 +149,70 @@ struct DataChannelMediaStreamTests
         deliver(5, from: 60, to: stream)
         gate.release.signal()
 
-        #expect(try await audioArrives(in: restarted))
+        let played = try await firstRenderedFrame(of: restarted)
+        #expect(played == "frame 60", "replay started on \(played); the stale tick took 60 into the ring nobody reads")
+    }
+
+    /// The same tick, suspended one step earlier: past the generation check but not yet at the
+    /// dequeue. A check it can be suspended after is no check at all.
+    @Test func aTickSuspendedBeforeItsDequeueTakesNothingFromTheNextPlayout() async throws
+    {
+        let gate = GatedPCMVoiceCodec(holdAt: .supportsFEC)
+        let stream = receiver()
+        VoiceCodecs.makeDecoder = { gate }
+        let stopped = stream.render()
+        VoiceCodecs.makeDecoder = { RawPCMVoiceCodec() }
+
+        // The pump's first tick reaches the decoder on an empty buffer, before any frame exists.
+        #expect(gate.entered.wait(timeout: .now() + 5) == .success, "the pump never reached the decoder")
+
+        stopped.cancel()
+        let restarted = stream.render()
+        deliver(5, from: 60, to: stream)
+        gate.release.signal()
+
+        let played = try await firstRenderedFrame(of: restarted)
+        #expect(played == "frame 60", "replay started on \(played); the stale tick dequeued 60 into the ring nobody reads")
+    }
+
+    /// `deliver` decides whether to buffer a frame before it has parsed one. A frame still in
+    /// flight when playout stops belongs to the era the stop ended: the reset left nothing to
+    /// judge it by, so buffering it now primes the replacement on pre-stop audio.
+    @Test func aFrameInFlightAcrossTheStopIsNotBuffered() async throws
+    {
+        VoiceCodecs.makeDecoder = { RawPCMVoiceCodec() }
+        let clock = GatedClock()
+        let stream = DataChannelMediaStream(mediaId: "voice-mic", direction: .recvonly,
+                                            monotonicNow: { clock.now() }) { _ in true }
+
+        let stopped = stream.render()
+        let preStop = VoiceFrame(kind: .pcmFloat32, sequence: 5, timestamp: 5 * 960,
+                                 payload: [Float](repeating: 5, count: 960).withUnsafeBytes { Data($0) }).encoded
+        let delivered = DispatchSemaphore(value: 0)
+        DispatchQueue.global().async { stream.deliver(preStop); delivered.signal() }
+        #expect(clock.entered.wait(timeout: .now() + 5) == .success, "deliver never reached the clock")
+
+        stopped.cancel()
+        let restarted = stream.render()
+        clock.release.signal()
+        #expect(delivered.wait(timeout: .now() + 5) == .success, "the in-flight frame never landed")
+        #expect(stream.counters.snapshot.late == 1, "the in-flight pre-stop frame was buffered anyway")
+
+        deliver(5, from: 60, to: stream)
+        let played = try await firstRenderedFrame(of: restarted)
+        #expect(played == "frame 60", "replay primed on \(played), not on what arrived after the stop")
+    }
+
+    /// Names the first whole frame the pump writes, waiting for it. deliver() writes each frame's
+    /// own sequence into its samples, so the value read back is the frame's number.
+    private func firstRenderedFrame(of ring: AudioRingBuffer) async throws -> String
+    {
+        guard try await audioArrives(in: ring) else { return "silence" }
         var samples = [Float](repeating: 0, count: DataChannelMediaStream.frameDuration)
-        let read = samples.withUnsafeMutableBufferPointer { restarted.read(into: [$0.baseAddress!], frames: $0.count) }
-        // deliver() writes each frame's own sequence into its samples.
-        #expect(samples.prefix(read).allSatisfy { $0 == 60 },
-                "replay started at frame \(samples.first ?? -1); the stale tick took 60 into the ring nobody reads")
+        let read = samples.withUnsafeMutableBufferPointer { ring.read(into: [$0.baseAddress!], frames: $0.count) }
+        guard read > 0 else { return "silence" }
+        guard samples.prefix(read).allSatisfy({ $0 == samples[0] }) else { return "a block of mixed frames" }
+        return "frame \(Int(samples[0]))"
     }
 
     @Test func rejectsOversizedMessagesBeforeFanningThemOut()
@@ -210,24 +268,66 @@ private final class FrameLog: @unchecked Sendable
     var count: Int { lock.lock(); defer { lock.unlock() }; return storage.count }
 }
 
-/// Uncompressed Float32, but the first `decode` signals `entered` and parks until `release` is
-/// signalled - the seam a test needs to hold a pump tick open across a stop.
-private final class GatedPCMVoiceCodec: VoiceDecoder, @unchecked Sendable
+/// Parks whichever thread first reaches `entered`, until `release` is signalled. The seam a test
+/// needs to suspend one thread at a chosen point and drive the rest of the race by hand.
+private final class OneShotGate: @unchecked Sendable
 {
     let entered = DispatchSemaphore(value: 0)
     let release = DispatchSemaphore(value: 0)
 
-    let kind = VoiceFrame.Kind.pcmFloat32
-    let supportsFEC = false
+    private let lock = NSLock()
+    private var passed = false
 
+    func hold()
+    {
+        lock.lock(); let first = !passed; passed = true; lock.unlock()
+        guard first else { return }
+        entered.signal()
+        release.wait()
+    }
+}
+
+/// Uncompressed Float32, holding the pump at one step of its cycle. `.supportsFEC` parks it
+/// before it dequeues from the jitter buffer, `.decode` after.
+private final class GatedPCMVoiceCodec: VoiceDecoder, @unchecked Sendable
+{
+    enum Step { case supportsFEC, decode }
+
+    var entered: DispatchSemaphore { gate.entered }
+    var release: DispatchSemaphore { gate.release }
+
+    let kind = VoiceFrame.Kind.pcmFloat32
+    var supportsFEC: Bool { if step == .supportsFEC { gate.hold() }; return false }
+
+    private let step: Step
+    private let gate = OneShotGate()
     private let inner = RawPCMVoiceCodec()
-    private let gateLock = NSLock()
-    private var open = false
+
+    init(holdAt step: Step) { self.step = step }
 
     func decode(_ payload: Data?, fec: Bool, into output: UnsafeMutablePointer<Float>, capacity: Int) throws -> Int
     {
-        gateLock.lock(); let first = !open; open = true; gateLock.unlock()
-        if first { entered.signal(); release.wait() }
+        if step == .decode { gate.hold() }
         return try inner.decode(payload, fec: fec, into: output, capacity: capacity)
+    }
+}
+
+/// A monotonic clock whose first reading parks the caller: the seam that holds a frame in the
+/// gap between `deliver`'s receive check and its insert.
+private final class GatedClock: @unchecked Sendable
+{
+    var entered: DispatchSemaphore { gate.entered }
+    var release: DispatchSemaphore { gate.release }
+
+    private let gate = OneShotGate()
+    private let lock = NSLock()
+    private var seconds = 0.0
+
+    /// One frame duration per reading, so arrivals stay evenly spaced and the jitter estimate flat.
+    func now() -> Double
+    {
+        lock.lock(); seconds += 0.02; let arrival = seconds; lock.unlock()
+        gate.hold()
+        return arrival
     }
 }
