@@ -73,7 +73,7 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     /// a receiver learns that a stream has ended.
     public func close()
     {
-        stopPump()
+        stopPlayout()
         closeChannel()
     }
 
@@ -95,12 +95,22 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         observers.emit(data)
 
         // The server routes without parsing; only a receiver needs the frame itself.
-        lock.lock(); let receiving = ringBuffer != nil; lock.unlock()
-        guard receiving else { return }
+        lock.lock(); let playout = ringBuffer != nil ? playoutGeneration : nil; lock.unlock()
+        guard let playout else { return }
         do
         {
             let frame = try VoiceFrame(decoding: data)
-            jitterBuffer.insert(frame, arrival: monotonicNow())
+            let arrival = monotonicNow()
+            lock.lock(); defer { lock.unlock() }
+            // Playout stopped while this frame was in flight, so its slot went with it. The
+            // reset left nothing to judge it by, and inserting it now would prime the
+            // replacement on pre-stop audio.
+            guard ringBuffer != nil, playout == playoutGeneration else
+            {
+                counters.update { $0.late += 1 }
+                return
+            }
+            jitterBuffer.insert(frame, arrival: arrival)
         }
         catch
         {
@@ -192,25 +202,37 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
 
     // MARK: - Playout
 
-    /// The seam the rest of the app already renders from. Starts decoding on first call.
+    /// The seam the rest of the app already renders from. Starts decoding on first call, and
+    /// again after the ring it handed out was cancelled: a stream can be played, stopped and
+    /// played again.
     public func render() -> AudioRingBuffer
     {
         lock.lock(); defer { lock.unlock() }
         if let ringBuffer { return ringBuffer }
 
+        playoutGeneration &+= 1
+        let generation = playoutGeneration
         let ring = AudioRingBuffer(channels: 1, capacityFrames: Int(Self.sampleRate), canceller: { [weak self] in
-            self?.stopPump()
+            self?.stopPlayout(generation: generation)
         })
+        // Both describe the old ring; left stale, notePlayout can report a frame this ring
+        // never wrote as freshly played before its pump has decoded anything.
+        playoutMark.store(0, ordering: .relaxed)
+        lastPlayedFrame.store(0, ordering: .relaxed)
         ringBuffer = ring
-        startPump(filling: ring)
+        startPump(filling: ring, generation: generation)
         return ring
     }
+
+    /// Which playout a ring belongs to. Whoever held a ring cancels it whenever they get round
+    /// to it, which can be after playout has been restarted on a new one.
+    private var playoutGeneration = 0
 
     /// Decoded audio kept queued ahead of the device; refilling to a level self-clocks.
     /// See docs/voice-implementation.md, Playout is self-clocking.
     private static let targetBufferedFrames = frameDuration * 3
 
-    private func startPump(filling ring: AudioRingBuffer)
+    private func startPump(filling ring: AudioRingBuffer, generation: Int)
     {
         guard let makeDecoder = VoiceCodecs.makeDecoder else
         {
@@ -231,27 +253,48 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         timer.schedule(deadline: .now(), repeating: .milliseconds(10), leeway: .milliseconds(2))
         timer.setEventHandler { [weak self, weak ring] in
             guard let self, let ring else { return }
-            self.refill(ring, using: decoder)
+            self.refill(ring, using: decoder, generation: generation)
         }
         pump = timer
         timer.resume()
     }
 
-    private func stopPump()
+    /// Stop decoding and let go of the ring, so `render()` builds a new one rather than handing
+    /// out the dead one. Arrived-at by cancelling the ring, which is how a player stops playout.
+    ///
+    /// - Parameter generation: the playout being stopped, or nil to stop whatever is running.
+    ///   A ring cancelled after playout already restarted names the generation that is over, and
+    ///   must leave its replacement alone.
+    private func stopPlayout(generation: Int? = nil)
     {
         lock.lock(); defer { lock.unlock() }
+        if let generation, generation != playoutGeneration { return }
         pump?.cancel()
         pump = nil
+        ringBuffer = nil
+        // Nothing arrives while stopped, so whatever is left is as stale as the pause is long.
+        jitterBuffer.reset()
     }
 
-    private func refill(_ ring: AudioRingBuffer, using decoder: any VoiceDecoder)
+    /// - Parameter generation: the playout this pump belongs to. `cancel()` does not drain the
+    ///   queue, so a tick already running when its pump was stopped would go on taking frames
+    ///   the replacement pump is priming from, into a ring nobody reads.
+    private func refill(_ ring: AudioRingBuffer, using decoder: any VoiceDecoder, generation: Int)
     {
         let frameCount = Self.frameDuration
+        // Read before the critical section below; nothing the decoder does belongs under the lock.
+        let supportsFEC = decoder.supportsFEC
         var scratch = [Float](repeating: 0, count: frameCount)
 
         while ring.availableToRead() < Self.targetBufferedFrames, ring.availableToWrite() >= frameCount
         {
-            let step = jitterBuffer.nextStep(codecSupportsFEC: decoder.supportsFEC)
+            // One critical section: a check this tick could be suspended after is no check at
+            // all, because the frame it then takes belongs to the playout that replaced it.
+            lock.lock()
+            guard generation == playoutGeneration else { lock.unlock(); return }
+            let step = jitterBuffer.nextStep(codecSupportsFEC: supportsFEC)
+            lock.unlock()
+
             // Priming: leave the ring empty; its underrun path already emits silence.
             if step == .priming { return }
 

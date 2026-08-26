@@ -175,6 +175,32 @@ struct JitterBufferTests
         #expect(buffer.targetDepth <= buffer.configuration.maximumDepth)
     }
 
+    /// A buffer that stopped and started again knows nothing about the sender it had: not the
+    /// frames, not where playout was, not how jittery the path used to be.
+    @Test func resetForgetsFramesPlayheadAndJitter()
+    {
+        let counters = VoiceCountersBox()
+        let buffer = Self.makeBuffer(counters: counters)
+        for sequence in UInt32(0)..<40
+        {
+            let wobble = sequence.isMultiple(of: 2) ? 0.0 : 0.06
+            buffer.insert(Self.frame(sequence), arrival: Self.arrival(sequence) + wobble)
+        }
+        for _ in 0..<20 { _ = buffer.nextStep(codecSupportsFEC: true) }
+        #expect(buffer.depth > 0)
+        #expect(buffer.targetDepth > 2)
+
+        buffer.reset()
+        #expect(buffer.depth == 0)
+        #expect(buffer.targetDepth == 2, "the old path's jitter still sets how deep playout primes")
+
+        // Behind the old playhead, so a surviving one would call these late and drop them.
+        buffer.insert(Self.frame(10), arrival: Self.arrival(10))
+        buffer.insert(Self.frame(11), arrival: Self.arrival(11))
+        #expect(buffer.nextStep(codecSupportsFEC: true) == .decode(Self.frame(10)))
+        #expect(counters.snapshot.late == 0)
+    }
+
     /// Every slot is exactly one decision, decoded frames come out in order, nothing vanishes.
     @Test func accountsForEveryFrameUnderHostileConditions()
     {

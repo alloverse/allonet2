@@ -27,7 +27,6 @@ struct VoiceDemo
     static func main() async throws
     {
         setvbuf(stdout, nil, _IOLBF, 0)   // counters must reach a redirected log as they happen
-        Opus.install()
 
         let url = URL(string: CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "alloplace2://localhost:9080")!
         print("Connecting to \(url) (libopus \(Opus.version()))")
@@ -61,8 +60,7 @@ struct VoiceDemo
 final class VoiceDemoClient: AlloClient
 {
     private var voiceTransport: DataChannelTransport!
-    private let capture = VoiceCapture()
-    private let playout = VoicePlayout()
+    private let engine = VoiceEngine(voiceProcessing: ProcessInfo.processInfo.environment["VOICEDEMO_NO_VPIO"] == nil)
     private var outgoing: DataChannelMediaStream?
     private var incoming: [MediaStreamId: DataChannelMediaStream] = [:]
     private var tone: DispatchSourceTimer?
@@ -94,15 +92,15 @@ final class VoiceDemoClient: AlloClient
         }
         else
         {
-            capture.onFrameSent = { [weak self] sequence, at in self?.noteCapture(sequence, at: at) }
-            try capture.start(sending: stream, voiceProcessing: ProcessInfo.processInfo.environment["VOICEDEMO_NO_VPIO"] == nil)
+            engine.onFrameSent = { [weak self] sequence, at in self?.noteCapture(sequence, at: at) }
+            try engine.startCapture(sending: stream)
         }
         if latency != nil { startLatencyPolling() }
         try await changeEntity(entityId: avatarId, addOrChange: [
             LiveMedia(mediaId: placeStreamId.outgoingMediaId,
                       format: .audio(codec: .opus, sampleRate: 48000, channelCount: 1))
         ])
-        print("Sending \(placeStreamId.outgoingMediaId), " + (tone != nil ? "tone" : "voice processing: \(capture.voiceProcessingEnabled)"))
+        print("Sending \(placeStreamId.outgoingMediaId), " + (tone != nil ? "tone" : "voice processing: \(engine.voiceProcessingEnabled)"))
     }
 
     /// Sine on a timer, not an audio clock - deliberately a little jittery.
@@ -178,14 +176,18 @@ final class VoiceDemoClient: AlloClient
     {
         guard let stream = stream as? DataChannelMediaStream else { return }
         incoming[stream.mediaId] = stream
-        do { try playout.play(stream) }
+        do
+        {
+            try engine.play(stream)
+            engine.setPosition(.zero, for: stream.mediaId)   // no scene to position sources from
+        }
         catch { logger.error("Failed to play \(stream.mediaId): \(error)") }
     }
 
     override func session(_ session: AlloSession, didRemoveMediaStream stream: MediaStream)
     {
         incoming[stream.mediaId] = nil
-        playout.stop(stream.mediaId)
+        engine.stop(mediaId: stream.mediaId)
     }
 
     func reportCounters()
@@ -208,7 +210,7 @@ final class VoiceDemoClient: AlloClient
         {
             print(String(format: "latency %@: pipeline p50=%.0f p95=%.0f ms (n=%d), output device +%.1f ms",
                          measurement.stream, measurement.p50 * 1000, measurement.p95 * 1000,
-                         measurement.count, playout.outputLatency * 1000))
+                         measurement.count, engine.outputLatency * 1000))
         }
     }
 }

@@ -7,7 +7,6 @@
 
 import allonet2
 import AlloAudio
-import AlloOpus
 import OpenCombineShim
 import Foundation
 import Logging
@@ -15,6 +14,10 @@ import Logging
 public class AlloUserClient : AlloClient
 {
     private var userTransport: DataChannelTransport!
+
+    /// The one audio engine voice runs on: microphone capture and spatialised playout of
+    /// everyone else's streams. `SpatialAudioPlayer` plays through this one.
+    public let voiceEngine = VoiceEngine()
 
     @Published public var micEnabled: Bool = false
     {
@@ -32,14 +35,13 @@ public class AlloUserClient : AlloClient
     {
         if micTrack == nil
         {
-            micTrack = MicrophoneTrack(transport: userTransport, isEnabled: micEnabled)
+            micTrack = MicrophoneTrack(engine: voiceEngine, transport: userTransport, isEnabled: micEnabled)
         }
         return micTrack!
     }
 
     public override init(url: URL, identity: Identity, avatarDescription: EntityDescription, connectionOptions: TransportConnectionOptions)
     {
-        Opus.install()
         self.micEnabled = true
         super.init(url: url, identity: identity, avatarDescription: avatarDescription, connectionOptions: connectionOptions)
         startSendingLogs()
@@ -86,7 +88,7 @@ final class MicrophoneTrack: AudioTrack
     static let mediaId: MediaStreamId = "voice-mic"
 
     private weak var transport: DataChannelTransport?
-    private let capture = VoiceCapture()
+    private let engine: VoiceEngine
     private var stream: DataChannelMediaStream?
     private var micLogger = Logger(labelSuffix: "client.microphone")
     private var connected = false
@@ -96,8 +98,9 @@ final class MicrophoneTrack: AudioTrack
         didSet { apply() }
     }
 
-    init(transport: DataChannelTransport, isEnabled: Bool)
+    init(engine: VoiceEngine, transport: DataChannelTransport, isEnabled: Bool)
     {
+        self.engine = engine
         self.transport = transport
         self.isEnabled = isEnabled
     }
@@ -110,31 +113,27 @@ final class MicrophoneTrack: AudioTrack
 
     func stop()
     {
-        capture.stop()
+        engine.stopCapture()
         connected = false
     }
 
+    /// Muting leaves capture running so playout keeps the echo canceller's reference; a
+    /// microphone that was never turned on is never opened at all.
     private func apply()
     {
         guard connected, let transport else { return }
-        if isEnabled
+        engine.isMuted = !isEnabled
+        guard isEnabled, !engine.isCapturing else { return }
+        do
         {
-            guard !capture.isRunning else { return }
-            do
-            {
-                let stream = try self.stream ?? transport.createOutgoingMediaStream(mediaId: Self.mediaId)
-                self.stream = stream
-                try capture.start(sending: stream)
-                micLogger.info("Microphone on, voice processing: \(capture.voiceProcessingEnabled)")
-            }
-            catch
-            {
-                micLogger.error("Could not start the microphone: \(error)")
-            }
+            let stream = try self.stream ?? transport.createOutgoingMediaStream(mediaId: Self.mediaId)
+            self.stream = stream
+            try engine.startCapture(sending: stream)
+            micLogger.info("Microphone on, voice processing: \(engine.voiceProcessingEnabled)")
         }
-        else
+        catch
         {
-            capture.stop()
+            micLogger.error("Could not start the microphone: \(error)")
         }
     }
 }

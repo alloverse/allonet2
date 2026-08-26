@@ -127,7 +127,18 @@ open class AudioRingBuffer: Cancellable, CustomStringConvertible
     @discardableResult
     public func read(into buffers: [UnsafeMutablePointer<Float32>], frames: Int) -> Int
     {
-        let requestedChannels = buffers.count
+        buffers.withUnsafeBufferPointer {
+            guard let base = $0.baseAddress else { return 0 }
+            return read(into: base, frames: frames)
+        }
+    }
+
+    /// The same read, without the array: callable from an audio render callback, where an
+    /// allocation is a glitch waiting for a busy moment. `buffers` must have at least
+    /// `channels` entries.
+    @discardableResult
+    public func read(into buffers: UnsafePointer<UnsafeMutablePointer<Float32>>, frames: Int) -> Int
+    {
         if frames == 0 { return 0 }
         let readable = availableToRead()
         if readable == 0 { return 0 }
