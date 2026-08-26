@@ -32,6 +32,10 @@ public struct PlayoutRateController: Sendable
     public static let slewPerSecond: Float = 0.1
     /// Depth error below this is that same quantisation, not drift worth correcting.
     public static let deadband: Float = 0.5
+    /// Longest gap one update may act on, sized to the pump's 10 ms tick. Without it a stalled
+    /// pump cashes the whole stall in as a single step, and `rateLimits` is only 4 % wide: a
+    /// 0.4 s gap already crosses the entire range, heard as a pitch step rather than a slew.
+    public static let maximumUpdateInterval: TimeInterval = 0.01
 
     /// What playout should run at now. 1 is the sender's clock.
     public private(set) var rate: Float = 1
@@ -42,15 +46,15 @@ public struct PlayoutRateController: Sendable
     ///
     /// - Parameter error: buffered depth minus target depth, in 20 ms frames. Positive means
     ///   too much audio is queued, so playout should speed up to give it back.
-    /// - Parameter dt: seconds since the previous update; bounds how far the rate may move, so
-    ///   a stalled pump resumes gently rather than jumping.
+    /// - Parameter dt: seconds since the previous update; bounds how far the rate may move. Taken
+    ///   as at most `maximumUpdateInterval`, so a stalled pump resumes gently rather than jumping.
     @discardableResult
     public mutating func update(error: Float, dt: TimeInterval) -> Float
     {
         let desired = abs(error) < Self.deadband
             ? 1
             : min(max(1 + Self.proportionalGain * error, Self.rateLimits.lowerBound), Self.rateLimits.upperBound)
-        let step = Self.slewPerSecond * Float(min(max(dt, 0), 1))
+        let step = Self.slewPerSecond * Float(min(max(dt, 0), Self.maximumUpdateInterval))
         rate += min(max(desired - rate, -step), step)
         return rate
     }
