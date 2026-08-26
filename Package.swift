@@ -27,7 +27,7 @@ let applePlatformTargets: [Target] = [
         .product(name: "GLTFKit2", package: "GLTFKit2"),
     ]),
     .testTarget(name: "AlloAudioTests", dependencies: ["AlloAudio"]),
-    .testTarget(name: "AlloRealityTests", dependencies: ["AlloReality"]),
+    .testTarget(name: "AlloRealityTests", dependencies: ["AlloReality", "alloclient", "allonet2"]),
     .executableTarget(name: "voicedemo", dependencies: ["allonet2", "AlloAudio", "AlloOpus"]),
 ]
 let applePlatformProducts: [Product] = [

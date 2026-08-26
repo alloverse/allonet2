@@ -21,7 +21,9 @@ public class SpatialAudioPlayer
     let client: AlloUserClient
     let listenerEid: EntityID? = nil
     let addon: ListenerAddon?
-    fileprivate var state: [MediaStreamId: SpatialAudioPlaybackState] = [:]
+    /// Which gui entity each stream we currently play is attached to. Playout resources only:
+    /// emptied whenever a stream stops, including while merely deafened.
+    private var playing: [MediaStreamId: EntityID] = [:]
     var streamCancellables: Set<AnyCancellable> = []
     var listenerCancellables: Set<AnyCancellable> = []
     var logger: Logger! = Logger(labelSuffix: "spatialaudioplayer")
@@ -74,11 +76,15 @@ public class SpatialAudioPlayer
         sessionCancellables.forEach { $0.cancel() }; sessionCancellables.removeAll()
         // Whatever was playing came over the connection we just lost; the place will send the
         // streams that still exist again once we are announced on the new one.
-        for streamId in state.keys { stop(streamId: streamId) }
+        for streamId in playing.keys { stop(streamId: streamId) }
     }
 
     private var listener: allonet2.Entity? = nil
+    /// The media around us we want to hear, and what the addon wants done with their samples.
+    /// Both follow the `LiveMedia` components, not the streams: the place stops forwarding while
+    /// we are deafened, and the very same media ids come back on undeafen.
     private var streamIds = Set<MediaStreamId>()
+    private var pcmCallbacks: [MediaStreamId: PCMCallback] = [:]
     /// Ask the place to forward the streams we want to hear — none while deafened.
     /// `speakerEnabled` is passed in because a $speakerEnabled sink fires on willSet.
     private func updateListener(speakerEnabled: Bool)
@@ -123,16 +129,20 @@ public class SpatialAudioPlayer
         // Setup listeners to get incoming tracks. Just ask to get everything (except our own audio) forwarded.
         self.listener = listener
         streamIds.removeAll()
+        pcmCallbacks.removeAll()
         client.placeState.observers[LiveMedia.self].addedWithInitial.sink { eid, liveMedia in
             guard let edata = self.client.placeState.current.entities[eid] else { return }
             guard edata.ownerClientId != self.client.cid else { return }
             self.streamIds.insert(liveMedia.mediaId)
-            let callback = self.addon?.mediaAdded(eid, liveMedia)
-            self.state[liveMedia.mediaId] = SpatialAudioPlaybackState(streamId: liveMedia.mediaId, eid: eid, callback: callback)
+            self.pcmCallbacks[liveMedia.mediaId] = self.addon?.mediaAdded(eid, liveMedia)
             self.updateListener(speakerEnabled: self.client.speakerEnabled)
+            // The stream can be here before the component explaining it, on a reconnection or
+            // when an entity gains LiveMedia while its channel is already open.
+            if let stream = self.client.session.incomingStreams[liveMedia.mediaId] { self.play(stream: stream) }
         }.store(in: &listenerCancellables)
         client.placeState.observers[LiveMedia.self].removed.sink { edata, liveMedia in
             self.streamIds.remove(liveMedia.mediaId)
+            self.pcmCallbacks[liveMedia.mediaId] = nil
             self.updateListener(speakerEnabled: self.client.speakerEnabled)
             self.stop(streamId: liveMedia.mediaId)
             self.addon?.mediaRemoved(edata.id, liveMedia)
@@ -147,12 +157,11 @@ public class SpatialAudioPlayer
         streamLogger.info("Playing \(stream)")
 
         guard
-            let playState = state[stream.mediaId],
-            let netent = client.placeState.current.entities[playState.eid],
-            let guient = mapper.guiForEid(playState.eid)
+            let eid = entity(carrying: stream.mediaId),
+            let guient = mapper.guiForEid(eid)
         else
         {
-            streamLogger.error("Should not be possible to get a stream without corresponding state and entities")
+            streamLogger.error("No entity around us carries LiveMedia \(stream.mediaId); not playing it")
             return
         }
         guard let stream = stream as? DataChannelMediaStream else
@@ -161,28 +170,36 @@ public class SpatialAudioPlayer
             return
         }
 
-        do { try client.voiceEngine.play(stream, pcm: playState.pcmCallback) }
+        playing[stream.mediaId] = eid
+        do { try client.voiceEngine.play(stream, pcm: pcmCallbacks[stream.mediaId]) }
         catch
         {
-            streamLogger.error("Failed to play voice from entity \(netent.id): \(error)")
-            stop(streamId: playState.streamId)
+            streamLogger.error("Failed to play voice from entity \(eid): \(error)")
+            stop(streamId: stream.mediaId)
             return
         }
         // Which entity the position system should follow for this stream.
         guient.components.set(VoiceSourceComponent(mediaId: stream.mediaId, engine: client.voiceEngine))
-        streamLogger.info("Successfully set up audio renderer \(netent.id)")
+        streamLogger.info("Successfully set up audio renderer \(eid)")
+    }
+
+    /// The entity whose `LiveMedia` names `mediaId`, as the place has it right now. Asked of the
+    /// world on every stream rather than remembered from when the component arrived: a stream
+    /// outlives no component, but a component outlives many streams.
+    private func entity(carrying mediaId: MediaStreamId) -> EntityID?
+    {
+        client.placeState.current.components[LiveMedia.self].first { $0.value.mediaId == mediaId }?.key
     }
 
     func stop(streamId: MediaStreamId)
     {
-        guard let playState = state[streamId] else { return }
+        guard let eid = playing.removeValue(forKey: streamId) else { return }
         var streamLogger = logger!
         streamLogger[metadataKey: "mediaId"] = .string(streamId)
-        streamLogger.info("Stopping \(playState.streamId); tearing down LiveMedia renderer")
+        streamLogger.info("Stopping \(streamId); tearing down LiveMedia renderer")
 
         client.voiceEngine.stop(mediaId: streamId)
-        state[streamId] = nil
-        mapper.guiForEid(playState.eid)?.components.remove(VoiceSourceComponent.self)
+        mapper.guiForEid(eid)?.components.remove(VoiceSourceComponent.self)
     }
     
     /// Stop playing, and let go of everything this player set up. The engine itself keeps
@@ -192,7 +209,9 @@ public class SpatialAudioPlayer
         streamCancellables.forEach { $0.cancel() }; streamCancellables.removeAll()
         listenerCancellables.forEach { $0.cancel() }; listenerCancellables.removeAll()
         sessionCancellables.forEach { $0.cancel() }; sessionCancellables.removeAll()
-        for streamId in state.keys { stop(streamId: streamId) }
+        for streamId in playing.keys { stop(streamId: streamId) }
+        streamIds.removeAll()
+        pcmCallbacks.removeAll()
     }
     
     public typealias PCMCallback = VoiceEngine.PCMCallback
@@ -207,19 +226,3 @@ public class SpatialAudioPlayer
         }
     }
 }
-
-@MainActor
-fileprivate class SpatialAudioPlaybackState
-{
-    let streamId: MediaStreamId
-    let eid: EntityID
-    let pcmCallback: SpatialAudioPlayer.PCMCallback?
-
-    fileprivate init(streamId: MediaStreamId, eid: EntityID, callback: SpatialAudioPlayer.PCMCallback? = nil)
-    {
-        self.streamId = streamId
-        self.eid = eid
-        self.pcmCallback = callback
-    }
-}
-

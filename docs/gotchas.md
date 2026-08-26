@@ -43,6 +43,11 @@ Hard-won non-obvious facts. Fold a new one in here when it doesn't fit a topic d
   `AlloReality/SpatialAudioPlayer.start()`**, which subscribes to `client.session.$incomingStreams`
   once, so a visor stops receiving any audio after a reconnect. Now that reconnections actually
   happen, that is reachable.
+- A voice stream comes and goes under a `LiveMedia` component that stays put: deafening sets
+  `LiveMediaListener(mediaIds: [])`, the SFU closes the forwarding channel, and the same media id
+  is forwarded again on undeafen. So whatever a stream needs in order to play must be looked up in
+  `placeState.current` as it arrives, never remembered from the one time the `added` observer
+  fired — `addedWithInitial` only replays per new subscription, and no component was ever removed.
 - A response that arrives in the same breath as a disconnect is thrown away: inbound interactions
   reach the main actor one `Task` hop late (the nonisolated decode), while
   `AlloSession.transport(didDisconnect:)` runs synchronously and abandons every outstanding request
