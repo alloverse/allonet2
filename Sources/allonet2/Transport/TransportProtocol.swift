@@ -188,18 +188,40 @@ public enum MediaStreamDirection: UInt32
 /// signature or a dictionary key says which of the two it is. See docs/voice.md.
 public typealias MediaStreamId = String
 
-// TODO: XXX, there is confusion whether this represents a 'stream' or a 'track'. In GoogleWebRTC, a Stream is a bundle of tracks. libdatachannel doesn't use this abstraction. This API uses MediaStream interchangeably as both, and mediaID can be either the streamId or streamId+trackId. This is confusing. Fix it!
+/// One media stream, flowing one way: today, one data channel carrying one mono voice stream.
+///
+/// There is no track layer under this and no bundle over it - a stream is not a set of
+/// anything, and nothing is multiplexed inside one. `DataChannelMediaStream` is the only
+/// implementation, and the same object serves all three roles: a sender writes frames to it,
+/// the place copies its bytes onward, a receiver decodes them. See docs/voice.md.
 public protocol MediaStream: CustomStringConvertible
 {
-    // PlaceServer side for incoming streams: This will be a single-component stream ID in the client's own namespace
-    // In all other cases (clients, place outgoing streams): This will be a two-component PlaceStreamId
+    /// Which stream this is; see `MediaStreamId` for the two shapes it takes.
+    ///
+    /// Single-component, in the sending client's own namespace, on the place's incoming side.
+    /// The two-component `PlaceStreamId` string everywhere else - the place's outgoing streams,
+    /// and every stream a client holds.
     var mediaId: MediaStreamId { get }
+
+    /// Which way frames move on this peer's end of the stream: `.sendonly` for one this peer
+    /// opened, `.recvonly` for one it adopted from a peer.
     var streamDirection: MediaStreamDirection { get }
-    
-    // XXX: Move to AudioTrack and add an array of audiotracks here
+
+    /// This stream's decoded audio, and the act of starting to decode it.
+    ///
+    /// The first call starts a decode pump that drains the jitter buffer into a ring buffer at
+    /// playout rate; every later call hands back that same buffer, so several renderers share
+    /// one decode. The caller drains it - typically from an audio device's render callback -
+    /// and `cancel()`s it to stop the pump. Until someone calls this, nothing is decoded, which
+    /// is how the place forwards a stream while linking no codec at all.
     func render() -> AudioRingBuffer
 }
 
+/// A local audio source the user can mute without disturbing the stream it feeds.
+///
+/// `AlloUserClient.createMicrophoneTrackIfNeeded()` hands one out for the microphone. Setting
+/// `isEnabled` starts and stops capture; the stream, its data channel and its listeners are
+/// untouched, so unmuting is silent-to-audible with no renegotiation and no rejoin.
 public protocol AudioTrack
 {
     var isEnabled: Bool { get set }
@@ -218,11 +240,11 @@ public protocol MediaStreamForwarder
 // Identifies a single `MediaStream` in the namespace of the entire place. Used as key for hash lookups of `PlaceStream`s
 public struct PlaceStreamId: Equatable, Hashable, Codable, CustomStringConvertible
 {
-    // Shortened version of the sending client's ID (to fit in sdp)
+    // Shortened version of the sending client's ID, to keep the id readable
     public let shortClientId: String
     // A single MediaStream ID in the namespace of the sending client. Should not contain a period.
     public let incomingMediaId: MediaStreamId
-    // String version of the place stream ID, that is used in WebRTC as the MID sent to receiving clients. Contains a period separating the shortened client ID and the mediaId.
+    // String version of the place stream ID, which is the media id every listener sees. Contains a period separating the shortened client ID and the mediaId.
     public var outgoingMediaId: MediaStreamId {
         return "\(shortClientId).\(incomingMediaId)"
     }
