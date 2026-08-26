@@ -144,11 +144,34 @@ public final class JitterBuffer: @unchecked Sendable
         frames[frame.sequence] = frame
 
         // Consumer not draining: drop the oldest rather than grow without bound.
+        var dropped = false
         while frames.count > configuration.maximumDepth * 2, let oldest = frames.keys.min(by: { $1.isNewerSequence(than: $0) })
         {
             frames.removeValue(forKey: oldest)
             counters.update { $0.overflowed += 1 }
+            dropped = true
         }
+        // Playout cannot be left behind what survived. Matching the playhead against each frame
+        // dropped is not enough: the frame it names may itself be one that never arrived, so it
+        // matches nothing, and resuming then conceals a slot per tick until the concealment limit
+        // throws away every frame that was still good.
+        if dropped, let current = playhead,
+           let oldestRetained = frames.keys.min(by: { $1.isNewerSequence(than: $0) }),
+           oldestRetained.isNewerSequence(than: current)
+        {
+            playhead = oldestRetained
+        }
+    }
+
+    /// Whether `nextStep` would conceal: the playhead's frame is missing and nothing carries
+    /// FEC for it. Playout asks first, so a gap that decoded audio already queued downstream can
+    /// still cover waits for the frame instead of spending the slot on concealment. Priming is
+    /// not concealment, so this is false until playout has started.
+    public func wouldConceal(codecSupportsFEC: Bool) -> Bool
+    {
+        lock.lock(); defer { lock.unlock() }
+        guard let current = playhead, frames[current] == nil else { return false }
+        return !(codecSupportsFEC && frames[current &+ 1] != nil)
     }
 
     /// Decide what the next 20 ms of playout should be, and advance.

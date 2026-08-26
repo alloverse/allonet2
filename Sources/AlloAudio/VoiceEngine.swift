@@ -114,10 +114,15 @@ public final class VoiceEngine
         engine.stop()
     }
 
-    /// What the output device adds after the render block: buffering, conversion and the
-    /// hardware. Not part of a render-callback-to-capture measurement, so report it alongside
-    /// one rather than pretending it is not there.
-    public var outputLatency: TimeInterval { engine.outputNode.presentationLatency }
+    /// What the graph adds after a stream's render block: the rate node, mixing, conversion and
+    /// the hardware. Not part of a render-callback-to-capture measurement, so report it
+    /// alongside one rather than pretending it is not there - and it is the number that catches
+    /// a rate node with a lookahead window in it.
+    public var outputLatency: TimeInterval
+    {
+        max(sources.values.map(\.node.outputPresentationLatency).max() ?? 0,
+            engine.outputNode.presentationLatency)
+    }
 
     // MARK: - Capture
 
@@ -320,6 +325,8 @@ public final class VoiceEngine
     private struct Source
     {
         let node: AVAudioSourceNode
+        let rateNode: AVAudioUnitVarispeed
+        let stream: DataChannelMediaStream
         let ring: AudioRingBuffer
         var position: SIMD3<Float> = .zero
         var positioned = false   // gates audible: silent until setPosition first runs for this id
@@ -328,6 +335,7 @@ public final class VoiceEngine
         var appliedVolume: Float?   // nil until the first apply, which must reach the node
     }
     private var sources: [String: Source] = [:]
+    private var rateTicker: Task<Void, Never>?
 
     /// Play `stream` as one spatialised source. `pcm` is handed the rendered samples on the
     /// audio thread, for a level meter or a speaking indicator.
@@ -345,11 +353,15 @@ public final class VoiceEngine
             pcm?(buffers, Int(frameCount))
             return noErr
         }
+        // Playing a little fast or slow is how buffered depth shrinks; see PlayoutRateController.
+        let rateNode = AVAudioUnitVarispeed()
         engine.attach(source)
+        engine.attach(rateNode)
+        engine.connect(source, to: rateNode, format: voiceFormat)
         // The environment node spatialises one mono source per input bus.
-        engine.connect(source, to: environment, fromBus: 0, toBus: environment.nextAvailableInputBus, format: voiceFormat)
+        engine.connect(rateNode, to: environment, fromBus: 0, toBus: environment.nextAvailableInputBus, format: voiceFormat)
         source.renderingAlgorithm = Self.renderingAlgorithm
-        sources[stream.mediaId] = Source(node: source, ring: ring)
+        sources[stream.mediaId] = Source(node: source, rateNode: rateNode, stream: stream, ring: ring)
         // Starts silent: a position may not land until the next scene update, and rendering
         // before then would play this source at the listener's spot at full volume.
         applyVolume(to: stream.mediaId)
@@ -359,10 +371,12 @@ public final class VoiceEngine
         {
             sources[stream.mediaId] = nil
             engine.detach(source)
+            engine.detach(rateNode)
             ring.cancel()
             throw Failure.playoutFailed(mediaId: stream.mediaId, underlying: error)
         }
-        logger.info("Playing \(stream.mediaId)")
+        startRateTicker()
+        logger.info("Playing \(stream.mediaId), \(String(format: "%.1f", outputLatency * 1000)) ms downstream of its render block")
     }
 
     public func stop(mediaId: String)
@@ -370,8 +384,38 @@ public final class VoiceEngine
         guard let source = sources.removeValue(forKey: mediaId) else { return }
         source.ring.cancel()   // stops the stream's decode pump
         engine.detach(source.node)
+        engine.detach(source.rateNode)
+        if sources.isEmpty { rateTicker?.cancel(); rateTicker = nil }
         stopIfIdle()
         logger.info("Stopped \(mediaId)")
+    }
+
+    /// Each stream decides its own playout rate from how much it has buffered; this hands the
+    /// latest one to its rate node. An AU parameter set is safe off the render thread, and the
+    /// controller slews far too slowly for 50 ms to be coarse.
+    ///
+    /// Cancellation returns rather than falling through to one last pass: by then `stop` has
+    /// detached the nodes this would write to, and a replacement ticker may already be running.
+    private func startRateTicker()
+    {
+        guard rateTicker == nil else { return }
+        rateTicker = Task { [weak self] in
+            while true
+            {
+                do { try await Task.sleep(nanoseconds: 50_000_000) }
+                catch is CancellationError { return }   // the only way out, and not a failure
+                catch
+                {
+                    self?.logger.error("Playout rate steering stopped: \(error)")
+                    return
+                }
+                guard let self else { return }
+                for source in sources.values where source.rateNode.rate != source.stream.playoutRate
+                {
+                    source.rateNode.rate = source.stream.playoutRate
+                }
+            }
+        }
     }
 
     /// Stop everything: playout, capture, and the engine itself.

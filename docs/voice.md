@@ -58,7 +58,7 @@ Nine-byte header, big-endian, then the codec payload:
 
 ## Pipeline
 
-    capture -> encode -> frame -> channel -> [place: copy bytes] -> channel -> jitter buffer -> decode -> ring buffer -> VoiceEngine source node -> environment node -> device
+    capture -> encode -> frame -> channel -> [place: copy bytes] -> channel -> jitter buffer -> decode -> ring buffer -> VoiceEngine source node -> rate node -> environment node -> device
 
 `DataChannelMediaStream` is the stream in all three roles: a sender encodes and writes, the
 place routes, a receiver buffers and decodes. `DataChannelForwarder` is the entire server-side
@@ -67,6 +67,12 @@ media path: it copies bytes from one channel to another.
 On the receiver, the jitter buffer (`JitterBuffer`) holds frames by sequence and hands out
 one 20 ms step at a time; its depth adapts to observed arrival jitter. Decoded audio goes into
 an `AudioRingBuffer` that the audio device drains at its own rate.
+
+The two are **one queue**, and the whole queue is the latency. `DataChannelMediaStream` measures
+frames plus ring samples against the depth jitter asks for, and closes the gap by playing a
+percent or two off the sender's clock (`PlayoutRateController`, applied by the rate node in front
+of the spatialiser). Catching up therefore costs no audio: nothing is dropped and nothing is
+inserted.
 
 ## Loss handling
 
@@ -120,6 +126,10 @@ channel are a trust boundary and both are bounded:
   `isVoiceProcessingInputMuted` rather than stopping capture, so the voice processor keeps
   rendering the reference playout needs for echo cancellation. The OS therefore reports the
   microphone as in use, as it does in FaceTime.
+- **Catching up shifts the pitch a little.** The rate node is `AVAudioUnitVarispeed`, which
+  resamples, so a stream correcting its depth plays up to 2 % (34 cents) off pitch until it is
+  back on target. The pitch-preserving `AVAudioUnitTimePitch` measured 85 ms of added pipeline
+  latency on macOS 26.5.2, at every `overlap` setting - more delay than the correction removes.
 - **Apple platforms other than macOS need libdatachannel slices.** `datachannel.xcframework`
   ships `macos-arm64` and `linux-x86_64`. iOS or visionOS clients need their slices added in
   AlloDataChannel's `Scripts/build-libdatachannel.sh` first.
