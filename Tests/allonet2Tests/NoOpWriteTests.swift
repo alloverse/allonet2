@@ -110,6 +110,48 @@ import OpenCombineShim
         #expect(server.place.current.revision == revision + 1)
     }
 
+    /// Two requests inside one coalescing window can walk a value away and back. Each queues a real
+    /// change, so the beat is not empty - but its net effect on the place is.
+    @Test mutating func aValueRestoredByALaterRequestInTheSameBeatCommitsNothing() async throws
+    {
+        let server = makeServer()
+        let client = try await makeAppClient(on: server)
+        let ent = try await server.createEntity(from: EntityDescription(components: [Opacity(opacity: 0.5)]), for: client)
+        await server.heartbeat.awaitNextSync()
+        let revision = server.place.current.revision
+
+        var opacityUpdates = 0
+        server.place.observers[Opacity.self].updated.sink { _ in opacityUpdates += 1 }.store(in: &cancellables)
+
+        try await server.changeEntity(eid: ent.id, addOrChange: [AnyComponent(Opacity(opacity: 0.75))], remove: [], for: client)
+        try await server.changeEntity(eid: ent.id, addOrChange: [AnyComponent(Opacity(opacity: 0.5))], remove: [], for: client)
+        try #require(server.outstandingPlaceChanges.count == 2, "both requests must land in one beat, or this tests nothing")
+        await server.heartbeat.awaitNextSync()
+
+        #expect(server.place.current.revision == revision, "the beat lands where the place already was")
+        #expect(server.place.current.components[Opacity.self][ent.id]?.opacity == 0.5)
+        #expect(opacityUpdates == 0, "and no observer hears about the value it walked through")
+    }
+
+    /// The dangerous shortcut: dropping queued changes that match committed state one by one would
+    /// drop the re-add and keep the removal, deleting a component the caller asked to keep.
+    @Test func aRemoveAndReAddOfTheSameValueInOneBeatKeepsTheComponent() async throws
+    {
+        let server = makeServer()
+        let client = try await makeAppClient(on: server)
+        let ent = try await server.createEntity(from: EntityDescription(components: [Opacity(opacity: 0.5)]), for: client)
+        await server.heartbeat.awaitNextSync()
+        let revision = server.place.current.revision
+
+        try await server.changeEntity(eid: ent.id, addOrChange: [], remove: [Opacity.componentTypeId], for: client)
+        try await server.changeEntity(eid: ent.id, addOrChange: [AnyComponent(Opacity(opacity: 0.5))], remove: [], for: client)
+        try #require(server.outstandingPlaceChanges.count == 2, "both requests must land in one beat, or this tests nothing")
+        await server.heartbeat.awaitNextSync()
+
+        #expect(server.place.current.components[Opacity.self][ent.id]?.opacity == 0.5, "removed and put back is the state it started in")
+        #expect(server.place.current.revision == revision, "which costs nothing to commit")
+    }
+
     /// A write folded in after a removal queued in the same beat projects as an add, which would
     /// store a component under an entity the beat deletes - and answer success.
     @Test func aChangeToAnEntityThisBeatRemovesIsRefused() async throws
@@ -130,9 +172,9 @@ import OpenCombineShim
         #expect(server.place.current.components[Opacity.self][ent.id] == nil, "no component may outlive its entity")
     }
 
-    /// Called an update instead, this write is applied against a component the same changeset
-    /// removed, and the whole beat's changes fail with it.
-    @Test func aRemoveAndReAddInOneBeatIsAnAdd() async throws
+    /// The beat nets to a plain update of the committed value; the intermediate removal never
+    /// reaches the changeset, which could not have applied a write against what it just removed.
+    @Test func aRemoveAndReAddWithANewValueLandsTheNewValue() async throws
     {
         let server = makeServer()
         let client = try await makeAppClient(on: server)

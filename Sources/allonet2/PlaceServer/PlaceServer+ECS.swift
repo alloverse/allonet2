@@ -60,13 +60,15 @@ extension PlaceServer
 
     func applyAndBroadcastState()
     {
-        // An empty beat still broadcasts (keepalive) but must not spend a revision; see docs/architecture.md.
-        if !outstandingPlaceChanges.isEmpty
+        // A beat that changes nothing still broadcasts (keepalive) but must not spend a revision;
+        // see docs/architecture.md.
+        let changes = netChanges(outstandingPlaceChanges)
+        outstandingPlaceChanges.removeAll()
+        pendingRemovals.removeAll()
+        if !changes.isEmpty
         {
-            let success = place.applyChangeSet(PlaceChangeSet(changes: outstandingPlaceChanges, fromRevision: place.current.revision, toRevision: place.current.revision + 1))
+            let success = place.applyChangeSet(PlaceChangeSet(changes: changes, fromRevision: place.current.revision, toRevision: place.current.revision + 1))
             assert(success) // bug if this doesn't succeed
-            outstandingPlaceChanges.removeAll()
-            pendingRemovals.removeAll()
             sweepOrphans()
         }
         for client in clients.values {
@@ -75,6 +77,50 @@ extension PlaceServer
 
             client.session.send(placeChangeSet: changeSet)
         }
+    }
+
+    /// The beat's queued changes reduced to their net effect on committed state: the last write of
+    /// each component wins, and one that lands back on the committed value is dropped along with
+    /// everything it superseded. Requests inside one coalescing window can walk a value away and
+    /// back; committing that would spend a revision, and fire observers, to change nothing.
+    /// Per queued change, not per entity in the world - the beat is small, the place is not.
+    private func netChanges(_ changes: [PlaceChange]) -> [PlaceChange]
+    {
+        struct Key: Hashable { let eid: EntityID; let ctid: ComponentTypeID }
+
+        var lastWrite: [Key: Int] = [:]
+        for (index, change) in changes.enumerated()
+        {
+            switch change
+            {
+            case .componentAdded(let eid, let comp), .componentUpdated(let eid, let comp):
+                lastWrite[Key(eid: eid, ctid: comp.componentTypeId)] = index
+            case .componentRemoved(let edata, let comp):
+                lastWrite[Key(eid: edata.id, ctid: comp.componentTypeId)] = index
+            default: break
+            }
+        }
+
+        var net: [PlaceChange] = []
+        for (index, change) in changes.enumerated()
+        {
+            switch change
+            {
+            case .componentAdded(let eid, let comp), .componentUpdated(let eid, let comp):
+                guard lastWrite[Key(eid: eid, ctid: comp.componentTypeId)] == index else { continue }
+                let committed = place.current.components[comp.componentTypeId]?[eid]
+                guard committed != comp else { continue }
+                // Reclassified against committed state, since the changes this one superseded are gone.
+                net.append(committed == nil ? .componentAdded(eid, comp) : .componentUpdated(eid, comp))
+            case .componentRemoved(let edata, let comp):
+                guard lastWrite[Key(eid: edata.id, ctid: comp.componentTypeId)] == index,
+                      place.current.components[comp.componentTypeId]?[edata.id] != nil else { continue }
+                net.append(change)
+            default:
+                net.append(change)
+            }
+        }
+        return net
     }
 
     /// Steps avatar movement at a fixed cadence while any client is moving; the heartbeat broadcasts the resulting changes.
