@@ -166,9 +166,19 @@ public extension Component
 @MainActor
 public struct ComponentLists
 {
+    /// Every component of a type, decoded. Decoding is done on each access and is not cached, so
+    /// this costs one decode per component in the place: reach for it when you want the whole
+    /// list, and for `[componentType, of:]` when you want one entity's.
     public subscript<T>(componentType: T.Type) -> [EntityID: T] where T : Component
     {
         return (decodedLists[componentType.componentTypeId] ?? [:]) as! [EntityID: T]
+    }
+    /// One entity's component of a type, or nil if it hasn't got one (or its payload doesn't
+    /// decode as `T`). Decodes that one component; `[componentType][entityId]` decodes the whole
+    /// place's worth to answer the same question.
+    public subscript<T>(componentType: T.Type, of entityId: EntityID) -> T? where T : Component
+    {
+        return lists[componentType.componentTypeId]?[entityId]?.decoded(as: T.self)
     }
     public subscript(componentTypeID: ComponentTypeID) -> [EntityID: AnyComponent]?
     {
