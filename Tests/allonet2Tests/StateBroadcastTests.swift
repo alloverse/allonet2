@@ -86,6 +86,38 @@ import PotentCBOR
         #expect(stale.changes.count == 2, "both revisions it missed, in one changeset")
     }
 
+    /// `AnyComponent` decodes its type id and its payload independently, so a peer can send a
+    /// payload that isn't the type it claims. Stored, every simulation that reads it back can only
+    /// treat it as absent — the avatar silently stops moving — so it is refused where it arrives.
+    @Test func aComponentWhosePayloadIsNotItsTypeIsRefused() async throws
+    {
+        let server = makeServer()
+        let app = try await makeClient(on: server, app: true)
+        let ent = try await server.createEntity(from: EntityDescription(components: [Opacity(opacity: 0.5)]), for: app)
+        await server.heartbeat.awaitNextSync()
+        let revision = server.place.current.revision
+        let bad = ComponentAccessTests.mislabelled(Opacity(opacity: 0.5), as: Transform.self)
+
+        let changeError = await #expect(throws: AlloverseError.self) {
+            try await server.changeEntity(eid: ent.id, addOrChange: [bad], remove: [], for: app)
+        }
+        #expect(changeError?.description.contains(Transform.componentTypeId) == true, "names the type")
+        #expect(changeError?.description.contains(ent.id) == true, "and the entity it was meant for")
+
+        await #expect(throws: AlloverseError.self, "and on the way in as a new entity too") {
+            _ = try await server.createEntity(from: try Self.wireDescription(components: [bad]), for: app)
+        }
+        // A child's components are as untrusted as its parent's.
+        await #expect(throws: AlloverseError.self) {
+            _ = try await server.createEntity(
+                from: try Self.wireDescription(children: [Self.wireDescription(components: [bad])]), for: app)
+        }
+
+        await server.heartbeat.awaitNextSync()
+        #expect(server.place.current.revision == revision, "nothing malformed was committed")
+        #expect(server.place.current.components[Transform.componentTypeId]?[ent.id]?.isWellFormed != false)
+    }
+
     /// A removal and a re-add are the cases the shared diff could get wrong for one client and
     /// not another, so pin that every client's changeset applies cleanly onto what it acked.
     @Test func everyClientsChangesetAppliesOntoWhatItAcked() async throws
@@ -126,5 +158,16 @@ import PotentCBOR
             #expect(mirror.current.changeSet(from: server.place.current).changes.isEmpty,
                     "every client converges on the place as it is")
         }
+    }
+
+    /// An EntityDescription as it arrives off the wire, where components are type-erased and
+    /// nothing has checked them. The public initialiser takes concrete Components, which a peer
+    /// is under no obligation to have sent.
+    static func wireDescription(components: [AnyComponent] = [], children: [EntityDescription] = []) throws -> EntityDescription
+    {
+        struct Wire: Encodable { let components: [AnyComponent]; let children: [EntityDescription] }
+        return try CBORDecoder().decode(
+            EntityDescription.self,
+            from: try CBOREncoder().encode(Wire(components: components, children: children)))
     }
 }

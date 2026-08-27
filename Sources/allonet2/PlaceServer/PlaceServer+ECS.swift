@@ -307,9 +307,10 @@ extension PlaceServer
         // commits or one created here; otherwise the place would hold a child nothing can render.
         var willExist = projectedEntities
         for case .entityAdded(let e) in changes { willExist.insert(e.id) }
-        for change in changes
+        for case .componentAdded(let eid, let comp) in changes
         {
-            guard case .componentAdded(let eid, let comp) = change, let rel = try relationship(in: comp) else { continue }
+            try reject(malformed: comp, on: eid)
+            guard let rel = try relationship(in: comp) else { continue }
             guard willExist.contains(rel.parent) else {
                 throw AlloverseError(code: PlaceErrorCode.notFound, description: "Can't parent entity \(eid) to \(rel.parent): no such entity")
             }
@@ -432,6 +433,17 @@ extension PlaceServer
         return index
     }
 
+    /// Refuse a component whose payload doesn't decode as the type it names. Nothing in the wire
+    /// format ties the two together, and stored, such a component is indistinguishable from an
+    /// absent one to every simulation that reads it back — so it is turned away here, where the
+    /// entity it was meant for is still in hand to name.
+    private func reject(malformed comp: AnyComponent, on eid: EntityID) throws(AlloverseError)
+    {
+        guard !comp.isWellFormed else { return }
+        throw AlloverseError(code: PlaceErrorCode.invalidRequest,
+                             description: "Malformed \(comp.componentTypeId) payload for entity \(eid)")
+    }
+
     /// The `Relationships` in `comp`, or nil when it is another component. Throws rather than traps
     /// on a malformed payload: this runs on untrusted create/change input, and `decodedIfAvailable`
     /// force-tries the decode.
@@ -508,6 +520,7 @@ extension PlaceServer
         // cycle the tree - and a cycle corrupts every transformToWorld through it.
         for comp in addOrChange
         {
+            try reject(malformed: comp, on: eid)
             guard let rel = try relationship(in: comp) else { continue }
             guard rel.parent != eid, !descendants(of: eid, using: projectedChildIndex()).contains(rel.parent) else {
                 throw AlloverseError(code: PlaceErrorCode.invalidRequest, description: "Parenting \(eid) to \(rel.parent) would make a cycle")

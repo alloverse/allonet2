@@ -41,4 +41,39 @@ import Foundation
         #expect(world.components[Transform.self, of: "a"] == nil)
         #expect(world.components[Transform.self].isEmpty)
     }
+
+    /// Nothing in the wire format ties a component's payload to the type id it travels under, so
+    /// the check that they agree is what lets everything downstream assume they do.
+    @Test func aPayloadThatDoesntMatchItsTypeIdIsNotWellFormed() throws
+    {
+        Opacity.register()
+        Transform.register()
+        #expect(AnyComponent(Transform()).isWellFormed)
+        #expect(Self.mislabelled(Opacity(opacity: 0.5), as: Transform.self).isWellFormed == false)
+
+        var unknown = AnyComponent(Opacity(opacity: 0.5))
+        unknown.componentTypeId = "NotCompiledIntoThisBinary"
+        #expect(unknown.isWellFormed, "the place forwards components it can't decode without looking inside them")
+    }
+
+    /// Reachable only through a bug, since ingress refuses it — but if one is ever stored, reading
+    /// it must not trap, and must not pass for absence in the log either.
+    @Test func aMalformedStoredComponentReadsAsAbsent() throws
+    {
+        let ent = EntityData(id: "a", ownerClientId: UUID())
+        let world = try contents([
+            .entityAdded(ent),
+            .componentAdded(ent.id, Self.mislabelled(Opacity(opacity: 0.5), as: Transform.self)),
+        ])
+        #expect(world.components[Transform.self, of: ent.id] == nil)
+    }
+
+    /// A component carrying one type's payload under another's type id: what a peer can put on the
+    /// wire, since `AnyComponent` decodes the id and the payload independently.
+    static func mislabelled(_ component: some Component, as type: (some Component).Type) -> AnyComponent
+    {
+        var comp = AnyComponent(component)
+        comp.componentTypeId = type.componentTypeId
+        return comp
+    }
 }

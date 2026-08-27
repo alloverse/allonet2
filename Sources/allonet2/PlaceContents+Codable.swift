@@ -93,7 +93,19 @@ public struct AnyComponent: Codable, Equatable
     {
         return CustomComponent(typeId: componentTypeId, fields: anyValue)
     }
-    
+    /// Whether the payload decodes as the type it names. What the place checks before storing a
+    /// component off the wire: nothing in `AnyComponent`'s own decoding compares the two, and
+    /// `decoded()` force-tries, so a mismatch traps whoever reads it back instead of failing where
+    /// it arrived.
+    ///
+    /// A type this binary doesn't have is well-formed by definition: the place stores and forwards
+    /// components it cannot decode, and never looks inside them.
+    public var isWellFormed: Bool
+    {
+        guard let type = ComponentRegistry.shared.component(for: componentTypeId) else { return true }
+        return (try? AnyValueDecoder.default.decode(type, from: anyValue)) != nil
+    }
+
     // The type-erased content, available whether the concrete type is available or not
     public var anyValue: AnyValue
     public var componentTypeId: String
