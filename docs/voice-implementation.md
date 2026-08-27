@@ -123,7 +123,8 @@ side, an `AVAudioEnvironmentNode` fed by one `AVAudioSourceNode` per incoming st
 other. Capture and playout used to be two engines (and in the app, RealityKit's audio), so the
 voice processor cancelled nothing we rendered and *ducked* it instead - which the old code
 fought by pinning `voiceProcessingOtherAudioDuckingConfiguration` to its minimum. With one
-engine there is nothing foreign left to duck.
+engine there is nothing foreign left to duck *in our own graph* - but ducking is system-wide,
+so the pin stays: without it, starting capture silences Spotify and every other app.
 
 - Voice processing swaps the I/O unit, so it can only be toggled on a **stopped** engine and is
   fixed for the engine's lifetime (`VoiceEngine(voiceProcessing:)`, `VOICEDEMO_NO_VPIO`). A
