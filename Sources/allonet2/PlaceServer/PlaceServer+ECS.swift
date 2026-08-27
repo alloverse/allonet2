@@ -60,17 +60,67 @@ extension PlaceServer
 
     func applyAndBroadcastState()
     {
-        let success = place.applyChangeSet(PlaceChangeSet(changes: outstandingPlaceChanges, fromRevision: place.current.revision, toRevision: place.current.revision + 1))
-        assert(success) // bug if this doesn't succeed
+        // A beat that changes nothing still broadcasts (keepalive) but must not spend a revision;
+        // see docs/architecture.md.
+        let changes = netChanges(outstandingPlaceChanges)
         outstandingPlaceChanges.removeAll()
         pendingRemovals.removeAll()
-        sweepOrphans()
+        if !changes.isEmpty
+        {
+            let success = place.applyChangeSet(PlaceChangeSet(changes: changes, fromRevision: place.current.revision, toRevision: place.current.revision + 1))
+            assert(success) // bug if this doesn't succeed
+            sweepOrphans()
+        }
         for client in clients.values {
             let lastContents = client.ackdRevision.flatMap { place.getHistory(at: $0) } ?? PlaceContents(logger: logger)
             let changeSet = place.current.changeSet(from: lastContents)
 
             client.session.send(placeChangeSet: changeSet)
         }
+    }
+
+    /// The beat's queued changes reduced to their net effect on committed state: the last write of
+    /// each component wins, and one that lands back on the committed value is dropped along with
+    /// everything it superseded. Requests inside one coalescing window can walk a value away and
+    /// back; committing that would spend a revision, and fire observers, to change nothing.
+    /// Per queued change, not per entity in the world - the beat is small, the place is not.
+    private func netChanges(_ changes: [PlaceChange]) -> [PlaceChange]
+    {
+        struct Key: Hashable { let eid: EntityID; let ctid: ComponentTypeID }
+
+        var lastWrite: [Key: Int] = [:]
+        for (index, change) in changes.enumerated()
+        {
+            switch change
+            {
+            case .componentAdded(let eid, let comp), .componentUpdated(let eid, let comp):
+                lastWrite[Key(eid: eid, ctid: comp.componentTypeId)] = index
+            case .componentRemoved(let edata, let comp):
+                lastWrite[Key(eid: edata.id, ctid: comp.componentTypeId)] = index
+            default: break
+            }
+        }
+
+        var net: [PlaceChange] = []
+        for (index, change) in changes.enumerated()
+        {
+            switch change
+            {
+            case .componentAdded(let eid, let comp), .componentUpdated(let eid, let comp):
+                guard lastWrite[Key(eid: eid, ctid: comp.componentTypeId)] == index else { continue }
+                let committed = place.current.components[comp.componentTypeId]?[eid]
+                guard committed != comp else { continue }
+                // Reclassified against committed state, since the changes this one superseded are gone.
+                net.append(committed == nil ? .componentAdded(eid, comp) : .componentUpdated(eid, comp))
+            case .componentRemoved(let edata, let comp):
+                guard lastWrite[Key(eid: edata.id, ctid: comp.componentTypeId)] == index,
+                      place.current.components[comp.componentTypeId]?[edata.id] != nil else { continue }
+                net.append(change)
+            default:
+                net.append(change)
+            }
+        }
+        return net
     }
 
     /// Steps avatar movement at a fixed cadence while any client is moving; the heartbeat broadcasts the resulting changes.
@@ -440,9 +490,9 @@ extension PlaceServer
     func changeEntity(eid: EntityID, addOrChange: [AnyComponent], remove: [ComponentTypeID], for client: ConnectedClient?) async throws(AlloverseError)
     {
         (client?.logger ?? logger).trace("Changing entity \(eid)")
-        let ent = place.current.entities[eid]
-        
-        guard let ent = ent else {
+        // Projected, not just committed: a write folded in after a removal queued this beat would
+        // store a component under an entity that is gone by the time the beat commits.
+        guard let ent = place.current.entities[eid], projectedEntities.contains(eid) else {
             throw AlloverseError(code: PlaceErrorCode.notFound, description: "No such entity")
         }
         /*guard client == nil || ent.ownerAgentId == client!.cid.uuidString else {
@@ -462,16 +512,20 @@ extension PlaceServer
             }
         }
 
-        let addOrChanges = addOrChange.map
+        // Writing the value that is already there is not a change; see docs/architecture.md.
+        // Only the last write of each type counts: the ones it overwrites are never observable,
+        // and comparing each separately would commit a value the caller already replaced.
+        var lastWrite: [ComponentTypeID: Int] = [:]
+        for (index, comp) in addOrChange.enumerated() { lastWrite[comp.componentTypeId] = index }
+        var addOrChanges: [PlaceChange] = []
+        for (index, comp) in addOrChange.enumerated() where lastWrite[comp.componentTypeId] == index
         {
-            if let _ = place.current.components[$0.componentTypeId]?[eid]
-            {
-                return PlaceChange.componentUpdated(eid, $0)
+            guard let existing = projectedComponent(comp.componentTypeId, of: eid) else {
+                addOrChanges.append(.componentAdded(eid, comp))
+                continue
             }
-            else
-            {
-                return PlaceChange.componentAdded(eid, $0)
-            }
+            guard existing != comp else { continue }
+            addOrChanges.append(.componentUpdated(eid, comp))
         }
         let removals = try remove.map
         { (ctid: ComponentTypeID) throws(AlloverseError) -> PlaceChange in
@@ -480,8 +534,31 @@ extension PlaceServer
             }
             return PlaceChange.componentRemoved(ent, existing)
         }
-        
-        await appendChanges(addOrChanges + removals)
+
+        let changes = addOrChanges + removals
+        // The caller asked for a state the place already holds: success, and no beat to fire.
+        guard !changes.isEmpty else { return }
+        await appendChanges(changes)
+    }
+
+    /// The value a component type has on `eid` once this beat's queued changes commit, or nil when
+    /// it won't be there. Committed state can't see an earlier write in the same coalescing window,
+    /// so judging against it would call a re-add an update and make the whole changeset inapplicable.
+    private func projectedComponent(_ ctid: ComponentTypeID, of eid: EntityID) -> AnyComponent?
+    {
+        var value = place.current.components[ctid]?[eid]
+        for change in outstandingPlaceChanges
+        {
+            switch change
+            {
+            case .componentAdded(let changed, let comp), .componentUpdated(let changed, let comp):
+                if changed == eid, comp.componentTypeId == ctid { value = comp }
+            case .componentRemoved(let changed, let comp):
+                if changed.id == eid, comp.componentTypeId == ctid { value = nil }
+            default: break
+            }
+        }
+        return value
     }
 
 }
