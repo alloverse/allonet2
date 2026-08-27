@@ -50,7 +50,11 @@ struct VoiceDemo
 
         let client = VoiceDemoClient(
             url: url,
-            identity: Identity(expectation: .none, displayName: "VoiceDemo", emailAddress: "", authenticationToken: ProcessInfo.processInfo.environment["VOICEDEMO_TOKEN"] ?? ""),
+            identity: {
+                let token = ProcessInfo.processInfo.environment["VOICEDEMO_TOKEN"] ?? ""
+                // A token means announce as an app; .none would route into user auth, which wants a password.
+                return Identity(expectation: token.isEmpty ? .none : .app, displayName: "VoiceDemo", emailAddress: "", authenticationToken: token)
+            }(),
             avatarDescription: EntityDescription(),
             connectionOptions: TransportConnectionOptions(routing: .direct, bindAddress: ProcessInfo.processInfo.environment["VOICEDEMO_BIND"])
         )
