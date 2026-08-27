@@ -166,9 +166,29 @@ public extension Component
 @MainActor
 public struct ComponentLists
 {
+    /// Every component of a type, decoded. Decoding is done on each access and is not cached, so
+    /// this costs one decode per component in the place: reach for it when you want the whole
+    /// list, and for `[componentType, of:]` when you want one entity's.
     public subscript<T>(componentType: T.Type) -> [EntityID: T] where T : Component
     {
         return (decodedLists[componentType.componentTypeId] ?? [:]) as! [EntityID: T]
+    }
+    /// One entity's component of a type, or nil if it hasn't got one. Decodes that one component;
+    /// `[componentType][entityId]` decodes the whole place's worth to answer the same question.
+    ///
+    /// Every stored component decodes as the type it names — the place refuses one that doesn't at
+    /// ingress (`AnyComponent.isWellFormed`) — so a decode failure here is a broken invariant, not
+    /// absence. It is logged with the entity and the type, and read as nil: a component corrupted
+    /// by a bug must not take down every client in the place along with it.
+    public subscript<T>(componentType: T.Type, of entityId: EntityID) -> T? where T : Component
+    {
+        guard let stored = lists[componentType.componentTypeId]?[entityId] else { return nil }
+        guard let decoded = stored.decoded(as: T.self) else
+        {
+            Self.logger.error("Entity \(entityId) holds a \(T.componentTypeId) that does not decode as one — reading it as absent. A malformed component reached storage, which ingress should have refused.")
+            return nil
+        }
+        return decoded
     }
     public subscript(componentTypeID: ComponentTypeID) -> [EntityID: AnyComponent]?
     {
@@ -180,6 +200,8 @@ public struct ComponentLists
     {
         lists = [:]
     }
+
+    private static let logger = Logger(labelSuffix: "place.contents")
     
     internal let lists: Dictionary<ComponentTypeID, [EntityID: AnyComponent]>
     internal var decodedLists : LazyMap<ComponentTypeID, [EntityID: AnyComponent], [EntityID: any Component]>

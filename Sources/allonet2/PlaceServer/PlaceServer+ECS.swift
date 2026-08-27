@@ -71,10 +71,15 @@ extension PlaceServer
             assert(success) // bug if this doesn't succeed
             sweepOrphans()
         }
+        // One diff per distinct acked revision, not per client: the diff is over the whole place,
+        // and clients in step ask the same question. Revision 0 is the empty place, which is also
+        // what a client that has acked nothing, or has fallen out of history, is caught up from.
+        var deltas: [StateRevision: PlaceChangeSet] = [:]
         for client in clients.values {
-            let lastContents = client.ackdRevision.flatMap { place.getHistory(at: $0) } ?? PlaceContents(logger: logger)
-            let changeSet = place.current.changeSet(from: lastContents)
-
+            let acked = client.ackdRevision ?? 0
+            let changeSet = deltas[acked]
+                ?? place.current.changeSet(from: place.getHistory(at: acked) ?? PlaceContents(logger: logger))
+            deltas[acked] = changeSet
             client.session.send(placeChangeSet: changeSet)
         }
     }
@@ -148,7 +153,6 @@ extension PlaceServer
 
     private func stepMovement(dt: Float) async -> Bool
     {
-        let transforms = place.current.components[Transform.self]
         var changes: [PlaceChange] = []
         for client in clients.values
         {
@@ -161,7 +165,7 @@ extension PlaceServer
                   // Integrate from our own last simulated transform: several ticks can run before the
                   // heartbeat commits them, and re-reading committed state would make each of those
                   // ticks start from the same base, so all but the last displacement is overwritten.
-                  let transform = client.simulatedTransform ?? transforms[avatarId]
+                  let transform = client.simulatedTransform ?? place.current.components[Transform.self, of: avatarId]
             else { continue }
 
             guard let moved = MovementSimulation.step(transform: transform, velocity: &client.velocity, direction: direction, dt: dt)
@@ -199,7 +203,7 @@ extension PlaceServer
             return nil
         }
         let contents = place.current
-        guard let grabbable = contents.components[Grabbable.self][grab.entity] else {
+        guard let grabbable = contents.components[Grabbable.self, of: grab.entity] else {
             client.logger.warning("Ignoring grab of \(grab.entity): not Grabbable")
             return nil
         }
@@ -224,7 +228,7 @@ extension PlaceServer
         // fresh intent can re-arm the grab between a queued removal and its apply — the
         // queue-time stopGrabbing hook alone can't prevent the poisoned update.
         guard !pendingRemovals.contains(actuated),
-              let actuatedTransform = contents.components[Transform.self][actuated] else {
+              let actuatedTransform = contents.components[Transform.self, of: actuated] else {
             client.grabBase = nil
             client.grabSimulated = nil
             return nil
@@ -236,7 +240,7 @@ extension PlaceServer
         }
 
         let parentToWorld: simd_float4x4
-        if let parent = contents.components[Relationships.self][actuated]?.parent
+        if let parent = contents.components[Relationships.self, of: actuated]?.parent
         {
             guard let composed = contents.transformToWorld(of: parent, overrides: overrides) else { return nil }
             parentToWorld = composed
@@ -263,7 +267,7 @@ extension PlaceServer
         switch actuateOn
         {
         case .entity: return (eid, .identity)
-        case .parent: target = contents.components[Relationships.self][eid]?.parent
+        case .parent: target = contents.components[Relationships.self, of: eid]?.parent
         case .ancestor(let ancestor): target = ancestor
         }
         guard let target else { return nil }
@@ -275,8 +279,8 @@ extension PlaceServer
             // Like transformToWorld, a missing Transform rejects the path rather than
             // silently posing the node at its parent's origin.
             guard visited.insert(current).inserted,
-                  let parent = contents.components[Relationships.self][current]?.parent,
-                  let local = overrides[current]?.matrix ?? contents.components[Transform.self][current]?.matrix
+                  let parent = contents.components[Relationships.self, of: current]?.parent,
+                  let local = overrides[current]?.matrix ?? contents.components[Transform.self, of: current]?.matrix
             else { return nil }
             composed = local * composed
             current = parent
@@ -291,7 +295,7 @@ extension PlaceServer
         while let id = current, visited.insert(id).inserted
         {
             if id == ancestorId { return true }
-            current = contents.components[Relationships.self][id]?.parent
+            current = contents.components[Relationships.self, of: id]?.parent
         }
         return false
     }
@@ -303,9 +307,10 @@ extension PlaceServer
         // commits or one created here; otherwise the place would hold a child nothing can render.
         var willExist = projectedEntities
         for case .entityAdded(let e) in changes { willExist.insert(e.id) }
-        for change in changes
+        for case .componentAdded(let eid, let comp) in changes
         {
-            guard case .componentAdded(let eid, let comp) = change, let rel = try relationship(in: comp) else { continue }
+            try reject(malformed: comp, on: eid)
+            guard let rel = try relationship(in: comp) else { continue }
             guard willExist.contains(rel.parent) else {
                 throw AlloverseError(code: PlaceErrorCode.notFound, description: "Can't parent entity \(eid) to \(rel.parent): no such entity")
             }
@@ -356,9 +361,10 @@ extension PlaceServer
     private func sweepOrphans()
     {
         let present = Set(place.current.entities.keys)
-        let orphans = place.current.entities.keys.filter {
-            if let parent = place.current.components[Relationships.self][$0]?.parent { return !present.contains(parent) }
-            return false
+        // One pass over Relationships, not one per entity: this runs on every commit, and reaching
+        // through the list subscript per entity made it quadratic in the size of the place.
+        let orphans = place.current.components[Relationships.self].compactMap {
+            present.contains($0.key) && !present.contains($0.value.parent) ? $0.key : nil
         }
         guard !orphans.isEmpty else { return }
 
@@ -425,6 +431,17 @@ extension PlaceServer
         var index: [EntityID: [EntityID]] = [:]
         for (child, parent) in parentOf { index[parent, default: []].append(child) }
         return index
+    }
+
+    /// Refuse a component whose payload doesn't decode as the type it names. Nothing in the wire
+    /// format ties the two together, and stored, such a component is indistinguishable from an
+    /// absent one to every simulation that reads it back — so it is turned away here, where the
+    /// entity it was meant for is still in hand to name.
+    private func reject(malformed comp: AnyComponent, on eid: EntityID) throws(AlloverseError)
+    {
+        guard !comp.isWellFormed else { return }
+        throw AlloverseError(code: PlaceErrorCode.invalidRequest,
+                             description: "Malformed \(comp.componentTypeId) payload for entity \(eid)")
     }
 
     /// The `Relationships` in `comp`, or nil when it is another component. Throws rather than traps
@@ -503,6 +520,7 @@ extension PlaceServer
         // cycle the tree - and a cycle corrupts every transformToWorld through it.
         for comp in addOrChange
         {
+            try reject(malformed: comp, on: eid)
             guard let rel = try relationship(in: comp) else { continue }
             guard rel.parent != eid, !descendants(of: eid, using: projectedChildIndex()).contains(rel.parent) else {
                 throw AlloverseError(code: PlaceErrorCode.invalidRequest, description: "Parenting \(eid) to \(rel.parent) would make a cycle")

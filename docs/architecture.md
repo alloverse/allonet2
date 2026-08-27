@@ -26,7 +26,15 @@ links. Swift tools 6.1, language mode 5, platforms macOS 15 / iOS 18 / visionOS 
   history (`PlaceContents+Changes.swift`); per client it diffs from that client's
   `ackdRevision` (`PlaceServer/PlaceServer+ECS.swift`). A client that can't apply a delta
   acks revision 0, which requests a full resync (`AlloClient.swift`,
-  `didReceivePlaceChangeSet`).
+  `didReceivePlaceChangeSet`). The diff is over the whole place, so it is computed once per
+  distinct acked revision and shared by every client sitting on it.
+- The beat runs on the main actor and self-clocks: its period is the 20 ms coalesce *plus*
+  however long it takes, so anything superlinear in the size of the place surfaces as a
+  collapsed beat rate rather than as one slow function. `ComponentLists`' typed list subscript
+  (`components[T.self]`) decodes every component of that type on every access and caches
+  nothing — reaching through it for one entity, inside a loop over entities, is what made
+  `sweepOrphans` quadratic and cost 9 ms a beat at 110 entities. Use
+  `components[T.self, of: eid]` for a single lookup, and hoist the list out of any loop.
 - A beat commits only its net effect on committed state, so a write of the value already there
   — or one walked away and back by two requests inside the same coalescing window — leaves
   `revision` alone (`PlaceServer+ECS.swift`): a spent revision costs every client a delta and
