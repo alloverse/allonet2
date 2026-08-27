@@ -99,10 +99,10 @@ public extension PlaceContents
         while let id = current
         {
             guard visited.insert(id).inserted,
-                  let local = overrides[id]?.matrix ?? components[Transform.self][id]?.matrix
+                  let local = overrides[id]?.matrix ?? components[Transform.self, of: id]?.matrix
             else { return nil }
             transform = local * transform
-            current = components[Relationships.self][id]?.parent
+            current = components[Relationships.self, of: id]?.parent
         }
         return transform
     }

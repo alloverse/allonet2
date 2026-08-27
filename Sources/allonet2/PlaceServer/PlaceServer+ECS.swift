@@ -148,7 +148,6 @@ extension PlaceServer
 
     private func stepMovement(dt: Float) async -> Bool
     {
-        let transforms = place.current.components[Transform.self]
         var changes: [PlaceChange] = []
         for client in clients.values
         {
@@ -161,7 +160,7 @@ extension PlaceServer
                   // Integrate from our own last simulated transform: several ticks can run before the
                   // heartbeat commits them, and re-reading committed state would make each of those
                   // ticks start from the same base, so all but the last displacement is overwritten.
-                  let transform = client.simulatedTransform ?? transforms[avatarId]
+                  let transform = client.simulatedTransform ?? place.current.components[Transform.self, of: avatarId]
             else { continue }
 
             guard let moved = MovementSimulation.step(transform: transform, velocity: &client.velocity, direction: direction, dt: dt)
@@ -199,7 +198,7 @@ extension PlaceServer
             return nil
         }
         let contents = place.current
-        guard let grabbable = contents.components[Grabbable.self][grab.entity] else {
+        guard let grabbable = contents.components[Grabbable.self, of: grab.entity] else {
             client.logger.warning("Ignoring grab of \(grab.entity): not Grabbable")
             return nil
         }
@@ -224,7 +223,7 @@ extension PlaceServer
         // fresh intent can re-arm the grab between a queued removal and its apply — the
         // queue-time stopGrabbing hook alone can't prevent the poisoned update.
         guard !pendingRemovals.contains(actuated),
-              let actuatedTransform = contents.components[Transform.self][actuated] else {
+              let actuatedTransform = contents.components[Transform.self, of: actuated] else {
             client.grabBase = nil
             client.grabSimulated = nil
             return nil
@@ -236,7 +235,7 @@ extension PlaceServer
         }
 
         let parentToWorld: simd_float4x4
-        if let parent = contents.components[Relationships.self][actuated]?.parent
+        if let parent = contents.components[Relationships.self, of: actuated]?.parent
         {
             guard let composed = contents.transformToWorld(of: parent, overrides: overrides) else { return nil }
             parentToWorld = composed
@@ -263,7 +262,7 @@ extension PlaceServer
         switch actuateOn
         {
         case .entity: return (eid, .identity)
-        case .parent: target = contents.components[Relationships.self][eid]?.parent
+        case .parent: target = contents.components[Relationships.self, of: eid]?.parent
         case .ancestor(let ancestor): target = ancestor
         }
         guard let target else { return nil }
@@ -275,8 +274,8 @@ extension PlaceServer
             // Like transformToWorld, a missing Transform rejects the path rather than
             // silently posing the node at its parent's origin.
             guard visited.insert(current).inserted,
-                  let parent = contents.components[Relationships.self][current]?.parent,
-                  let local = overrides[current]?.matrix ?? contents.components[Transform.self][current]?.matrix
+                  let parent = contents.components[Relationships.self, of: current]?.parent,
+                  let local = overrides[current]?.matrix ?? contents.components[Transform.self, of: current]?.matrix
             else { return nil }
             composed = local * composed
             current = parent
@@ -291,7 +290,7 @@ extension PlaceServer
         while let id = current, visited.insert(id).inserted
         {
             if id == ancestorId { return true }
-            current = contents.components[Relationships.self][id]?.parent
+            current = contents.components[Relationships.self, of: id]?.parent
         }
         return false
     }
