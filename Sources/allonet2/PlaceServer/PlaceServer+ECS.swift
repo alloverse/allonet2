@@ -60,8 +60,7 @@ extension PlaceServer
 
     func applyAndBroadcastState()
     {
-        // A beat with nothing to apply still broadcasts (keepalive), but committing it would
-        // spend a revision; see docs/architecture.md on the resync window.
+        // An empty beat still broadcasts (keepalive) but must not spend a revision; see docs/architecture.md.
         if !outstandingPlaceChanges.isEmpty
         {
             let success = place.applyChangeSet(PlaceChangeSet(changes: outstandingPlaceChanges, fromRevision: place.current.revision, toRevision: place.current.revision + 1))
