@@ -444,9 +444,9 @@ extension PlaceServer
     func changeEntity(eid: EntityID, addOrChange: [AnyComponent], remove: [ComponentTypeID], for client: ConnectedClient?) async throws(AlloverseError)
     {
         (client?.logger ?? logger).trace("Changing entity \(eid)")
-        let ent = place.current.entities[eid]
-        
-        guard let ent = ent else {
+        // Projected, not just committed: a write folded in after a removal queued this beat would
+        // store a component under an entity that is gone by the time the beat commits.
+        guard let ent = place.current.entities[eid], projectedEntities.contains(eid) else {
             throw AlloverseError(code: PlaceErrorCode.notFound, description: "No such entity")
         }
         /*guard client == nil || ent.ownerAgentId == client!.cid.uuidString else {

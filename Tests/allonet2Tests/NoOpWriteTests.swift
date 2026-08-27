@@ -85,6 +85,26 @@ import OpenCombineShim
         #expect(billboardUpdates == 1)
     }
 
+    /// A write folded in after a removal queued in the same beat projects as an add, which would
+    /// store a component under an entity the beat deletes - and answer success.
+    @Test func aChangeToAnEntityThisBeatRemovesIsRefused() async throws
+    {
+        let server = makeServer()
+        let client = try await makeAppClient(on: server)
+        let ent = try await server.createEntity(from: EntityDescription(components: [Opacity(opacity: 0.5)]), for: client)
+        await server.heartbeat.awaitNextSync()
+
+        try await server.removeEntity(with: ent.id, mode: .cascade, for: client)
+        await #expect(throws: AlloverseError.self, "the entity is on its way out this beat") {
+            try await server.changeEntity(eid: ent.id, addOrChange: [AnyComponent(Opacity(opacity: 0.75))],
+                                          remove: [], for: client)
+        }
+        await server.heartbeat.awaitNextSync()
+
+        #expect(server.place.current.entities[ent.id] == nil)
+        #expect(server.place.current.components[Opacity.self][ent.id] == nil, "no component may outlive its entity")
+    }
+
     /// Called an update instead, this write is applied against a component the same changeset
     /// removed, and the whole beat's changes fail with it.
     @Test func aRemoveAndReAddInOneBeatIsAnAdd() async throws
