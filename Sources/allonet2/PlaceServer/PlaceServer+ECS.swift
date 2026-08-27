@@ -356,9 +356,10 @@ extension PlaceServer
     private func sweepOrphans()
     {
         let present = Set(place.current.entities.keys)
-        let orphans = place.current.entities.keys.filter {
-            if let parent = place.current.components[Relationships.self][$0]?.parent { return !present.contains(parent) }
-            return false
+        // One pass over Relationships, not one per entity: this runs on every commit, and reaching
+        // through the list subscript per entity made it quadratic in the size of the place.
+        let orphans = place.current.components[Relationships.self].compactMap {
+            present.contains($0.key) && !present.contains($0.value.parent) ? $0.key : nil
         }
         guard !orphans.isEmpty else { return }
 
