@@ -71,10 +71,15 @@ extension PlaceServer
             assert(success) // bug if this doesn't succeed
             sweepOrphans()
         }
+        // One diff per distinct acked revision, not per client: the diff is over the whole place,
+        // and clients in step ask the same question. Revision 0 is the empty place, which is also
+        // what a client that has acked nothing, or has fallen out of history, is caught up from.
+        var deltas: [StateRevision: PlaceChangeSet] = [:]
         for client in clients.values {
-            let lastContents = client.ackdRevision.flatMap { place.getHistory(at: $0) } ?? PlaceContents(logger: logger)
-            let changeSet = place.current.changeSet(from: lastContents)
-
+            let acked = client.ackdRevision ?? 0
+            let changeSet = deltas[acked]
+                ?? place.current.changeSet(from: place.getHistory(at: acked) ?? PlaceContents(logger: logger))
+            deltas[acked] = changeSet
             client.session.send(placeChangeSet: changeSet)
         }
     }
