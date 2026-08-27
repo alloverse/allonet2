@@ -13,6 +13,8 @@
 //  VOICEDEMO_NO_VPIO=1 captures without the OS voice processor, in the device's native format.
 //  VOICEDEMO_LATENCY_LOG=<path> measures mouth-to-speaker latency; see Latency.swift.
 //  VOICEDEMO_BIND=127.0.0.1 gathers ICE on loopback only, to match `AlloPlace -b 127.0.0.1`.
+//  VOICEDEMO_TOKEN=<place app token> announces with app credentials, for places that refuse
+//  anonymous users (`--require-auth`).
 //
 
 import Foundation
@@ -48,7 +50,7 @@ struct VoiceDemo
 
         let client = VoiceDemoClient(
             url: url,
-            identity: Identity(expectation: .none, displayName: "VoiceDemo", emailAddress: "", authenticationToken: ""),
+            identity: Identity(expectation: .none, displayName: "VoiceDemo", emailAddress: "", authenticationToken: ProcessInfo.processInfo.environment["VOICEDEMO_TOKEN"] ?? ""),
             avatarDescription: EntityDescription(),
             connectionOptions: TransportConnectionOptions(routing: .direct, bindAddress: ProcessInfo.processInfo.environment["VOICEDEMO_BIND"])
         )
