@@ -60,11 +60,16 @@ extension PlaceServer
 
     func applyAndBroadcastState()
     {
-        let success = place.applyChangeSet(PlaceChangeSet(changes: outstandingPlaceChanges, fromRevision: place.current.revision, toRevision: place.current.revision + 1))
-        assert(success) // bug if this doesn't succeed
-        outstandingPlaceChanges.removeAll()
-        pendingRemovals.removeAll()
-        sweepOrphans()
+        // A beat with nothing to apply still broadcasts (keepalive), but committing it would
+        // spend a revision; see docs/architecture.md on the resync window.
+        if !outstandingPlaceChanges.isEmpty
+        {
+            let success = place.applyChangeSet(PlaceChangeSet(changes: outstandingPlaceChanges, fromRevision: place.current.revision, toRevision: place.current.revision + 1))
+            assert(success) // bug if this doesn't succeed
+            outstandingPlaceChanges.removeAll()
+            pendingRemovals.removeAll()
+            sweepOrphans()
+        }
         for client in clients.values {
             let lastContents = client.ackdRevision.flatMap { place.getHistory(at: $0) } ?? PlaceContents(logger: logger)
             let changeSet = place.current.changeSet(from: lastContents)
@@ -462,16 +467,16 @@ extension PlaceServer
             }
         }
 
-        let addOrChanges = addOrChange.map
+        // Writing the value that is already there is not a change; see docs/architecture.md.
+        var addOrChanges: [PlaceChange] = []
+        for comp in addOrChange
         {
-            if let _ = place.current.components[$0.componentTypeId]?[eid]
-            {
-                return PlaceChange.componentUpdated(eid, $0)
+            guard let existing = projectedComponent(comp.componentTypeId, of: eid) else {
+                addOrChanges.append(.componentAdded(eid, comp))
+                continue
             }
-            else
-            {
-                return PlaceChange.componentAdded(eid, $0)
-            }
+            guard existing != comp else { continue }
+            addOrChanges.append(.componentUpdated(eid, comp))
         }
         let removals = try remove.map
         { (ctid: ComponentTypeID) throws(AlloverseError) -> PlaceChange in
@@ -480,8 +485,31 @@ extension PlaceServer
             }
             return PlaceChange.componentRemoved(ent, existing)
         }
-        
-        await appendChanges(addOrChanges + removals)
+
+        let changes = addOrChanges + removals
+        // The caller asked for a state the place already holds: success, and no beat to fire.
+        guard !changes.isEmpty else { return }
+        await appendChanges(changes)
+    }
+
+    /// The value a component type has on `eid` once this beat's queued changes commit, or nil when
+    /// it won't be there. Committed state can't see an earlier write in the same coalescing window,
+    /// so judging against it would call a re-add an update and make the whole changeset inapplicable.
+    private func projectedComponent(_ ctid: ComponentTypeID, of eid: EntityID) -> AnyComponent?
+    {
+        var value = place.current.components[ctid]?[eid]
+        for change in outstandingPlaceChanges
+        {
+            switch change
+            {
+            case .componentAdded(let changed, let comp), .componentUpdated(let changed, let comp):
+                if changed == eid, comp.componentTypeId == ctid { value = comp }
+            case .componentRemoved(let changed, let comp):
+                if changed.id == eid, comp.componentTypeId == ctid { value = nil }
+            default: break
+            }
+        }
+        return value
     }
 
 }

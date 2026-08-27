@@ -106,7 +106,7 @@ public class PlaceState
 @MainActor
 public struct PlaceContents
 {
-    /// What revision of the place is this? Every tick in the server bumps this by 1. Due to network conditions, a client might miss a few revisions here and there and it might not see every sequential revision.
+    /// What revision of the place is this? Every server tick that actually changes something bumps this by 1; a tick with nothing to apply (including a write of values already in place) leaves it alone. Due to network conditions, a client might miss a few revisions here and there and it might not see every sequential revision.
     public let revision: StateRevision
     /// The list of entities; basically just a list of IDs of things in the Place.
     public let entities: Dictionary<EntityID, EntityData>

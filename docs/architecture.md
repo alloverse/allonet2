@@ -27,6 +27,9 @@ links. Swift tools 6.1, language mode 5, platforms macOS 15 / iOS 18 / visionOS 
   `ackdRevision` (`PlaceServer/PlaceServer+ECS.swift`). A client that can't apply a delta
   acks revision 0, which requests a full resync (`AlloClient.swift`,
   `didReceivePlaceChangeSet`).
+- Writing a component the value it already holds, and a beat with nothing to apply, commit
+  nothing and leave `revision` alone (`PlaceServer+ECS.swift`): a spent revision costs every
+  client a delta and shortens the 100-revision window a lagging one can resync from.
 - Broadcast cadence: `HeartbeatTimer`, server side 20 ms coalesce / 1 s keepalive; the
   client's intent heartbeat is 5 ms / 1.1 s (`PlaceServer/HeartbeatTimer.swift`,
   `AlloClient.swift`).
