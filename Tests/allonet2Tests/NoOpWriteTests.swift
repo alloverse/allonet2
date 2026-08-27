@@ -85,6 +85,31 @@ import OpenCombineShim
         #expect(billboardUpdates == 1)
     }
 
+    /// Only the last write of a type in one request is observable; comparing each write on its own
+    /// commits an intermediate value the caller already replaced.
+    @Test func theLastWriteOfATypeInOneRequestWins() async throws
+    {
+        let server = makeServer()
+        let client = try await makeAppClient(on: server)
+        let ent = try await server.createEntity(from: EntityDescription(components: [Opacity(opacity: 0.5)]), for: client)
+        await server.heartbeat.awaitNextSync()
+        let revision = server.place.current.revision
+
+        try await server.changeEntity(eid: ent.id,
+                                      addOrChange: [AnyComponent(Opacity(opacity: 0.75)), AnyComponent(Opacity(opacity: 0.5))],
+                                      remove: [], for: client)
+        await server.heartbeat.awaitNextSync()
+        #expect(server.place.current.components[Opacity.self][ent.id]?.opacity == 0.5, "the caller's last word, not the value it overwrote")
+        #expect(server.place.current.revision == revision, "which is what was already there, so nothing is committed")
+
+        try await server.changeEntity(eid: ent.id,
+                                      addOrChange: [AnyComponent(Opacity(opacity: 0.5)), AnyComponent(Opacity(opacity: 0.75))],
+                                      remove: [], for: client)
+        await server.heartbeat.awaitNextSync()
+        #expect(server.place.current.components[Opacity.self][ent.id]?.opacity == 0.75, "and a real last write still lands")
+        #expect(server.place.current.revision == revision + 1)
+    }
+
     /// A write folded in after a removal queued in the same beat projects as an add, which would
     /// store a component under an entity the beat deletes - and answer success.
     @Test func aChangeToAnEntityThisBeatRemovesIsRefused() async throws

@@ -467,8 +467,12 @@ extension PlaceServer
         }
 
         // Writing the value that is already there is not a change; see docs/architecture.md.
+        // Only the last write of each type counts: the ones it overwrites are never observable,
+        // and comparing each separately would commit a value the caller already replaced.
+        var lastWrite: [ComponentTypeID: Int] = [:]
+        for (index, comp) in addOrChange.enumerated() { lastWrite[comp.componentTypeId] = index }
         var addOrChanges: [PlaceChange] = []
-        for comp in addOrChange
+        for (index, comp) in addOrChange.enumerated() where lastWrite[comp.componentTypeId] == index
         {
             guard let existing = projectedComponent(comp.componentTypeId, of: eid) else {
                 addOrChanges.append(.componentAdded(eid, comp))
