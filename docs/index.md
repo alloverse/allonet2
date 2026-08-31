@@ -5,6 +5,7 @@ aren't easily rediscovered from the code. Pick the doc whose situation matches y
 
 | Doc | Read it when… |
 | --- | --- |
+| [glossary.md](glossary.md) | You are naming something, or two words in the tree seem to mean the same thing and you need to know which one to write. |
 | [architecture.md](architecture.md) | You need the module map: which target does what, and how state sync, the wire, auth or reconnection actually work. |
 | [writing-an-alloapp.md](writing-an-alloapp.md) | You want to build your own alloapp — a widget or extension for a place, your own or a hosted Koja one. |
 | [assets.md](assets.md) | You publish, fetch or name an asset, and want to know what content addressing buys you and what the rules are. |
