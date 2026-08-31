@@ -147,12 +147,25 @@ so the pin stays: without it, starting capture silences Spotify and every other 
 
 ## Spatialisation
 
-RealityKit says where things are; the audio engine decides what that sounds like.
-`SpatialAudioPositionSystem` runs once per rendered frame and pushes, in metres relative to the
-`SpatialAudioFieldComponent` entity: the listener's position and forward/up axes, every
-speaking entity's position, and the occlusion raycast's verdict (0 dB clear, -100 dB blocked).
-The field entity is the unit fix - a place is drawn as a diorama, so distances at the scene
-root are centimetres or less and only field-relative ones are metres.
+The place says where things are; the audio engine decides what that sounds like.
+`SpatialAudioPlayer.updatePoses` pushes, in place-space metres: the listener's position and
+forward/up axes, every speaking entity's position, and whether anything blocks it (0 dB clear,
+-100 dB blocked). Place space *is* metres, so there is no scale to undo - a renderer drawing the
+place as a diorama on a table changes what you see, not what you hear. It ran off a RealityKit
+`System` and a spatial-audio-field entity until 2026-08; both existed only to convert the scene's
+diorama scale back into metres, which the place already had.
+
+The trigger is `PlaceObservers.placeChanged`, once per applied delta, so poses update at the
+place's own rate - up to 50 Hz while anyone moves, not at all while the place is still. Slower
+than a render loop, and more correct: nothing interpolates, so a voice sounds exactly where the
+authoritative transform puts it, which is where every other client hears it from too.
+
+Occlusion is a segment from listener to source against the `Collision` shapes of every entity
+marked `AudioOccluder`, tested in each occluder's own space (`Collision.Shape.intersects`), so a
+rotated or scaled wall blocks the volume it is drawn as. `AudioOccluder` is a marker exactly like
+`InputTarget`: `Collision` is also the tap area, and a button between two people must not silence
+them. Shapes come off the wire, so a non-finite size intersects nothing - a NaN half extent slips
+through the slab comparisons as "no obstruction on this axis" and would mute the whole place.
 
 Falloff is ours, not the environment node's. `VoiceEngine.gain(atDistance:)` is the entire curve:
 full gain within `referenceDistance` (1.5 m), then `20 * log10(referenceDistance / distance) *
@@ -166,7 +179,7 @@ public function is what lets the app's earshot ring draw the curve playout actua
 
 That gain reaches a source as its node volume, multiplied with the two independent silencing
 reasons (`VoiceEngine.volume(audible:occlusion:)`). The engine keeps the listener position, so a
-listener who moves re-applies every source's gain without the position system having to ask.
+listener who moves re-applies every source's gain without the player having to ask.
 
 The environment node spatialises **mono inputs only**, which is why every source node is one
 channel. The rendering algorithm is `.HRTFHQ` unconditionally: customers listen on headphones, and
@@ -175,11 +188,11 @@ panning. Choosing by output device is a separate card. HRTF has a gain floor - a
 0 renders at exactly -120 dB of full scale, on every block, rather than at digital zero - so
 silencing is inaudible but not free.
 
-`VoiceEngine.isAudible` is a second, harder cutoff on top of the curve, decided per frame by the
-position system, with a 2 % dead band so a source hovering at the edge doesn't chatter.
+`VoiceEngine.isAudible` is a second, harder cutoff on top of the curve, decided per place revision
+by the player, with a 2 % dead band so a source hovering at the edge doesn't chatter.
 
 Volume, and not occlusion: occlusion is mostly a lowpass, it clamps at -100 dB, and even there it
-leaves about -25 dB of signal - audible across a place. So a blocked raycast silences through the
+leaves about -25 dB of signal - audible across a place. So a blocked line of sight silences through the
 same volume the distance cutoff uses (`VoiceEngine.volume(audible:occlusion:)`, the two reasons
 kept apart so neither overrides the other), the way the hand-rolled gain went to -inf; occlusions
 between the two ends still muffle through the filter, which is what it is good for. `EnvironmentNodeRenderingTests` pins both,
@@ -187,8 +200,9 @@ and the reason the second one is easy to get wrong: the gain *ramps*, so a level
 first render block still shows the old one. Measuring there is how silencing was once reported,
 confidently and wrongly, as a no-op.
 
-`VoiceSourceComponent` ties an entity to the stream coming out of it, so the system reads
-everything it needs off the scene and holds no reference back to `SpatialAudioPlayer`.
+`SpatialAudioPlayer.playing` maps each stream to the entity it comes out of - asked of the place
+on every stream rather than remembered, since a stream outlives no component but a component
+outlives many streams.
 
 The one property nobody can hear their way to is whether the environment node's stereo survives
 to the device - the voice processor's I/O unit can change the output format. `VoiceEngine` logs
