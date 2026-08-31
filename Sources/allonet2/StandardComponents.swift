@@ -242,7 +242,8 @@ public struct InputTarget: Component
 /// shapes mean, and an entity carrying it without a `Collision` blocks nothing.
 ///
 /// Belongs on walls and floors rather than furniture: the test is one segment against the shape,
-/// so whatever it clips is silenced outright rather than muffled.
+/// so whatever it clips is silenced outright rather than muffled. A surface, never a volume - two
+/// entities inside one shape are silenced from each other, so a room is its walls, not a box.
 public struct AudioOccluder: Component
 {
     public init() {}

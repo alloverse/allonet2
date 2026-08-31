@@ -15,7 +15,11 @@ public extension Collision.Shape
     ///
     /// - Parameter a: one end of the segment, in entity space.
     /// - Parameter b: the other end, same space.
-    /// - Returns: true if any point of the segment lies inside the shape, endpoints included.
+    /// - Returns: true only if the segment passes *through* the shape, i.e. shares more than a
+    ///   single point with it. Touching a face, edge or corner is not passing through, so a source
+    ///   resting exactly on a surface is not blocked by it, and neither are two sources standing on
+    ///   the same one. A segment that lies entirely inside the shape does count as blocked.
+    ///
     ///   Nothing intersects a non-finite segment or size: a NaN passes every comparison below as
     ///   "no obstruction on this axis", and a degenerate occluder transform inverts to exactly
     ///   that. A caller composing the segment itself does not have to pre-check it.
@@ -28,24 +32,30 @@ public extension Collision.Shape
             guard (0..<3).allSatisfy({ a[$0].isFinite && b[$0].isFinite && half[$0].isFinite })
             else { return false }
 
-            // Slab test: clip the segment's 0...1 parameter range against each pair of faces,
-            // and it hits iff anything is left of the range.
+            // Slab test: clip the segment's 0...1 parameter range against each pair of faces, and
+            // it passes through iff an interval of nonzero length survives. `near` only grows and
+            // `far` only shrinks, so an empty one can be given up on as soon as it appears.
             let direction = b - a
             var near: Float = 0, far: Float = 1
             for axis in 0..<3
             {
                 guard abs(direction[axis]) > .leastNormalMagnitude else
                 {
-                    // Parallel to this pair of faces: either between them all along, or never.
-                    guard abs(a[axis]) <= half[axis] else { return false }
+                    // Parallel to this pair of faces: strictly between them all along, or never.
+                    // Exactly on one is the floor two people stand on, and must not deafen them.
+                    guard abs(a[axis]) < half[axis] else { return false }
                     continue
                 }
-                let inverse = 1 / direction[axis]
-                let first = (-half[axis] - a[axis]) * inverse
-                let second = (half[axis] - a[axis]) * inverse
+                // Divide rather than multiply by a reciprocal: an endpoint exactly on a face
+                // makes numerator and denominator the same value, and only division is guaranteed
+                // to return exactly 1 for that - the reciprocal lands an ulp under and leaves a
+                // sliver of overlap that reads as an obstruction.
+                let first = (-half[axis] - a[axis]) / direction[axis]
+                let second = (half[axis] - a[axis]) / direction[axis]
                 near = max(near, min(first, second))
                 far = min(far, max(first, second))
-                if near > far { return false }
+                // Equal is a single point of contact: a source resting on a surface, not behind it.
+                if near >= far { return false }
             }
             return true
         }

@@ -169,6 +169,15 @@ would rewalk each occluder's ancestor chain and re-invert its matrix per source 
 `AudioOccluder` is a marker exactly like `InputTarget`: `Collision` is also the tap area, and a
 button between two people must not silence them.
 
+Blocking means passing *through* a shape, not touching it: a source resting exactly on a floor
+that is itself an occluder, or two sources standing on the same one, must still be heard. Both
+fall out of requiring a surviving interval of nonzero length, which needs no epsilon - but it does
+need the slab bounds divided rather than multiplied by a reciprocal, since only division returns
+exactly 1 when an endpoint sits exactly on a face, and an ulp under 1 is a sliver of overlap that
+reads as a wall. A segment that lies wholly inside a shape does count as blocked, so an occluder
+is a surface, never a volume: model a room with its walls, not with a box the size of the room, or
+everyone inside it is silenced from everyone else.
+
 Everything here comes off the wire, and non-finite geometry is the sharp edge. An infinity anywhere
 in the listener's ancestor chain composes into a position whose every distance comparison is false,
 which silences the whole place at once - so `transformToWorld` rejects a non-finite composition,

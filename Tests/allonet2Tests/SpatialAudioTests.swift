@@ -94,6 +94,34 @@ struct SpatialAudioTests
         #expect(!AudioOccluders(of: moved).isOccluded(from: [0, 0, 2], to: [0, 0, -2]))
     }
 
+    @Test func aSourceStandingOnAnOccludingFloorIsHeard()
+    {
+        // A floor 0.2 m thick with its top face at y = 0, and a source resting exactly on it. The
+        // segment terminates on the box, which is contact, not obstruction.
+        let contents = place([
+            "floor": [transform([0, -0.1, 0]), Collision(shapes: [.box(size: [10, 0.2, 10])]), AudioOccluder()],
+        ])
+        #expect(!AudioOccluders(of: contents).isOccluded(from: [0, 1.7, 3], to: [0, 0, 0]))
+    }
+
+    @Test func twoSourcesStandingOnTheSameOccludingFloorHearEachOther()
+    {
+        // Both endpoints on the top face, so the segment runs along it for its whole length -
+        // parallel to the slab and exactly on its boundary, which is the worse half of the bug.
+        let contents = place([
+            "floor": [transform([0, -0.1, 0]), Collision(shapes: [.box(size: [10, 0.2, 10])]), AudioOccluder()],
+        ])
+        #expect(!AudioOccluders(of: contents).isOccluded(from: [2, 0, 0], to: [-2, 0, 0]))
+    }
+
+    /// Pins current behaviour rather than asserting it is right: a listener and a source inside the
+    /// same occluder are silenced from each other, so modelling a room as one box would deafen
+    /// everyone standing in it. Walls and floors are the intended shape.
+    @Test func aSegmentEntirelyInsideAnOccluderCountsAsBlocked()
+    {
+        #expect(unitBox.intersects(segmentFrom: [-0.5, 0, 0], to: [0.5, 0, 0]))
+    }
+
     @Test func collisionWithoutTheMarkerOccludesNothing()
     {
         // Collision is also the tap area: a button between two people must not silence them.
