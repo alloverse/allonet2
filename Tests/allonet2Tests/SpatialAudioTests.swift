@@ -51,7 +51,7 @@ struct SpatialAudioTests
         let contents = place([
             "wall": [transform([0, 0, 0]), Collision(shapes: [.box(size: [10, 3, 0.2])]), AudioOccluder()],
         ])
-        #expect(contents.isAudioOccluded(from: [0, 0, 2], to: [0, 0, -2]))
+        #expect(AudioOccluders(of: contents).isOccluded(from: [0, 0, 2], to: [0, 0, -2]))
     }
 
     @Test func aWallToTheSideDoesNotOcclude()
@@ -59,7 +59,7 @@ struct SpatialAudioTests
         let contents = place([
             "wall": [transform([20, 0, 0]), Collision(shapes: [.box(size: [10, 3, 0.2])]), AudioOccluder()],
         ])
-        #expect(!contents.isAudioOccluded(from: [0, 0, 2], to: [0, 0, -2]))
+        #expect(!AudioOccluders(of: contents).isOccluded(from: [0, 0, 2], to: [0, 0, -2]))
     }
 
     @Test func aRotatedWallOccludesTheVolumeItIsDrawnAs()
@@ -68,12 +68,12 @@ struct SpatialAudioTests
         // turn about Y it is thin in x instead, and the same two hear each other.
         let shapes: [Collision.Shape] = [.box(size: [10, 3, 0.2])]
         let facing = place(["wall": [transform([0, 0, 0]), Collision(shapes: shapes), AudioOccluder()]])
-        #expect(facing.isAudioOccluded(from: [3, 0, 2], to: [3, 0, -2]))
+        #expect(AudioOccluders(of: facing).isOccluded(from: [3, 0, 2], to: [3, 0, -2]))
 
         var turned = simd_float4x4.identity
         turned.rotation = simd_quatf(angle: .pi / 2, axis: [0, 1, 0])
         let sideways = place(["wall": [Transform(matrix: turned), Collision(shapes: shapes), AudioOccluder()]])
-        #expect(!sideways.isAudioOccluded(from: [3, 0, 2], to: [3, 0, -2]))
+        #expect(!AudioOccluders(of: sideways).isOccluded(from: [3, 0, 2], to: [3, 0, -2]))
     }
 
     @Test func anOccluderPosedByItsParentOccludesThere()
@@ -84,14 +84,14 @@ struct SpatialAudioTests
             "wall": [transform([0, 0, 0]), Relationships(parent: "room"),
                      Collision(shapes: [.box(size: [10, 3, 0.2])]), AudioOccluder()],
         ])
-        #expect(contents.isAudioOccluded(from: [0, 0, 2], to: [0, 0, -2]))
+        #expect(AudioOccluders(of: contents).isOccluded(from: [0, 0, 2], to: [0, 0, -2]))
 
         let moved = place([
             "room": [transform([0, 0, 50])],
             "wall": [transform([0, 0, 0]), Relationships(parent: "room"),
                      Collision(shapes: [.box(size: [10, 3, 0.2])]), AudioOccluder()],
         ])
-        #expect(!moved.isAudioOccluded(from: [0, 0, 2], to: [0, 0, -2]))
+        #expect(!AudioOccluders(of: moved).isOccluded(from: [0, 0, 2], to: [0, 0, -2]))
     }
 
     @Test func collisionWithoutTheMarkerOccludesNothing()
@@ -100,7 +100,7 @@ struct SpatialAudioTests
         let contents = place([
             "button": [transform([0, 0, 0]), Collision(shapes: [.box(size: [10, 3, 0.2])])],
         ])
-        #expect(!contents.isAudioOccluded(from: [0, 0, 2], to: [0, 0, -2]))
+        #expect(!AudioOccluders(of: contents).isOccluded(from: [0, 0, 2], to: [0, 0, -2]))
     }
 
     @Test func theMarkerWithoutCollisionOccludesNothing()
@@ -108,7 +108,7 @@ struct SpatialAudioTests
         let contents = place([
             "ghost": [transform([0, 0, 0]), AudioOccluder()],
         ])
-        #expect(!contents.isAudioOccluded(from: [0, 0, 2], to: [0, 0, -2]))
+        #expect(!AudioOccluders(of: contents).isOccluded(from: [0, 0, 2], to: [0, 0, -2]))
     }
 
     // MARK: - Where the listener and the sources are
@@ -133,6 +133,30 @@ struct SpatialAudioTests
             "head": [Relationships(parent: "avatar")],
         ])
         #expect(contents.transformToWorld(of: "head") == nil)
+    }
+
+    @Test(arguments: [Float.nan, .infinity, -.infinity])
+    func aNonFiniteAncestorTransformHasNoPose(_ poison: Float)
+    {
+        // A peer can put anything in a Transform, and one NaN composes into everything below it.
+        var poisoned = simd_float4x4.identity
+        poisoned.columns.3.x = poison
+        let contents = place([
+            "avatar": [Transform(matrix: poisoned)],
+            "head": [transform([0, 1.6, 0]), Relationships(parent: "avatar")],
+        ])
+        #expect(contents.transformToWorld(of: "head") == nil)
+        #expect(contents.transformToWorld(of: "avatar") == nil)
+    }
+
+    @Test func aNonFiniteOccluderIsLeftOut()
+    {
+        var poisoned = simd_float4x4.identity
+        poisoned.columns.3.z = .nan
+        let contents = place([
+            "wall": [Transform(matrix: poisoned), Collision(shapes: [.box(size: [10, 3, 0.2])]), AudioOccluder()],
+        ])
+        #expect(!AudioOccluders(of: contents).isOccluded(from: [0, 0, 2], to: [0, 0, -2]))
     }
 
     // MARK: - Fixtures

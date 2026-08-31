@@ -10,6 +10,11 @@ Hard-won non-obvious facts. Fold a new one in here when it doesn't fit a topic d
   (returns nil → crash otherwise).
 - Test encoding must use CBOREncoder/CBORDecoder (not JSON) — a JSON round-trip loses AnyValue
   dictionary structure.
+- A NaN in a component does not decode: the component reads as *absent* (`ComponentLists`
+  logs it and returns nil), so nothing downstream ever sees the NaN. Infinities decode fine
+  and do reach you. So the two halves of "non-finite" arrive by different routes, and a check
+  for NaN alone protects against nothing that can actually happen —
+  `PlaceContents.transformToWorld` rejects both by checking the composed matrix.
 - The place refuses to hold a dangling `Relationships.parent`: `createEntity`/`changeEntity`
   reject a parent that won't exist or would make a cycle, and the commit-time sweep drops any
   orphan (and its subtree) before broadcasting. A receiving client force-unwraps the parent

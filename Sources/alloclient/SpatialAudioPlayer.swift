@@ -225,35 +225,43 @@ public class SpatialAudioPlayer
 
     // MARK: - Poses
 
-    /// Whether the listener could be placed last time we looked, so the complaint below is logged
-    /// on the transition rather than once per revision.
-    private var listenerWasPlaceable = true
+    /// Whether the listener's pose was usable last time we looked, so a bad one is reported on the
+    /// transition rather than at network rate.
+    private var listenerIsUsable = true
 
     /// Tell the engine where the listener and every playing source are, and what stands between
-    /// them. Runs once per place revision - up to 50 Hz while anyone is moving, and not at all
+    /// them. Runs once per place changeset - up to 50 Hz while anyone is moving, and not at all
     /// while the place is still - plus once whenever a stream or the listener changes.
     ///
     /// Nothing here interpolates: a voice sounds exactly where the authoritative transform puts
     /// it, which is also where every other client hears it from.
+    ///
+    /// Poses come off the wire, so a pose that cannot be used is dropped rather than pushed: an
+    /// engine fed a NaN compares every distance false and silences the whole place.
     private func updatePoses(in contents: PlaceContents)
     {
-        guard let listener else { return }
+        // Nobody to hear: don't compose poses, and don't complain about a listener nothing needs.
+        guard let listener, !playing.isEmpty else { return }
+
         guard let listenerToPlace = contents.transformToWorld(of: listener.id) else
         {
-            if listenerWasPlaceable
-            {
-                logger.error("Listener entity \(listener.id) has no place-space transform (a Transform is missing on it or an ancestor); voice keeps the poses it had")
-                listenerWasPlaceable = false
-            }
+            reportUnusableListener(listener.id, "no finite place-space transform (a Transform is missing, cyclic, or non-finite on it or an ancestor)")
             return
         }
-        listenerWasPlaceable = true
+        // Finite, but a transform with no rotation left in it normalises to NaN axes.
+        let axes = VoiceEngine.listenerAxes(of: listenerToPlace)
+        guard axes.forward.isFinite, axes.up.isFinite else
+        {
+            reportUnusableListener(listener.id, "a transform with no orientation to point the ears with")
+            return
+        }
+        listenerIsUsable = true
 
         let engine = client.voiceEngine
         let listenerPosition = listenerToPlace.translation
-        let axes = VoiceEngine.listenerAxes(of: listenerToPlace)
         engine.setListener(position: listenerPosition, forward: axes.forward, up: axes.up)
 
+        let occluders = AudioOccluders(of: contents)
         for (mediaId, eid) in playing
         {
             // A source the place cannot place keeps the pose it had, rather than jumping to the
@@ -264,9 +272,16 @@ public class SpatialAudioPlayer
             engine.setAudible(VoiceEngine.isAudible(distance: simd_distance(listenerPosition, sourcePosition),
                                                     wasAudible: engine.isAudible(mediaId)),
                               for: mediaId)
-            let occluded = contents.isAudioOccluded(from: listenerPosition, to: sourcePosition)
+            let occluded = occluders.isOccluded(from: listenerPosition, to: sourcePosition)
             engine.setOcclusion(occluded ? VoiceEngine.blockedOcclusion : 0, for: mediaId)
         }
+    }
+
+    private func reportUnusableListener(_ eid: EntityID, _ problem: String)
+    {
+        guard listenerIsUsable else { return }
+        listenerIsUsable = false
+        logger.error("Listener entity \(eid) has \(problem); every voice keeps the pose it already had")
     }
 
     public typealias PCMCallback = VoiceEngine.PCMCallback

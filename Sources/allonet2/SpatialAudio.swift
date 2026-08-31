@@ -16,8 +16,9 @@ public extension Collision.Shape
     /// - Parameter a: one end of the segment, in entity space.
     /// - Parameter b: the other end, same space.
     /// - Returns: true if any point of the segment lies inside the shape, endpoints included.
-    ///   A non-finite point or size intersects nothing: shapes come off the wire, and a NaN
-    ///   slips through comparisons as "no obstruction on this axis".
+    ///   Nothing intersects a non-finite segment or size: a NaN passes every comparison below as
+    ///   "no obstruction on this axis", and a degenerate occluder transform inverts to exactly
+    ///   that. A caller composing the segment itself does not have to pre-check it.
     func intersects(segmentFrom a: SIMD3<Float>, to b: SIMD3<Float>) -> Bool
     {
         switch self
@@ -51,31 +52,58 @@ public extension Collision.Shape
     }
 }
 
-public extension PlaceContents
+/// Every `AudioOccluder` in a place, with the geometry an occlusion query needs already composed.
+///
+/// Build one per place revision and reuse it for every voice. Composing an occluder's place
+/// transform walks its whole ancestor chain and inverts a matrix; asking the place directly, once
+/// per source, would redo all of that per source as well.
+///
+/// ```swift
+/// let occluders = AudioOccluders(of: client.placeState.current)
+/// for source in sources
+/// {
+///     engine.setOcclusion(occluders.isOccluded(from: ears, to: source.position) ? -100 : 0,
+///                         for: source.mediaId)
+/// }
+/// ```
+///
+/// A snapshot: it answers for the contents it was built from and does not follow later changes.
+@MainActor
+public struct AudioOccluders
 {
-    /// Whether an `AudioOccluder` stands between two points, so a voice at one of them cannot be
-    /// heard at the other.
-    ///
-    /// Each occluder's `Collision` shapes are tested in that entity's own space, so a rotated or
-    /// scaled wall blocks the volume it is drawn as. An occluder with no `Collision`, or one the
-    /// place cannot place - a `Transform` missing on it or an ancestor - has no shape to block
-    /// with and is skipped.
+    private struct Occluder
+    {
+        /// Place space into this occluder's own space, where its shapes are centred on the origin.
+        let placeToOccluder: simd_float4x4
+        let shapes: [Collision.Shape]
+    }
+    private let occluders: [Occluder]
+
+    /// Collect the occluders of `contents`. An entity marked `AudioOccluder` with no `Collision`
+    /// shapes, or one the place cannot place, has nothing to block with and is left out.
+    public init(of contents: PlaceContents)
+    {
+        // A marker component's presence is the whole payload, so read the ids without decoding.
+        let marked = contents.components[AudioOccluder.componentTypeId] ?? [:]
+        occluders = marked.keys.compactMap { eid in
+            guard let collision = contents.components[Collision.self, of: eid],
+                  !collision.shapes.isEmpty,
+                  let occluderToPlace = contents.transformToWorld(of: eid)
+            else { return nil }
+            return Occluder(placeToOccluder: occluderToPlace.inverse, shapes: collision.shapes)
+        }
+    }
+
+    /// Whether an occluder stands between two points, so a voice at one of them cannot be heard at
+    /// the other.
     ///
     /// - Parameter listener: where the ears are, in place space (metres).
     /// - Parameter source: where the voice is, same space.
-    func isAudioOccluded(from listener: SIMD3<Float>, to source: SIMD3<Float>) -> Bool
+    public func isOccluded(from listener: SIMD3<Float>, to source: SIMD3<Float>) -> Bool
     {
-        // A marker component's presence is the whole payload, so read the ids without decoding.
-        let occluders = components[AudioOccluder.componentTypeId] ?? [:]
-        for eid in occluders.keys
-        {
-            guard let collision = components[Collision.self, of: eid],
-                  let occluderToPlace = transformToWorld(of: eid)
-            else { continue }
-            let placeToOccluder = occluderToPlace.inverse
-            let a = placeToOccluder * listener, b = placeToOccluder * source
-            if collision.shapes.contains(where: { $0.intersects(segmentFrom: a, to: b) }) { return true }
+        occluders.contains { occluder in
+            let a = occluder.placeToOccluder * listener, b = occluder.placeToOccluder * source
+            return occluder.shapes.contains { $0.intersects(segmentFrom: a, to: b) }
         }
-        return false
     }
 }

@@ -72,6 +72,46 @@ struct SpatialAudioPlayerTests
         #expect(world.client.voiceEngine.isAudible(world.mediaId))
     }
 
+    /// A peer can put anything in a Transform, and an infinity composed into the listener pose
+    /// makes every distance comparison false, muting the entire place. So a pose that cannot be
+    /// used is dropped rather than pushed.
+    ///
+    /// NaN takes a different route and never reaches the finiteness checks: it fails component
+    /// decoding, so the place reads the Transform as absent (see docs/gotchas.md). It is an
+    /// argument here to hold that second route open, not because it exercises the first.
+    @Test(arguments: [Float.nan, .infinity, -.infinity])
+    func aNonFiniteAncestorTransformKeepsTheLastGoodPose(_ poison: Float) throws
+    {
+        let world = try TestWorld()
+        world.streamArrives()
+        try #require(world.isPlaying)
+        try world.parentListener(to: "rig")
+        try world.move(Self.talkerEid, to: [0, 0, -1])
+        try #require(world.client.voiceEngine.isAudible(world.mediaId))
+
+        var poisoned = simd_float4x4.identity
+        poisoned.columns.3.z = poison
+        try world.setTransform("rig", poisoned)
+        #expect(world.client.voiceEngine.isAudible(world.mediaId))
+    }
+
+    /// The other half: finite, so it composes, but with no rotation left to point the ears with.
+    @Test func aDegenerateListenerOrientationKeepsTheLastGoodPose() throws
+    {
+        let world = try TestWorld()
+        world.streamArrives()
+        try #require(world.isPlaying)
+        try world.move(Self.talkerEid, to: [0, 0, -1])
+        try #require(world.client.voiceEngine.isAudible(world.mediaId))
+
+        var flattened = simd_float4x4.identity
+        flattened.columns.0 = .zero; flattened.columns.1 = .zero; flattened.columns.2 = .zero
+        try world.setTransform(Self.listenerEid, flattened)
+        // Nothing was pushed, so the talker walking out of earshot is not applied either.
+        try world.move(Self.talkerEid, to: [0, 0, -VoiceEngine.maxDistance * 10])
+        #expect(world.client.voiceEngine.isAudible(world.mediaId))
+    }
+
     static let listenerEid: EntityID = "listener"
     static let talkerEid: EntityID = "talker"
 }
@@ -117,9 +157,24 @@ private final class TestWorld
     {
         var matrix = simd_float4x4.identity
         matrix.translation = position
+        try setTransform(eid, matrix)
+    }
+
+    /// Deliver any Transform at all, including one no sane place would send.
+    func setTransform(_ eid: EntityID, _ matrix: simd_float4x4) throws
+    {
         let transform = AnyComponent(allonet2.Transform(matrix: matrix))
         let known = client.placeState.current.components[allonet2.Transform.componentTypeId]?[eid] != nil
         try apply([known ? .componentUpdated(eid, transform) : .componentAdded(eid, transform)])
+    }
+
+    /// Hang the listener off a new parent, so a bad transform can be planted up the chain.
+    func parentListener(to rig: EntityID) throws
+    {
+        try apply([.entityAdded(EntityData(id: rig, ownerClientId: UUID()))])
+        try setTransform(rig, .identity)
+        try apply([.componentAdded(SpatialAudioPlayerTests.listenerEid,
+                                   AnyComponent(Relationships(parent: rig)))])
     }
 
     /// The place opened a channel for the forwarded stream and the transport adopted it.

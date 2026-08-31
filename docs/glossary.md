@@ -108,9 +108,13 @@ several.
 **speaker** — the audio output device, and nothing else; `AlloUserClient.speakerEnabled` is
 that sense. For the person, say *source* or "the entity speaking".
 
-**occluder** — an entity marked `AudioOccluder`, whose `Collision` shapes block voice between a
-listener and a source.
+**occluder** — an entity whose `Collision` shapes block voice between a listener and a source;
+marked with the `AudioOccluder` component today.
 *Discouraged: wall, blocker, obstruction.*
+Occlusion is binary: `setOcclusion` is full attenuation or none, so a curtain and a concrete wall
+sound the same. Graded occlusion is an acoustic material with an absorption coefficient, of which
+"occludes" is absorption 1 — so `AudioOccluder` would gain a coefficient rather than be replaced,
+and the term survives either way.
 
 **deafened** — not playing others' audio, and asking the place to stop forwarding it
 (`speakerEnabled == false`). Distinct from **muted**, which is the microphone: capture keeps

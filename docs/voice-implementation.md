@@ -156,16 +156,28 @@ place as a diorama on a table changes what you see, not what you hear. It ran of
 diorama scale back into metres, which the place already had.
 
 The trigger is `PlaceObservers.placeChanged`, once per applied changeset, so poses update at the
-place's own rate - up to 50 Hz while anyone moves, not at all while the place is still. Slower
-than a render loop, and more correct: nothing interpolates, so a voice sounds exactly where the
-authoritative transform puts it, which is where every other client hears it from too.
+place's own rate: up to 50 Hz while anyone moves, and not at all while the place is still or while
+nobody is speaking. Slower than a render loop, and more correct: nothing interpolates, so a voice
+sounds exactly where the authoritative transform puts it, which is where every other client hears
+it from too.
 
 Occlusion is a segment from listener to source against the `Collision` shapes of every entity
 marked `AudioOccluder`, tested in each occluder's own space (`Collision.Shape.intersects`), so a
-rotated or scaled wall blocks the volume it is drawn as. `AudioOccluder` is a marker exactly like
-`InputTarget`: `Collision` is also the tap area, and a button between two people must not silence
-them. Shapes come off the wire, so a non-finite size intersects nothing - a NaN half extent slips
-through the slab comparisons as "no obstruction on this axis" and would mute the whole place.
+rotated or scaled wall blocks the volume it is drawn as. `AudioOccluders` composes that geometry
+once per changeset and every voice queries the same snapshot; asking the place once per source
+would rewalk each occluder's ancestor chain and re-invert its matrix per source as well.
+`AudioOccluder` is a marker exactly like `InputTarget`: `Collision` is also the tap area, and a
+button between two people must not silence them.
+
+Everything here comes off the wire, and non-finite geometry is the sharp edge. An infinity anywhere
+in the listener's ancestor chain composes into a position whose every distance comparison is false,
+which silences the whole place at once - so `transformToWorld` rejects a non-finite composition,
+the player additionally rejects axes that will not normalise (a finite transform with no rotation
+left in it), and it pushes nothing at all rather than a poisoned pose, leaving every voice on its
+last good one. The segment test guards its own inputs too, since a degenerate occluder transform
+inverts to a non-finite matrix and would otherwise report "no obstruction on this axis" for the
+NaN it produces. Note that only infinities travel this far: a NaN fails component decoding and
+reads as an absent component instead (see [gotchas.md](gotchas.md)).
 
 Falloff is ours, not the environment node's. `VoiceEngine.gain(atDistance:)` is the entire curve:
 full gain within `referenceDistance` (1.5 m), then `20 * log10(referenceDistance / distance) *
