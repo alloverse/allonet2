@@ -9,8 +9,8 @@ source of truth; update this doc when they move.
 |---|---|---|
 | `allonet2` | library | Core: ECS world model and wire types, `DataChannelTransport` on libdatachannel (the `Packages/AlloDataChannel` submodule), `AlloSession`, `AlloClient` + `AlloAppClient`, `PlaceServer` (interactions, ECS sync, SFU, assets, HTTP, dashboard), simulations, logging, errors. Linux-capable. |
 | `AlloAudio` | library | `VoiceEngine`: the one `AVAudioEngine` voice runs on - voice-processing capture and spatialised playout through an `AVAudioEnvironmentNode`. Apple-only (AVFAudio). |
-| `alloclient` | library | Visor-side client: `AlloUserClient`, which owns the `VoiceEngine` and the microphone track, on the same transport. Apple-only in practice. |
-| `AlloReality` | library | RealityKit layer: `RealityViewMapper` mirrors `PlaceState` into an entity tree; `SpatialAudioPlayer` and `SpatialAudioPositionSystem` feed poses to the `VoiceEngine`. Apple-only. |
+| `alloclient` | library | Visor-side client: `AlloUserClient`, which owns the `VoiceEngine` and the microphone track, on the same transport; `SpatialAudioPlayer` drives spatial voice off `PlaceState`, with no renderer involved. Apple-only in practice. |
+| `AlloReality` | library | RealityKit layer: `RealityViewMapper` mirrors `PlaceState` into an entity tree. Apple-only. |
 | `AlloPlace` | executable | The place server CLI (ArgumentParser) around `PlaceServer`. |
 | `demoapp` | executable | Minimal example alloapp: spawns an avatar, orbits it, answers a `custom` interaction. |
 

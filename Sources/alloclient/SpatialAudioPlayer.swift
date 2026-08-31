@@ -7,31 +7,45 @@
 
 import allonet2
 import AlloAudio
-import alloclient
-import RealityKit
 import OpenCombineShim
 import Logging
+import simd
 
-/// Syncs `LiveMedia` components from entities surrounding the local avatar and plays them back
-/// spatially through the client's `VoiceEngine`.
+/// Plays the voices of the entities around the local avatar, spatialised through the client's
+/// `VoiceEngine`.
+///
+/// Everything it needs comes from `PlaceState`: which entity carries which `LiveMedia`, where the
+/// listener and the speakers are, and what `AudioOccluder` stands between them. Nothing here
+/// touches a renderer, so a client drawing the place with RealityKit, with something else, or not
+/// at all gets the same spatial voice.
+///
+/// ```swift
+/// let player = SpatialAudioPlayer(client: client)
+/// player.useAsListener(headEntityId)   // after announce, once the avatar exists
+/// ```
+///
+/// Positions are place space - the metres the place itself is authored in. A renderer that draws
+/// the place at some other scale, as a diorama on a table, does not change how far away a voice
+/// sounds.
 @MainActor
 public class SpatialAudioPlayer
 {
-    let mapper: RealityViewMapper
     let client: AlloUserClient
-    let listenerEid: EntityID? = nil
     let addon: ListenerAddon?
-    /// Which gui entity each stream we currently play is attached to. Playout resources only:
+    /// Which entity each stream we currently play comes out of. Playout resources only:
     /// emptied whenever a stream stops, including while merely deafened.
-    private var playing: [MediaStreamId: EntityID] = [:]
+    private(set) var playing: [MediaStreamId: EntityID] = [:]
     var streamCancellables: Set<AnyCancellable> = []
     var listenerCancellables: Set<AnyCancellable> = []
     var logger: Logger! = Logger(labelSuffix: "spatialaudioplayer")
-    
-    /// Construct a SpatialAudioPlayer which uses `mapper` to create audio related components and `client` to react to network events. Note: announce must have completed and avatar exist before instantiating this class.
-    public init(mapper: RealityViewMapper, client: AlloUserClient, addon: ListenerAddon? = nil)
+
+    /// Construct a player that reacts to `client`'s network events and plays through its
+    /// `voiceEngine`. `addon` is offered every media stream as it appears, and may return a
+    /// callback that sees the rendered samples - a level meter or a speaking indicator.
+    ///
+    /// Announce must have completed and the avatar must exist before constructing this.
+    public init(client: AlloUserClient, addon: ListenerAddon? = nil)
     {
-        self.mapper = mapper
         self.client = client
         self.addon = addon
         self.logger = Logger(labelSuffix: "spatialaudioplayer", metadataProvider: Logger.MetadataProvider { [weak self] in
@@ -40,7 +54,7 @@ public class SpatialAudioPlayer
         })
         start()
     }
-    
+
     // Guaranteed to be called _after_ avatar and initial state is loaded
     func start()
     {
@@ -55,6 +69,10 @@ public class SpatialAudioPlayer
 
         client.$speakerEnabled.sink { [weak self] enabled in
             self?.updateListener(speakerEnabled: enabled)
+        }.store(in: &streamCancellables)
+
+        client.placeState.observers.placeChanged.sink { [weak self] contents in
+            self?.updatePoses(in: contents)
         }.store(in: &streamCancellables)
     }
 
@@ -97,16 +115,15 @@ public class SpatialAudioPlayer
             catch { logger.error("Couldn't update listener \(listener.id): \(error)") }
         }
     }
-    
+
+    /// Hear the place from this entity: its world position and orientation become the ears.
+    /// Usually the local avatar's head. There is only ever one, and naming a second withdraws the
+    /// first one's forwarding requests.
     public func useAsListener(_ listenerEid: EntityID)
     {
         listenerCancellables.forEach { $0.cancel() }; listenerCancellables.removeAll()
         if let old = self.listener, old.id != listenerEid
         {
-            // The position system follows the first entity it finds with this component, which
-            // with two of them may well be the one we just stopped listening from.
-            mapper.guiForEid(old.id)?.components.remove(AudioListenerComponent.self)
-
             // Withdraw the old listener's forward requests, or the SFU keeps streaming to it.
             // (After a reconnect the old entity is already gone, and there's nothing to clear.)
             if client.place.entities[old.id] != nil
@@ -119,13 +136,8 @@ public class SpatialAudioPlayer
         }
 
         let listener = client.place.entities[listenerEid]!
-        let guient = self.mapper.guiForEid(listenerEid)!
-        logger.info("Using \(listenerEid) as RealityKit listener")
+        logger.info("Listening from entity \(listenerEid)")
 
-        // TODO: When non-immersive, set it to be an "ears" sub-entity which is always pointed "forwards" in the camera perspective
-        // The position system reads the listener pose off this entity every frame.
-        guient.components.set(AudioListenerComponent())
-        
         // Setup listeners to get incoming tracks. Just ask to get everything (except our own audio) forwarded.
         self.listener = listener
         streamIds.removeAll()
@@ -147,8 +159,9 @@ public class SpatialAudioPlayer
             self.stop(streamId: liveMedia.mediaId)
             self.addon?.mediaRemoved(edata.id, liveMedia)
         }.store(in: &listenerCancellables)
+        updatePoses(in: client.placeState.current)
     }
-    
+
     func play(stream: MediaStream)
     {
         guard stream.streamDirection.isRecv else { return }
@@ -156,10 +169,7 @@ public class SpatialAudioPlayer
         streamLogger[metadataKey: "mediaId"] = .string(stream.mediaId)
         streamLogger.info("Playing \(stream)")
 
-        guard
-            let eid = entity(carrying: stream.mediaId),
-            let guient = mapper.guiForEid(eid)
-        else
+        guard let eid = entity(carrying: stream.mediaId) else
         {
             streamLogger.error("No entity around us carries LiveMedia \(stream.mediaId); not playing it")
             return
@@ -178,8 +188,8 @@ public class SpatialAudioPlayer
             stop(streamId: stream.mediaId)
             return
         }
-        // Which entity the position system should follow for this stream.
-        guient.components.set(VoiceSourceComponent(mediaId: stream.mediaId, engine: client.voiceEngine))
+        // A new source starts silent and stays there until it has been placed once.
+        updatePoses(in: client.placeState.current)
         streamLogger.info("Successfully set up audio renderer \(eid)")
     }
 
@@ -193,15 +203,14 @@ public class SpatialAudioPlayer
 
     func stop(streamId: MediaStreamId)
     {
-        guard let eid = playing.removeValue(forKey: streamId) else { return }
+        guard playing.removeValue(forKey: streamId) != nil else { return }
         var streamLogger = logger!
         streamLogger[metadataKey: "mediaId"] = .string(streamId)
         streamLogger.info("Stopping \(streamId); tearing down LiveMedia renderer")
 
         client.voiceEngine.stop(mediaId: streamId)
-        mapper.guiForEid(eid)?.components.remove(VoiceSourceComponent.self)
     }
-    
+
     /// Stop playing, and let go of everything this player set up. The engine itself keeps
     /// running: it is the client's, and the microphone is on it.
     public func stop()
@@ -213,7 +222,68 @@ public class SpatialAudioPlayer
         streamIds.removeAll()
         pcmCallbacks.removeAll()
     }
-    
+
+    // MARK: - Poses
+
+    /// Whether the listener's pose was usable last time we looked, so a bad one is reported on the
+    /// transition rather than at network rate.
+    private var listenerIsUsable = true
+
+    /// Tell the engine where the listener and every playing source are, and what stands between
+    /// them. Runs once per place changeset - up to 50 Hz while anyone is moving, and not at all
+    /// while the place is still - plus once whenever a stream or the listener changes.
+    ///
+    /// Nothing here interpolates: a voice sounds exactly where the authoritative transform puts
+    /// it, which is also where every other client hears it from.
+    ///
+    /// Poses come off the wire, so a pose that cannot be used is dropped rather than pushed: an
+    /// engine fed a NaN compares every distance false and silences the whole place.
+    private func updatePoses(in contents: PlaceContents)
+    {
+        // Nobody to hear: don't compose poses, and don't complain about a listener nothing needs.
+        guard let listener, !playing.isEmpty else { return }
+
+        guard let listenerToPlace = contents.transformToWorld(of: listener.id) else
+        {
+            reportUnusableListener(listener.id, "no finite place-space transform (a Transform is missing, cyclic, or non-finite on it or an ancestor)")
+            return
+        }
+        // Finite, but a transform with no rotation left in it normalises to NaN axes.
+        let axes = VoiceEngine.listenerAxes(of: listenerToPlace)
+        guard axes.forward.isFinite, axes.up.isFinite else
+        {
+            reportUnusableListener(listener.id, "a transform with no orientation to point the ears with")
+            return
+        }
+        listenerIsUsable = true
+
+        let engine = client.voiceEngine
+        let listenerPosition = listenerToPlace.translation
+        engine.setListener(position: listenerPosition, forward: axes.forward, up: axes.up)
+
+        let occluders = AudioOccluders(of: contents)
+        for (mediaId, eid) in playing
+        {
+            // A source the place cannot place keeps the pose it had, rather than jumping to the
+            // place origin and shouting in the listener's ear.
+            guard let sourceToPlace = contents.transformToWorld(of: eid) else { continue }
+            let sourcePosition = sourceToPlace.translation
+            engine.setPosition(sourcePosition, for: mediaId)
+            engine.setAudible(VoiceEngine.isAudible(distance: simd_distance(listenerPosition, sourcePosition),
+                                                    wasAudible: engine.isAudible(mediaId)),
+                              for: mediaId)
+            let occluded = occluders.isOccluded(from: listenerPosition, to: sourcePosition)
+            engine.setOcclusion(occluded ? VoiceEngine.blockedOcclusion : 0, for: mediaId)
+        }
+    }
+
+    private func reportUnusableListener(_ eid: EntityID, _ problem: String)
+    {
+        guard listenerIsUsable else { return }
+        listenerIsUsable = false
+        logger.error("Listener entity \(eid) has \(problem); every voice keeps the pose it already had")
+    }
+
     public typealias PCMCallback = VoiceEngine.PCMCallback
     public struct ListenerAddon
     {

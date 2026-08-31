@@ -88,9 +88,13 @@ public extension simd_quatf
 public extension PlaceContents
 {
     /// Composes a world transform by walking Relationships. `overrides` supplies local
-    /// transforms the simulation hasn't committed yet. Returns nil on a Relationships cycle
-    /// or a missing Transform along the path — client-writable data must not hang the
-    /// server, and a Transform-less node must not silently pose at its parent's origin.
+    /// transforms the simulation hasn't committed yet.
+    ///
+    /// Returns nil on a Relationships cycle, a missing Transform along the path, or a composed
+    /// transform that is not finite, so a caller may use the result without re-checking it:
+    /// client-writable data must not hang the server, a Transform-less node must not silently
+    /// pose at its parent's origin, and one peer's NaN must not spread to everything composed
+    /// through it.
     func transformToWorld(of eid: EntityID, overrides: [EntityID: Transform] = [:]) -> simd_float4x4?
     {
         var transform = simd_float4x4.identity
@@ -104,6 +108,7 @@ public extension PlaceContents
             transform = local * transform
             current = components[Relationships.self, of: id]?.parent
         }
-        return transform
+        // One non-finite term poisons the product, so the composed matrix catches the whole chain.
+        return transform.isFinite ? transform : nil
     }
 }

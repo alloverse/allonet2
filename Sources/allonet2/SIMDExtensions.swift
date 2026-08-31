@@ -93,6 +93,11 @@ public extension SIMD3
     }
 }
 
+public extension SIMD3 where Scalar: FloatingPoint
+{
+    var isFinite: Bool { x.isFinite && y.isFinite && z.isFinite }
+}
+
 public extension SIMD4
 {
     var xyz: SIMD3<Scalar>
