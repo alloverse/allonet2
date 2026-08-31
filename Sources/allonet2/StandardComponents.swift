@@ -237,6 +237,17 @@ public struct InputTarget: Component
     public init() {}
 }
 
+/// This entity's `Collision` shapes block sound: a listener whose straight line to a speaker
+/// passes through one hears nothing of them. Like `InputTarget`, the marker states what the
+/// shapes mean, and an entity carrying it without a `Collision` blocks nothing.
+///
+/// Belongs on walls and floors rather than furniture: the test is one segment against the shape,
+/// so whatever it clips is silenced outright rather than muffled.
+public struct AudioOccluder: Component
+{
+    public init() {}
+}
+
 /// This entity may be grabbed and moved by any user, via `Intent.grab` (ported from
 /// allonet1's `grabbable`; there is no per-user authorization). The place server applies
 /// the grab within these constraints. Requires `Collision` (+ usually `InputTarget`) for
@@ -429,6 +440,7 @@ func RegisterStandardComponents()
     VisorInfo.register()
     Collision.register()
     InputTarget.register()
+    AudioOccluder.register()
     Grabbable.register()
     HoverEffect.register()
     Opacity.register()

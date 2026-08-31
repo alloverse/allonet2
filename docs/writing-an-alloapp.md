@@ -41,7 +41,7 @@ down when its session dies).
 
 Compose it from the standard components (`StandardComponents.swift`): E g `Transform`,
 `Relationships` (parenting), `Model`, `Text`, `Opacity`, `Billboard`, `Collision` +
-`InputTarget` (tappable), `Grabbable`. 
+`InputTarget` (tappable), `Collision` + `AudioOccluder` (blocks voice), `Grabbable`. 
 
 Your entity can render visibly a few different ways: **primitive meshes**
 (`.box`, `.plane`, `.cylinder`, `.sphere`) with `.color` or `.image(asset:)` materials;
