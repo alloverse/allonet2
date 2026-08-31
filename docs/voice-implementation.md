@@ -155,7 +155,7 @@ place as a diorama on a table changes what you see, not what you hear. It ran of
 `System` and a spatial-audio-field entity until 2026-08; both existed only to convert the scene's
 diorama scale back into metres, which the place already had.
 
-The trigger is `PlaceObservers.placeChanged`, once per applied delta, so poses update at the
+The trigger is `PlaceObservers.placeChanged`, once per applied changeset, so poses update at the
 place's own rate - up to 50 Hz while anyone moves, not at all while the place is still. Slower
 than a render loop, and more correct: nothing interpolates, so a voice sounds exactly where the
 authoritative transform puts it, which is where every other client hears it from too.

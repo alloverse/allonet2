@@ -265,13 +265,13 @@ public struct PlaceObservers
     }
     /// An entity has been removed.
     public var entityRemoved: AnyPublisher<EntityData, Never> { entityRemovedSubject.eraseToAnyPublisher() }
-    /// One delta has been applied in full: every callback above has already fired for it, and the
-    /// contents delivered here are the revision they add up to.
+    /// One changeset has been applied in full: every callback above has already fired for it, and
+    /// the contents delivered here are the revision they add up to.
     ///
     /// Subscribe when a subsystem has to reconcile against the whole place instead of reacting to
     /// one component at a time - spatial audio re-poses every voice per revision, because a single
-    /// listener move changes every source's distance. Fires once per applied delta, so its rate is
-    /// the place's update rate, not the count of things that changed.
+    /// listener move changes every source's distance. Fires once per applied changeset, so its
+    /// rate is the place's update rate, not the count of things that changed.
     public var placeChanged: AnyPublisher<PlaceContents, Never> { placeChangedSubject.eraseToAnyPublisher() }
     internal let entityAddedSubject = PassthroughSubject<EntityData, Never>()
     internal let entityRemovedSubject = PassthroughSubject<EntityData, Never>()
