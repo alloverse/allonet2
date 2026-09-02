@@ -69,10 +69,11 @@ public final class VoiceEngine
     private let voiceProcessing: Bool
     private var logger = Logger(labelSuffix: "audio.engine")
 
-    /// `voiceProcessing: false` captures in the device's native format with no echo canceller -
-    /// for telling a silent microphone apart from a conversion that drops the signal.
-    /// Fixed for the engine's lifetime: it changes the I/O unit, which cannot be swapped under
-    /// a running graph.
+    /// `voiceProcessing: true` (the default) enables the OS voice processor while capturing,
+    /// but only when the output route can feed back into the microphone (`OutputRoute`) -
+    /// speakers get echo cancellation and its system-wide ducking, headphones get neither.
+    /// `false` never enables it: capture in the device's native format, for telling a silent
+    /// microphone apart from a conversion that drops the signal.
     public init(voiceProcessing: Bool = true)
     {
         _ = Self.codecInstalled
@@ -83,6 +84,35 @@ public final class VoiceEngine
                                     interleaved: false)!
         accumulator = FrameAccumulator(frameSize: DataChannelMediaStream.frameDuration,
                                        sampleRate: DataChannelMediaStream.sampleRate)
+        // The system stops the engine when the device landscape changes - the default output
+        // moving to or from AirPods, a format change - and nobody restarts it but us.
+        configChangeObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil)
+        { [weak self] _ in
+            Task { @MainActor in self?.configurationChanged() }
+        }
+    }
+
+    private var configChangeObserver: (any NSObjectProtocol)?
+
+    deinit
+    {
+        if let configChangeObserver { NotificationCenter.default.removeObserver(configChangeObserver) }
+    }
+
+    /// Bursts of configuration changes coalesce into one pending reconcile.
+    private var reconcilePending = false
+
+    private func configurationChanged()
+    {
+        guard !reconcilePending else { return }
+        reconcilePending = true
+        logger.info("Audio configuration changed; reconciling")
+        chainedLogged("configuration change")
+        { [self] in
+            reconcilePending = false
+            try await reconcileOp()
+        }
     }
 
     // MARK: - The op chain
@@ -258,74 +288,117 @@ public final class VoiceEngine
         guard !isCapturing else { return }
         isCapturing = true
         captureStream = stream
-        captureGeneration &+= 1
-        let generation = captureGeneration
 
-        do { try await chained { [self] in try await captureOp(stream, generation: generation) }.value }
+        do { try await chained { [self] in try await reconcileOp() }.value }
         catch
         {
-            // Roll back, unless a newer capture already took over.
-            if captureGeneration == generation
+            // Roll back, unless a stop already moved the state on - and reconcile once more,
+            // in case a configuration change chained between our op and this rollback
+            // brought capture up believing it was still wanted.
+            if captureStream === stream
             {
                 isCapturing = false
                 captureStream = nil
                 converter = nil
+                chainedLogged("rollback") { [self] in try await self.reconcileOp() }
             }
             throw error
         }
     }
 
-    /// The chained body of `startCapture`: everything that touches the device.
-    private func captureOp(_ stream: DataChannelMediaStream, generation: Int) async throws
+    public func stopCapture()
     {
-        // stopCapture (or another start) chained behind us runs its own teardown; a capture
-        // already withdrawn should not open the device at all.
-        guard captureGeneration == generation, isCapturing else { return }
+        guard isCapturing else { return }
+        isCapturing = false
+        captureStream = nil
+        accumulator.reset()
+        chainedLogged("stopCapture") { [self] in try await reconcileOp() }
+    }
 
-        let needsGraph = claimGraphSetup()
-        let wantsVoiceProcessing = voiceProcessing && !voiceProcessingEnabled
-        let alreadyEnabled = voiceProcessingEnabled
+    // MARK: - Reconcile
 
-        struct CaptureRoute { let format: AVAudioFormat; let voiceProcessing: Bool; let hadPlayout: Bool }
-        let route = await offMain
-        { [engine, environment, logger] () -> CaptureRoute in
-            if needsGraph { Self.attachPlayoutGraph(engine, environment: environment) }
-            let input = engine.inputNode   // first touch: this is what prompts for microphone access
+    /// The one place engine state is decided: compares what should be true - capture wanted,
+    /// sources playing, the output route's echo-cancellation need - against what is, and
+    /// makes it so. Capture start, stop and every configuration change funnel here rather
+    /// than each patching the engine its own way; a burst of changes converges because every
+    /// pass reads the current truth.
+    private func reconcileOp() async throws
+    {
+        let wantTap = isCapturing && captureStream != nil
+        let wantEngine = !sources.isEmpty || isCapturing
+        let allowVP = voiceProcessing
+        let hadTap = tapInstalled
+        let currentVP = voiceProcessingEnabled
+        let hadGraph = graphReady
+        let needsGraph = wantTap && claimGraphSetup()
+        tapInstalled = false
+
+        struct IOState { let inputFormat: AVAudioFormat?; let vpOn: Bool; let route: OutputRoute; let hadPlayout: Bool }
+        let io = await offMain
+        { [engine, environment, logger] () -> IOState in
+            let route = OutputRoute.current()
+            let wantVP = allowVP && wantTap && route.needsEchoCancellation
             let hadPlayout = engine.isRunning
-            var vpOn = alreadyEnabled
-            if wantsVoiceProcessing
+            if needsGraph { Self.attachPlayoutGraph(engine, environment: environment) }
+            if hadTap { engine.inputNode.removeTap(onBus: 0) }
+            var vpOn = currentVP
+            if wantVP != vpOn
             {
-                // Voice processing can only be toggled on a stopped engine, and it re-creates the
-                // input format - so a listener who starts speaking restarts the graph once.
+                // Toggling swaps the I/O unit, which only a stopped engine allows. Touching
+                // inputNode is safe here: a differing state means the input is or was in use,
+                // so the microphone-access prompt already happened.
                 engine.stop()
                 do
                 {
-                    try input.setVoiceProcessingEnabled(true)
-                    // Ducking is system-wide, not graph-wide: one engine stopped it ducking our own
-                    // playout, but every other app's audio still drops the moment capture starts.
-                    input.voiceProcessingOtherAudioDuckingConfiguration =
-                        .init(enableAdvancedDucking: true, duckingLevel: .min)
-                    vpOn = true
+                    try engine.inputNode.setVoiceProcessingEnabled(wantVP)
+                    if wantVP
+                    {
+                        // Ducking is system-wide, not graph-wide: one engine stopped it ducking
+                        // our own playout, but every other app's audio still drops while voice
+                        // processing captures. Advanced ducking only ducks during voice activity.
+                        engine.inputNode.voiceProcessingOtherAudioDuckingConfiguration =
+                            .init(enableAdvancedDucking: true, duckingLevel: .min)
+                    }
+                    vpOn = wantVP
                 }
-                catch { logger.warning("Voice processing unavailable, continuing without echo cancellation: \(error)") }
+                catch { logger.warning("Could not switch voice processing to \(wantVP), continuing as \(vpOn): \(error)") }
             }
-            return CaptureRoute(format: input.outputFormat(forBus: 0), voiceProcessing: vpOn, hadPlayout: hadPlayout)
+            // The hardware under the graph's inferred formats may be new; refresh while stopped.
+            if hadGraph, !engine.isRunning { engine.connect(environment, to: engine.mainMixerNode, format: nil) }
+            return IOState(inputFormat: wantTap ? engine.inputNode.outputFormat(forBus: 0) : nil,
+                           vpOn: vpOn, route: route, hadPlayout: hadPlayout)
         }
-        voiceProcessingEnabled = route.voiceProcessing
+        voiceProcessingEnabled = io.vpOn
+
+        guard let inputFormat = io.inputFormat else
+        {
+            // No capture wanted: just leave the engine matching whether anything plays.
+            converter = nil
+            if wantEngine
+            {
+                try await offMain { [engine, environment, logger] in try Self.startEngine(engine, environment: environment, logger: logger) }
+            }
+            else { await stopEngineIfIdleOp() }
+            return
+        }
 
         do
         {
-            guard route.format.channelCount > 0 else { throw Failure.noInputChannels }
-            converter = try makeConverter(from: route.format)
+            guard inputFormat.channelCount > 0 else { throw Failure.noInputChannels }
+            converter = try makeConverter(from: inputFormat)
 
+            // A fresh tap is a fresh generation: buffers from the removed tap can still be in
+            // flight, in a format the new converter does not accept.
+            captureGeneration &+= 1
+            let generation = captureGeneration
             // 20 ms at the *input* rate, which is not the 48 kHz the frame duration counts in.
-            let tapFrames = AVAudioFrameCount(route.format.sampleRate * 0.02)
+            let tapFrames = AVAudioFrameCount(inputFormat.sampleRate * 0.02)
             try await offMain
             { [self, engine, environment, logger] in
                 // Start before tapping: a tap installs fine on a running engine, and this way a
                 // failed start leaves no tap to remove.
                 try Self.startEngine(engine, environment: environment, logger: logger)
-                engine.inputNode.installTap(onBus: 0, bufferSize: tapFrames, format: route.format)
+                engine.inputNode.installTap(onBus: 0, bufferSize: tapFrames, format: inputFormat)
                 { [weak self] buffer, _ in
                     guard let self else { return }
                     let capturedAt = Date()   // the hop to the main actor below is not part of capture
@@ -340,8 +413,8 @@ public final class VoiceEngine
         catch
         {
             converter = nil
-            // Enabling voice processing stopped the engine everyone else is playing through.
-            if route.hadPlayout
+            // Toggling voice processing stopped the engine everyone else is playing through.
+            if io.hadPlayout
             {
                 do
                 {
@@ -353,12 +426,12 @@ public final class VoiceEngine
         }
 
         // A mute may have been set while the device opened; the unit only now exists to hear it.
-        if route.voiceProcessing
+        if io.vpOn
         {
             let muted = isMuted
             await offMain { [engine] in engine.inputNode.isVoiceProcessingInputMuted = muted }
         }
-        logger.info("Capturing from \(route.format) (\(route.format.channelLayout?.layoutTag.description ?? "no layout")), sending as \(voiceFormat), voice processing: \(route.voiceProcessing)")
+        logger.info("Capturing from \(inputFormat) (\(inputFormat.channelLayout?.layoutTag.description ?? "no layout")), sending as \(voiceFormat), voice processing: \(io.vpOn), route: \(io.route)")
     }
 
     private func makeConverter(from inputFormat: AVAudioFormat) throws -> AVAudioConverter?
@@ -372,23 +445,6 @@ public final class VoiceEngine
         // silence. See docs/voice-implementation.md, One engine.
         if inputFormat.channelCount != voiceFormat.channelCount { converter.channelMap = [0] }
         return converter
-    }
-
-    public func stopCapture()
-    {
-        guard isCapturing else { return }
-        isCapturing = false
-        captureStream = nil
-        accumulator.reset()
-        chainedLogged("stopCapture")
-        { [self] in
-            if tapInstalled
-            {
-                tapInstalled = false
-                await offMain { [engine] in engine.inputNode.removeTap(onBus: 0) }
-            }
-            await stopEngineIfIdleOp()
-        }
     }
 
     /// Accumulate captured audio into whole frames; the tap's buffer size is a hint, not a promise.
@@ -495,52 +551,58 @@ public final class VoiceEngine
 
         chainedLogged("play \(stream.mediaId)")
         { [self] in
-            do
-            {
-                let needsGraph = claimGraphSetup()
-                await offMain
-                { [engine, environment, voiceFormat] in
-                    if needsGraph { Self.attachPlayoutGraph(engine, environment: environment) }
-                    engine.attach(source)
-                    engine.attach(rateNode)
-                    engine.connect(source, to: rateNode, format: voiceFormat)
-                    // The environment node spatialises one mono source per input bus.
-                    engine.connect(rateNode, to: environment, fromBus: 0, toBus: environment.nextAvailableInputBus, format: voiceFormat)
-                }
-                // Mixing properties may have landed while the node was unattached; push the
-                // current ones now that the mixer can see it, before anything renders.
-                if var current = sources[stream.mediaId], current.node === source
-                {
-                    source.renderingAlgorithm = Self.renderingAlgorithm
-                    if current.positioned { source.position = AVAudio3DPoint(current.position) }
-                    source.occlusion = current.occlusion
-                    current.appliedVolume = nil
-                    sources[stream.mediaId] = current
-                    applyVolume(to: stream.mediaId)
-                }
-                try await offMain { [engine, environment, logger] in try Self.startEngine(engine, environment: environment, logger: logger) }
-                logger.info("Playing \(stream.mediaId), \(String(format: "%.1f", outputLatency * 1000)) ms downstream of its render block")
+            try await playOp(stream.mediaId, source: source, rateNode: rateNode, ring: ring)
+        }
+    }
+
+    /// The chained body of `play`: attach, replay mixing state, start the device.
+    private func playOp(_ mediaId: String, source: AVAudioSourceNode, rateNode: AVAudioUnitVarispeed, ring: AudioRingBuffer) async throws
+    {
+        do
+        {
+            let needsGraph = claimGraphSetup()
+            await offMain
+            { [engine, environment, voiceFormat] in
+                if needsGraph { Self.attachPlayoutGraph(engine, environment: environment) }
+                engine.attach(source)
+                engine.attach(rateNode)
+                engine.connect(source, to: rateNode, format: voiceFormat)
+                // The environment node spatialises one mono source per input bus.
+                engine.connect(rateNode, to: environment, fromBus: 0, toBus: environment.nextAvailableInputBus, format: voiceFormat)
             }
-            catch
+            // Mixing properties may have landed while the node was unattached; push the
+            // current ones now that the mixer can see it, before anything renders.
+            if var current = sources[mediaId], current.node === source
             {
-                // Only clean up a registration that is still ours: a stop(mediaId:) that raced
-                // in already removed it and chained the detach.
-                if sources[stream.mediaId]?.node === source
-                {
-                    sources[stream.mediaId] = nil
-                    ring.cancel()
-                    if sources.isEmpty { rateTicker?.cancel(); rateTicker = nil }
-                    chainedLogged("detach \(stream.mediaId)")
-                    { [self] in
-                        await offMain { [engine] in
-                            engine.detach(source)
-                            engine.detach(rateNode)
-                        }
-                        await stopEngineIfIdleOp()
+                source.renderingAlgorithm = Self.renderingAlgorithm
+                if current.positioned { source.position = AVAudio3DPoint(current.position) }
+                source.occlusion = current.occlusion
+                current.appliedVolume = nil
+                sources[mediaId] = current
+                applyVolume(to: mediaId)
+            }
+            try await offMain { [engine, environment, logger] in try Self.startEngine(engine, environment: environment, logger: logger) }
+            logger.info("Playing \(mediaId), \(String(format: "%.1f", outputLatency * 1000)) ms downstream of its render block")
+        }
+        catch
+        {
+            // Only clean up a registration that is still ours: a stop(mediaId:) that raced
+            // in already removed it and chained the detach.
+            if sources[mediaId]?.node === source
+            {
+                sources[mediaId] = nil
+                ring.cancel()
+                if sources.isEmpty { rateTicker?.cancel(); rateTicker = nil }
+                chainedLogged("detach \(mediaId)")
+                { [self] in
+                    await offMain { [engine] in
+                        engine.detach(source)
+                        engine.detach(rateNode)
                     }
+                    await stopEngineIfIdleOp()
                 }
-                throw Failure.playoutFailed(mediaId: stream.mediaId, underlying: error)
             }
+            throw Failure.playoutFailed(mediaId: mediaId, underlying: error)
         }
     }
 

@@ -163,6 +163,22 @@ touched at all - its first touch prompts for microphone access). What this does 
 the OS itself briefly interrupts system audio while the voice processor reconfigures the
 HAL; off-main only keeps the app alive through it.
 
+## Route changes
+
+The voice processor only earns its keep when the microphone can hear the output: speakers
+need echo cancellation, headphones do not - and on macOS the processor ducks *every other
+app's* audio system-wide while it captures, which is a bad trade for a headphone user's
+music. So voice processing is keyed on `OutputRoute` (built-in speakers and external
+outputs: on; wired-jack or Bluetooth headphones: off - AirPods dominate Bluetooth, and a
+Bluetooth-speaker user can live with echo).
+
+All of it converges through one `reconcileOp` on the chain: capture start, capture stop and
+`AVAudioEngineConfigurationChange` (the system stops the engine when the default device
+changes - switching to or from AirPods used to leave audio dead because nobody restarted it)
+all compare wanted state against actual and make it so, rather than each patching the engine
+its own way. Every re-tap bumps the capture generation: the removed tap's buffers can still
+be in flight, in a format the new converter does not accept.
+
 ## Spatialisation
 
 The place says where things are; the audio engine decides what that sounds like.
