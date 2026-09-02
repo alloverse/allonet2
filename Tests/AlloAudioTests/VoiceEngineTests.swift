@@ -142,6 +142,19 @@ import allonet2
         #expect(VoiceEngine.volume(audible: false, occlusion: 0) == 0)
     }
 
+    /// The processor's whole cost - system-wide ducking, the seconds-long open - is only paid
+    /// while it can earn its keep: capturing, unmuted, onto a route the microphone can hear.
+    @Test func voiceProcessingRunsOnlyWhileCapturingUnmutedOntoSpeakers()
+    {
+        #expect(VoiceEngine.wantsVoiceProcessing(allowed: true, capturing: true, muted: false, route: .builtInSpeakers))
+        #expect(VoiceEngine.wantsVoiceProcessing(allowed: true, capturing: true, muted: false, route: .external))
+        #expect(!VoiceEngine.wantsVoiceProcessing(allowed: true, capturing: true, muted: false, route: .headphones))
+        #expect(!VoiceEngine.wantsVoiceProcessing(allowed: true, capturing: true, muted: true, route: .builtInSpeakers),
+                "muted, the processor buys nothing but its ducking")
+        #expect(!VoiceEngine.wantsVoiceProcessing(allowed: true, capturing: false, muted: false, route: .builtInSpeakers))
+        #expect(!VoiceEngine.wantsVoiceProcessing(allowed: false, capturing: true, muted: false, route: .builtInSpeakers))
+    }
+
     /// A removed tap's buffers are still queued as hops to this actor; by the time they run,
     /// capture may have restarted on a different stream, which must not be sent that audio.
     @Test func dropsAudioCapturedByAReplacedTap() throws

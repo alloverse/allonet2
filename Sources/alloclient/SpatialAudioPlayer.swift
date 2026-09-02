@@ -181,13 +181,7 @@ public class SpatialAudioPlayer
         }
 
         playing[stream.mediaId] = eid
-        do { try client.voiceEngine.play(stream, pcm: pcmCallbacks[stream.mediaId]) }
-        catch
-        {
-            streamLogger.error("Failed to play voice from entity \(eid): \(error)")
-            stop(streamId: stream.mediaId)
-            return
-        }
+        client.voiceEngine.play(stream, pcm: pcmCallbacks[stream.mediaId])
         // A new source starts silent and stays there until it has been placed once.
         updatePoses(in: client.placeState.current)
         streamLogger.info("Successfully set up audio renderer \(eid)")

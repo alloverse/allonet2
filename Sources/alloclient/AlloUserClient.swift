@@ -128,12 +128,21 @@ final class MicrophoneTrack: AudioTrack
         {
             let stream = try self.stream ?? transport.createOutgoingMediaStream(mediaId: Self.mediaId)
             self.stream = stream
-            try engine.startCapture(sending: stream)
-            micLogger.info("Microphone on, voice processing: \(engine.voiceProcessingEnabled)")
+            Task
+            {
+                // Re-check: a disconnect or mute can land before this task gets its turn.
+                guard connected, isEnabled else { return }
+                do
+                {
+                    try await engine.startCapture(sending: stream)
+                    micLogger.info("Microphone on, voice processing: \(engine.voiceProcessingEnabled)")
+                }
+                catch { micLogger.error("Could not start the microphone: \(error)") }
+            }
         }
         catch
         {
-            micLogger.error("Could not start the microphone: \(error)")
+            micLogger.error("Could not create the microphone stream: \(error)")
         }
     }
 }

@@ -145,6 +145,57 @@ so the pin stays: without it, starting capture silences Spotify and every other 
 - `VOICEDEMO_NO_VPIO=1` captures in the device's native format, to take the voice processor
   out of a diagnosis.
 
+## Blocking opens
+
+Opening the voice processor or starting a device stalls for *seconds* on macOS, so no HAL
+call runs on the main thread. Graph mutations and engine start/stop are ops on `OpChain` - a
+FIFO of exclusive main-actor operations (`run` awaited, `launch` fire-and-forget) whose
+blocking calls each op hops to a queue (`offMain`). The chain is the mutual exclusion - ops
+never interleave, even across their suspension points. A `launch`ed op that fails is logged
+*and* handed to `VoiceEngine.onBackgroundFailure`, because nobody is awaiting it and a
+silently broken engine is indistinguishable from a working one.
+
+Parameter sets (position, volume, rate) don't need the exclusivity, but they cannot stay on
+the main thread either: *even reading* a node property takes AVFAudio's attach-and-engine
+lock (`AVAudioNodeImplBase::GetAttachAndEngineLock`), which the system holds for the entire
+seconds-long device reconfiguration of a route change - the rate ticker's innocent
+`rateNode.rate` read is what beachballed the whole app through every AirPods switch. They
+ride `OpChain.post`: fire-and-forget onto the same queue, FIFO with the ops' steps, never
+awaited by anyone the user is looking at.
+
+Bookkeeping flips synchronously when asked - `play` registers its source and `startCapture`
+sets `isCapturing` before any suspension - so callers' guards and the next scene update's
+poses hold without an await; the node's mixing properties are pushed again after the attach,
+before anything renders. A teardown chained behind a capture still opening finds
+`tapInstalled` saying whether there is a tap to remove (and so whether `inputNode` may be
+touched at all - its first touch prompts for microphone access). What this does *not* fix:
+the OS itself briefly interrupts system audio while the voice processor reconfigures the
+HAL; off-main only keeps the app alive through it.
+
+## Route changes
+
+The voice processor only earns its keep when the microphone can hear the output: speakers
+need echo cancellation, headphones do not - and on macOS the processor ducks *every other
+app's* audio system-wide while it captures, which is a bad trade for a headphone user's
+music. So voice processing is keyed on `OutputRoute` (built-in speakers and external
+outputs: on; wired-jack or Bluetooth headphones: off - AirPods dominate Bluetooth, and a
+Bluetooth-speaker user can live with echo).
+
+Mute tears the processor down too (`wantsVoiceProcessing`): muted, it buys nothing but its
+ducking, so Spotify comes back the moment the mic mutes. The trade is that unmuting on
+speakers re-opens the processor - seconds, off the main thread, nothing sent until it is up
+so no uncancelled audio ever leaves - and each toggle blips playout while the I/O unit
+swaps. If quick mute-toggles on speakers prove annoying, the refinement is hysteresis (drop
+the processor only after some seconds muted), not keeping it.
+
+All of it converges through one `reconcileOp` on the chain: capture start, capture stop,
+mute flips and `AVAudioEngineConfigurationChange` (the system stops the engine when the
+default device changes - switching to or from AirPods used to leave audio dead because
+nobody restarted it) all compare wanted state against actual and make it so, rather than
+each patching the engine its own way. A tap that can survive the pass stays (a mute flip on
+headphones costs nothing); any re-tap bumps the capture generation, because the removed
+tap's buffers can still be in flight in a format the new converter does not accept.
+
 ## Spatialisation
 
 The place says where things are; the audio engine decides what that sounds like.

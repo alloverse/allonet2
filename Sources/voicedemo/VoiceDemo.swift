@@ -130,7 +130,7 @@ final class VoiceDemoClient: AlloClient
         else
         {
             engine.onFrameSent = { [weak self] sequence, at in self?.noteCapture(sequence, at: at) }
-            try engine.startCapture(sending: stream)
+            try await engine.startCapture(sending: stream)
             source = "microphone, voice processing: \(engine.voiceProcessingEnabled)"
         }
         if latency != nil { startLatencyPolling() }
@@ -229,12 +229,8 @@ final class VoiceDemoClient: AlloClient
     {
         guard let stream = stream as? DataChannelMediaStream else { return }
         incoming[stream.mediaId] = stream
-        do
-        {
-            try engine.play(stream)
-            engine.setPosition(.zero, for: stream.mediaId)   // no scene to position sources from
-        }
-        catch { logger.error("Failed to play \(stream.mediaId): \(error)") }
+        engine.play(stream)
+        engine.setPosition(.zero, for: stream.mediaId)   // no scene to position sources from
     }
 
     override func session(_ session: AlloSession, didRemoveMediaStream stream: MediaStream)
