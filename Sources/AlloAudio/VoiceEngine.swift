@@ -121,8 +121,9 @@ public final class VoiceEngine
 
     /// Graph mutations and engine start/stop run as exclusive ops on this chain, with their
     /// blocking HAL calls hopped off the main thread; see `OpChain`. Parameter sets
-    /// (position, volume, rate) don't ride it - an AU parameter set is safe alongside
-    /// anything but a graph mutation.
+    /// (position, volume, rate) ride `post` instead - unchained, but still off main, because
+    /// even reading a node property takes AVFAudio's engine lock, which a device
+    /// reconfiguration holds for seconds.
     private let ops: OpChain
 
     /// Called on the main actor when a background operation - a device reconfiguration, a
@@ -165,16 +166,21 @@ public final class VoiceEngine
     }
 
     /// The chained tail of every teardown: stop the engine once nothing runs through it.
+    /// Even the `isRunning` read happens on the queue - a node or engine property takes
+    /// AVFAudio's engine lock, which a device reconfiguration can hold for seconds.
     private func stopEngineIfIdleOp() async
     {
-        guard sources.isEmpty, !isCapturing, engine.isRunning else { return }
-        await ops.offMain { [engine] in engine.stop() }
+        guard sources.isEmpty, !isCapturing else { return }
+        await ops.offMain { [engine] in if engine.isRunning { engine.stop() } }
     }
 
     /// What the graph adds after a stream's render block: the rate node, mixing, conversion and
     /// the hardware. Not part of a render-callback-to-capture measurement, so report it
     /// alongside one rather than pretending it is not there - and it is the number that catches
     /// a rate node with a lookahead window in it.
+    ///
+    /// Diagnostics only: reading node properties takes the engine lock, so this can block for
+    /// the length of a device reconfiguration. Don't call it on a path the UI waits on.
     public var outputLatency: TimeInterval
     {
         max(sources.values.map(\.node.outputPresentationLatency).max() ?? 0,
@@ -567,17 +573,27 @@ public final class VoiceEngine
             }
             // Mixing properties may have landed while the node was unattached; push the
             // current ones now that the mixer can see it, before anything renders.
-            if var current = sources[mediaId], current.node === source
+            var replay: (position: AVAudio3DPoint?, occlusion: Float, volume: Float)?
+            if let current = sources[mediaId], current.node === source
             {
-                source.renderingAlgorithm = Self.renderingAlgorithm
-                if current.positioned { source.position = AVAudio3DPoint(current.position) }
-                source.occlusion = current.occlusion
-                current.appliedVolume = nil
-                sources[mediaId] = current
-                applyVolume(to: mediaId)
+                let volume = Self.volume(audible: current.audible, occlusion: current.occlusion)
+                    * Self.gain(atDistance: simd_distance(listenerPosition, current.position))
+                sources[mediaId]!.appliedVolume = volume
+                replay = (current.positioned ? AVAudio3DPoint(current.position) : nil, current.occlusion, volume)
             }
-            try await ops.offMain { [engine, environment, logger] in try Self.startEngine(engine, environment: environment, logger: logger) }
-            logger.info("Playing \(mediaId), \(String(format: "%.1f", outputLatency * 1000)) ms downstream of its render block")
+            try await ops.offMain
+            { [engine, environment, logger] in
+                if let replay
+                {
+                    source.renderingAlgorithm = Self.renderingAlgorithm
+                    if let position = replay.position { source.position = position }
+                    source.occlusion = replay.occlusion
+                    source.volume = replay.volume
+                }
+                try Self.startEngine(engine, environment: environment, logger: logger)
+                let latency = max(source.outputPresentationLatency, engine.outputNode.presentationLatency)
+                logger.info("Playing \(mediaId), \(String(format: "%.1f", latency * 1000)) ms downstream of its render block")
+            }
         }
         catch
         {
@@ -618,8 +634,10 @@ public final class VoiceEngine
     }
 
     /// Each stream decides its own playout rate from how much it has buffered; this hands the
-    /// latest one to its rate node. An AU parameter set is safe off the render thread, and the
-    /// controller slews far too slowly for 50 ms to be coarse.
+    /// latest one to its rate node, on the queue: even reading a node property takes AVFAudio's
+    /// engine lock, which a device reconfiguration holds for seconds - this very read is what
+    /// beachballed the app through every route change. The controller slews far too slowly for
+    /// 50 ms to be coarse.
     ///
     /// Cancellation returns rather than falling through to one last pass: by then `stop` has
     /// detached the nodes this would write to, and a replacement ticker may already be running.
@@ -637,9 +655,13 @@ public final class VoiceEngine
                     return
                 }
                 guard let self else { return }
-                for source in sources.values where source.rateNode.rate != source.stream.playoutRate
+                let pairs = sources.values.map { ($0.rateNode, $0.stream) }
+                ops.post
                 {
-                    source.rateNode.rate = source.stream.playoutRate
+                    for (rateNode, stream) in pairs where rateNode.rate != stream.playoutRate
+                    {
+                        rateNode.rate = stream.playoutRate
+                    }
                 }
             }
         }
@@ -683,9 +705,13 @@ public final class VoiceEngine
     /// head's axes; both are normalised here.
     public func setListener(position: SIMD3<Float>, forward: SIMD3<Float>, up: SIMD3<Float>)
     {
-        environment.listenerPosition = AVAudio3DPoint(position)
-        environment.listenerVectorOrientation = AVAudio3DVectorOrientation(forward: AVAudio3DVector(simd_normalize(forward)),
-                                                                           up: AVAudio3DVector(simd_normalize(up)))
+        let point = AVAudio3DPoint(position)
+        let orientation = AVAudio3DVectorOrientation(forward: AVAudio3DVector(simd_normalize(forward)),
+                                                     up: AVAudio3DVector(simd_normalize(up)))
+        ops.post { [environment] in
+            environment.listenerPosition = point
+            environment.listenerVectorOrientation = orientation
+        }
         guard simd_distance_squared(listenerPosition, position) > 1e-6 else { return }
         listenerPosition = position
         for mediaId in sources.keys { applyVolume(to: mediaId) }   // every source's distance changed
@@ -703,7 +729,9 @@ public final class VoiceEngine
         let firstPosition = !source.positioned
         guard firstPosition || simd_distance_squared(source.position, position) > 1e-6 else { return }
         sources[mediaId]!.position = position
-        source.node.position = AVAudio3DPoint(position)
+        let node = source.node
+        let point = AVAudio3DPoint(position)
+        ops.post { node.position = point }
         if firstPosition
         {
             sources[mediaId]!.positioned = true
@@ -793,7 +821,8 @@ public final class VoiceEngine
             * Self.gain(atDistance: simd_distance(listenerPosition, source.position))
         guard volume != source.appliedVolume else { return }
         sources[mediaId]!.appliedVolume = volume
-        source.node.volume = volume
+        let node = source.node
+        ops.post { node.volume = volume }
     }
 
     /// Whether `mediaId` is currently heard. Unknown streams are not.
@@ -808,7 +837,8 @@ public final class VoiceEngine
     {
         guard let source = sources[mediaId], source.occlusion != dB else { return }
         sources[mediaId]!.occlusion = dB
-        source.node.occlusion = dB
+        let node = source.node
+        ops.post { node.occlusion = dB }
         applyVolume(to: mediaId)
     }
 }

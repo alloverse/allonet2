@@ -64,6 +64,15 @@ final class OpChain
         }
     }
 
+    /// Fire-and-forget onto the blocking queue: FIFO with ops' blocking steps and other
+    /// posts, but not chained and never awaited. For parameter sets - a node property takes
+    /// AVFAudio's engine lock, which a device reconfiguration holds for seconds, so not even
+    /// a read belongs on the main thread.
+    nonisolated func post(_ work: @escaping () -> Void)
+    {
+        queue.async(execute: work)
+    }
+
     /// Run `work` off the main thread, from inside an op only - the chain is what keeps two
     /// of these from touching the shared resource at once.
     nonisolated func offMain<T>(_ work: @escaping () throws -> T) async throws -> T

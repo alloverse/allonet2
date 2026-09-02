@@ -151,11 +151,17 @@ Opening the voice processor or starting a device stalls for *seconds* on macOS, 
 call runs on the main thread. Graph mutations and engine start/stop are ops on `OpChain` - a
 FIFO of exclusive main-actor operations (`run` awaited, `launch` fire-and-forget) whose
 blocking calls each op hops to a queue (`offMain`). The chain is the mutual exclusion - ops
-never interleave, even across their suspension points - which is why parameter sets
-(position, volume, rate) stay direct: an AU parameter set is safe alongside anything but a
-graph mutation. A `launch`ed op that fails is logged *and* handed to
-`VoiceEngine.onBackgroundFailure`, because nobody is awaiting it and a silently broken
-engine is indistinguishable from a working one.
+never interleave, even across their suspension points. A `launch`ed op that fails is logged
+*and* handed to `VoiceEngine.onBackgroundFailure`, because nobody is awaiting it and a
+silently broken engine is indistinguishable from a working one.
+
+Parameter sets (position, volume, rate) don't need the exclusivity, but they cannot stay on
+the main thread either: *even reading* a node property takes AVFAudio's attach-and-engine
+lock (`AVAudioNodeImplBase::GetAttachAndEngineLock`), which the system holds for the entire
+seconds-long device reconfiguration of a route change - the rate ticker's innocent
+`rateNode.rate` read is what beachballed the whole app through every AirPods switch. They
+ride `OpChain.post`: fire-and-forget onto the same queue, FIFO with the ops' steps, never
+awaited by anyone the user is looking at.
 
 Bookkeeping flips synchronously when asked - `play` registers its source and `startCapture`
 sets `isCapturing` before any suspension - so callers' guards and the next scene update's
