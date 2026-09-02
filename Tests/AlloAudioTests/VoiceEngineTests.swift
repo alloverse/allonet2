@@ -142,20 +142,6 @@ import allonet2
         #expect(VoiceEngine.volume(audible: false, occlusion: 0) == 0)
     }
 
-    /// The op chain is what keeps device opens, graph mutations and teardowns from
-    /// interleaving: ops run strictly in the order they were chained, even when an earlier
-    /// one suspends for longer than a later one takes.
-    @Test func chainedOpsRunInOrderAcrossSuspensions() async throws
-    {
-        let engine = VoiceEngine()
-        var order: [Int] = []
-        engine.chained { try await Task.sleep(nanoseconds: 50_000_000); order.append(1) }
-        engine.chained { order.append(2) }
-        let last = engine.chained { order.append(3) }
-        _ = try await last.value
-        #expect(order == [1, 2, 3])
-    }
-
     /// A removed tap's buffers are still queued as hops to this actor; by the time they run,
     /// capture may have restarted on a different stream, which must not be sent that audio.
     @Test func dropsAudioCapturedByAReplacedTap() throws

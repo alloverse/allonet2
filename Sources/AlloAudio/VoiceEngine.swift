@@ -84,6 +84,8 @@ public final class VoiceEngine
                                     interleaved: false)!
         accumulator = FrameAccumulator(frameSize: DataChannelMediaStream.frameDuration,
                                        sampleRate: DataChannelMediaStream.sampleRate)
+        ops = OpChain(label: "AlloAudio.VoiceEngine", logger: logger)
+        ops.onFailure = { [weak self] label, error in self?.onBackgroundFailure?(label, error) }
         // The system stops the engine when the device landscape changes - the default output
         // moving to or from AirPods, a format change - and nobody restarts it but us.
         configChangeObserver = NotificationCenter.default.addObserver(
@@ -108,7 +110,7 @@ public final class VoiceEngine
         guard !reconcilePending else { return }
         reconcilePending = true
         logger.info("Audio configuration changed; reconciling")
-        chainedLogged("configuration change")
+        ops.launch("configuration change")
         { [self] in
             reconcilePending = false
             try await reconcileOp()
@@ -117,56 +119,17 @@ public final class VoiceEngine
 
     // MARK: - The op chain
 
-    /// The tail of the chain; see `chained`.
-    private var lastOp: Task<Void, Never>?
+    /// Graph mutations and engine start/stop run as exclusive ops on this chain, with their
+    /// blocking HAL calls hopped off the main thread; see `OpChain`. Parameter sets
+    /// (position, volume, rate) don't ride it - an AU parameter set is safe alongside
+    /// anything but a graph mutation.
+    private let ops: OpChain
 
-    /// Where the blocking HAL calls run instead of the main thread. Serial as a backstop;
-    /// `chained` is what actually orders the work.
-    private nonisolated let halQueue = DispatchQueue(label: "AlloAudio.VoiceEngine", qos: .userInitiated)
-
-    /// Run `op` after every previously chained op has finished, exclusively: graph mutations
-    /// and engine start/stop go through here, so no two of them interleave even though the
-    /// main actor is free at their suspension points. Parameter sets (position, volume, rate)
-    /// don't ride the chain - an AU parameter set is safe alongside anything but a graph
-    /// mutation. Ops are chained synchronously: two calls in the same main-actor stretch run
-    /// in call order.
-    @discardableResult
-    func chained<T>(_ op: @escaping @MainActor () async throws -> T) -> Task<T, Error>
-    {
-        let previous = lastOp
-        let task = Task { @MainActor in
-            await previous?.value
-            return try await op()
-        }
-        lastOp = Task { _ = try? await task.value }
-        return task
-    }
-
-    /// `chained`, for sync entry points with nobody left to throw to: failures are logged.
-    private func chainedLogged(_ label: String, _ op: @escaping @MainActor () async throws -> Void)
-    {
-        let task = chained(op)
-        Task { [logger] in
-            do { try await task.value }
-            catch { logger.error("\(label): \(error)") }
-        }
-    }
-
-    /// Run `work` off the main thread, from inside a chained op only - the chain is what
-    /// keeps two of these from touching the engine at once.
-    nonisolated private func offMain<T>(_ work: @escaping () throws -> T) async throws -> T
-    {
-        try await withCheckedThrowingContinuation { continuation in
-            halQueue.async { continuation.resume(with: Result { try work() }) }
-        }
-    }
-
-    nonisolated private func offMain<T>(_ work: @escaping () -> T) async -> T
-    {
-        await withCheckedContinuation { continuation in
-            halQueue.async { continuation.resume(returning: work()) }
-        }
-    }
+    /// Called on the main actor when a background operation - a device reconfiguration, a
+    /// playout start - fails with nobody awaiting it. Logged regardless; set this to tell
+    /// the user, because a silently broken engine is indistinguishable from a working one.
+    /// The string names the failed operation, e.g. "play voice-mic".
+    public var onBackgroundFailure: ((String, Error) -> Void)?
 
     // MARK: - Graph
 
@@ -205,7 +168,7 @@ public final class VoiceEngine
     private func stopEngineIfIdleOp() async
     {
         guard sources.isEmpty, !isCapturing, engine.isRunning else { return }
-        await offMain { [engine] in engine.stop() }
+        await ops.offMain { [engine] in engine.stop() }
     }
 
     /// What the graph adds after a stream's render block: the rate node, mixing, conversion and
@@ -271,10 +234,10 @@ public final class VoiceEngine
         // is what stops frames. Chained, so it lands after an open still in flight - which
         // applies the mute itself, and leaves `voiceProcessingEnabled` false until it has.
         guard voiceProcessingEnabled else { return }
-        chainedLogged("applyMute")
+        ops.launch("applyMute")
         { [self] in
             let muted = isMuted
-            await offMain { [engine] in engine.inputNode.isVoiceProcessingInputMuted = muted }
+            await ops.offMain { [engine] in engine.inputNode.isVoiceProcessingInputMuted = muted }
         }
     }
 
@@ -289,7 +252,7 @@ public final class VoiceEngine
         isCapturing = true
         captureStream = stream
 
-        do { try await chained { [self] in try await reconcileOp() }.value }
+        do { try await ops.run { [self] in try await reconcileOp() }.value }
         catch
         {
             // Roll back, unless a stop already moved the state on - and reconcile once more,
@@ -300,7 +263,7 @@ public final class VoiceEngine
                 isCapturing = false
                 captureStream = nil
                 converter = nil
-                chainedLogged("rollback") { [self] in try await self.reconcileOp() }
+                ops.launch("rollback") { [self] in try await self.reconcileOp() }
             }
             throw error
         }
@@ -312,7 +275,7 @@ public final class VoiceEngine
         isCapturing = false
         captureStream = nil
         accumulator.reset()
-        chainedLogged("stopCapture") { [self] in try await reconcileOp() }
+        ops.launch("stopCapture") { [self] in try await reconcileOp() }
     }
 
     // MARK: - Reconcile
@@ -334,7 +297,7 @@ public final class VoiceEngine
         tapInstalled = false
 
         struct IOState { let inputFormat: AVAudioFormat?; let vpOn: Bool; let route: OutputRoute; let hadPlayout: Bool }
-        let io = await offMain
+        let io = await ops.offMain
         { [engine, environment, logger] () -> IOState in
             let route = OutputRoute.current()
             let wantVP = allowVP && wantTap && route.needsEchoCancellation
@@ -376,7 +339,7 @@ public final class VoiceEngine
             converter = nil
             if wantEngine
             {
-                try await offMain { [engine, environment, logger] in try Self.startEngine(engine, environment: environment, logger: logger) }
+                try await ops.offMain { [engine, environment, logger] in try Self.startEngine(engine, environment: environment, logger: logger) }
             }
             else { await stopEngineIfIdleOp() }
             return
@@ -393,7 +356,7 @@ public final class VoiceEngine
             let generation = captureGeneration
             // 20 ms at the *input* rate, which is not the 48 kHz the frame duration counts in.
             let tapFrames = AVAudioFrameCount(inputFormat.sampleRate * 0.02)
-            try await offMain
+            try await ops.offMain
             { [self, engine, environment, logger] in
                 // Start before tapping: a tap installs fine on a running engine, and this way a
                 // failed start leaves no tap to remove.
@@ -418,7 +381,7 @@ public final class VoiceEngine
             {
                 do
                 {
-                    try await offMain { [engine, environment, logger] in try Self.startEngine(engine, environment: environment, logger: logger) }
+                    try await ops.offMain { [engine, environment, logger] in try Self.startEngine(engine, environment: environment, logger: logger) }
                 }
                 catch let restartError { logger.error("Playout stopped with the failed capture: \(restartError)") }
             }
@@ -429,7 +392,7 @@ public final class VoiceEngine
         if io.vpOn
         {
             let muted = isMuted
-            await offMain { [engine] in engine.inputNode.isVoiceProcessingInputMuted = muted }
+            await ops.offMain { [engine] in engine.inputNode.isVoiceProcessingInputMuted = muted }
         }
         logger.info("Capturing from \(inputFormat) (\(inputFormat.channelLayout?.layoutTag.description ?? "no layout")), sending as \(voiceFormat), voice processing: \(io.vpOn), route: \(io.route)")
     }
@@ -549,7 +512,7 @@ public final class VoiceEngine
         applyVolume(to: stream.mediaId)
         startRateTicker()
 
-        chainedLogged("play \(stream.mediaId)")
+        ops.launch("play \(stream.mediaId)")
         { [self] in
             try await playOp(stream.mediaId, source: source, rateNode: rateNode, ring: ring)
         }
@@ -561,7 +524,7 @@ public final class VoiceEngine
         do
         {
             let needsGraph = claimGraphSetup()
-            await offMain
+            await ops.offMain
             { [engine, environment, voiceFormat] in
                 if needsGraph { Self.attachPlayoutGraph(engine, environment: environment) }
                 engine.attach(source)
@@ -581,7 +544,7 @@ public final class VoiceEngine
                 sources[mediaId] = current
                 applyVolume(to: mediaId)
             }
-            try await offMain { [engine, environment, logger] in try Self.startEngine(engine, environment: environment, logger: logger) }
+            try await ops.offMain { [engine, environment, logger] in try Self.startEngine(engine, environment: environment, logger: logger) }
             logger.info("Playing \(mediaId), \(String(format: "%.1f", outputLatency * 1000)) ms downstream of its render block")
         }
         catch
@@ -593,9 +556,9 @@ public final class VoiceEngine
                 sources[mediaId] = nil
                 ring.cancel()
                 if sources.isEmpty { rateTicker?.cancel(); rateTicker = nil }
-                chainedLogged("detach \(mediaId)")
+                ops.launch("detach \(mediaId)")
                 { [self] in
-                    await offMain { [engine] in
+                    await ops.offMain { [engine] in
                         engine.detach(source)
                         engine.detach(rateNode)
                     }
@@ -611,9 +574,9 @@ public final class VoiceEngine
         guard let source = sources.removeValue(forKey: mediaId) else { return }
         source.ring.cancel()   // stops the stream's decode pump
         if sources.isEmpty { rateTicker?.cancel(); rateTicker = nil }
-        chainedLogged("stop \(mediaId)")
+        ops.launch("stop \(mediaId)")
         { [self] in
-            await offMain { [engine] in
+            await ops.offMain { [engine] in
                 engine.detach(source.node)
                 engine.detach(source.rateNode)
             }

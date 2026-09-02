@@ -148,11 +148,14 @@ so the pin stays: without it, starting capture silences Spotify and every other 
 ## Blocking opens
 
 Opening the voice processor or starting a device stalls for *seconds* on macOS, so no HAL
-call runs on the main thread. Graph mutations and engine start/stop are ops on a FIFO task
-chain (`chained`), and each op hops its blocking calls to a queue (`offMain`). The chain is
-the mutual exclusion - ops never interleave, even across their suspension points - which is
-why parameter sets (position, volume, rate) stay direct: an AU parameter set is safe
-alongside anything but a graph mutation.
+call runs on the main thread. Graph mutations and engine start/stop are ops on `OpChain` - a
+FIFO of exclusive main-actor operations (`run` awaited, `launch` fire-and-forget) whose
+blocking calls each op hops to a queue (`offMain`). The chain is the mutual exclusion - ops
+never interleave, even across their suspension points - which is why parameter sets
+(position, volume, rate) stay direct: an AU parameter set is safe alongside anything but a
+graph mutation. A `launch`ed op that fails is logged *and* handed to
+`VoiceEngine.onBackgroundFailure`, because nobody is awaiting it and a silently broken
+engine is indistinguishable from a working one.
 
 Bookkeeping flips synchronously when asked - `play` registers its source and `startCapture`
 sets `isCapturing` before any suspension - so callers' guards and the next scene update's
