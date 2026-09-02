@@ -197,6 +197,10 @@ public final class VoiceEngine
     /// would prompt for microphone access.
     private var tapInstalled = false
 
+    /// The format the installed tap was created with; a reconcile that finds the input
+    /// format unchanged leaves the tap alone.
+    private var tapFormat: AVAudioFormat?
+
     /// Whether capture is on. Flips as soon as it is asked for, while the device may still be
     /// opening on the chain. Muting does not change it; see `isMuted`.
     public private(set) var isCapturing = false
@@ -208,10 +212,12 @@ public final class VoiceEngine
     /// Sequence and capture time of every frame sent, for latency correlation.
     public var onFrameSent: ((UInt32, Date) -> Void)?
 
-    /// Muting keeps the engine, the microphone and the voice processor running - stopping them
-    /// would take the echo canceller's reference away from playout - and drops what is captured
-    /// instead. The OS microphone indicator therefore stays lit while connected and muted, as
-    /// it does in FaceTime.
+    /// Muting keeps the engine and the microphone running - the OS indicator stays lit while
+    /// connected and muted, as in FaceTime - and drops what is captured instead. The voice
+    /// processor, though, is torn down while muted: it buys nothing without uplink, and on
+    /// macOS it ducks every other app's audio the whole time it runs. Unmuting on speakers
+    /// re-opens it, off the main thread; nothing is sent until it is up, so no uncancelled
+    /// audio ever leaves.
     public var isMuted = false
     {
         didSet
@@ -230,15 +236,19 @@ public final class VoiceEngine
 
     private func applyMute()
     {
-        // Only meaningful while the voice processor owns the input; without it the accumulator
-        // is what stops frames. Chained, so it lands after an open still in flight - which
-        // applies the mute itself, and leaves `voiceProcessingEnabled` false until it has.
-        guard voiceProcessingEnabled else { return }
-        ops.launch("applyMute")
-        { [self] in
-            let muted = isMuted
-            await ops.offMain { [engine] in engine.inputNode.isVoiceProcessingInputMuted = muted }
-        }
+        // Without capture there is no uplink and no processor; the accumulator's drop above
+        // is the whole mute. With it, a mute flip can change whether the processor should
+        // exist at all, so reconcile rather than poke the unit's mute flag - the reconcile
+        // also applies isVoiceProcessingInputMuted where the unit stays.
+        guard isCapturing else { return }
+        ops.launch("mute \(isMuted)") { [self] in try await reconcileOp() }
+    }
+
+    /// Whether the voice processor should be running: only while capturing unmuted onto a
+    /// route the microphone can hear. Muted, it buys nothing but its system-wide ducking.
+    nonisolated static func wantsVoiceProcessing(allowed: Bool, capturing: Bool, muted: Bool, route: OutputRoute) -> Bool
+    {
+        allowed && capturing && !muted && route.needsEchoCancellation
     }
 
     /// Open the microphone and send every 20 ms frame on `stream`, until `stopCapture()`.
@@ -281,35 +291,39 @@ public final class VoiceEngine
     // MARK: - Reconcile
 
     /// The one place engine state is decided: compares what should be true - capture wanted,
-    /// sources playing, the output route's echo-cancellation need - against what is, and
-    /// makes it so. Capture start, stop and every configuration change funnel here rather
-    /// than each patching the engine its own way; a burst of changes converges because every
-    /// pass reads the current truth.
+    /// sources playing, mute, the output route's echo-cancellation need - against what is,
+    /// and makes it so. Capture start, stop, mute flips and every configuration change
+    /// funnel here rather than each patching the engine its own way; a burst of changes
+    /// converges because every pass reads the current truth.
     private func reconcileOp() async throws
     {
         let wantTap = isCapturing && captureStream != nil
         let wantEngine = !sources.isEmpty || isCapturing
         let allowVP = voiceProcessing
+        let muted = isMuted
         let hadTap = tapInstalled
         let currentVP = voiceProcessingEnabled
         let hadGraph = graphReady
         let needsGraph = wantTap && claimGraphSetup()
-        tapInstalled = false
 
-        struct IOState { let inputFormat: AVAudioFormat?; let vpOn: Bool; let route: OutputRoute; let hadPlayout: Bool }
+        struct IOState { let inputFormat: AVAudioFormat?; let vpOn: Bool; let route: OutputRoute; let hadPlayout: Bool; let tapRemoved: Bool }
         let io = await ops.offMain
         { [engine, environment, logger] () -> IOState in
             let route = OutputRoute.current()
-            let wantVP = allowVP && wantTap && route.needsEchoCancellation
+            let wantVP = Self.wantsVoiceProcessing(allowed: allowVP, capturing: wantTap, muted: muted, route: route)
             let hadPlayout = engine.isRunning
             if needsGraph { Self.attachPlayoutGraph(engine, environment: environment) }
-            if hadTap { engine.inputNode.removeTap(onBus: 0) }
             var vpOn = currentVP
+            // Toggling the processor swaps the I/O unit and re-creates the input format, so
+            // the tap cannot survive it; an unwanted tap goes regardless. A tap that can stay
+            // does, so a mute flip on headphones does not cost a re-tap.
+            let tapRemoved = hadTap && (wantVP != vpOn || !wantTap)
+            if tapRemoved { engine.inputNode.removeTap(onBus: 0) }
             if wantVP != vpOn
             {
-                // Toggling swaps the I/O unit, which only a stopped engine allows. Touching
-                // inputNode is safe here: a differing state means the input is or was in use,
-                // so the microphone-access prompt already happened.
+                // Only a stopped engine allows the swap. Touching inputNode is safe here: a
+                // differing state means the input is or was in use, so the microphone-access
+                // prompt already happened.
                 engine.stop()
                 do
                 {
@@ -329,9 +343,10 @@ public final class VoiceEngine
             // The hardware under the graph's inferred formats may be new; refresh while stopped.
             if hadGraph, !engine.isRunning { engine.connect(environment, to: engine.mainMixerNode, format: nil) }
             return IOState(inputFormat: wantTap ? engine.inputNode.outputFormat(forBus: 0) : nil,
-                           vpOn: vpOn, route: route, hadPlayout: hadPlayout)
+                           vpOn: vpOn, route: route, hadPlayout: hadPlayout, tapRemoved: tapRemoved)
         }
         voiceProcessingEnabled = io.vpOn
+        if io.tapRemoved { tapInstalled = false; tapFormat = nil }
 
         guard let inputFormat = io.inputFormat else
         {
@@ -348,30 +363,47 @@ public final class VoiceEngine
         do
         {
             guard inputFormat.channelCount > 0 else { throw Failure.noInputChannels }
+
+            if tapInstalled, inputFormat != tapFormat
+            {
+                // The device under an intact processor changed its format; the old tap must
+                // go before its replacement installs.
+                await ops.offMain { [engine] in engine.inputNode.removeTap(onBus: 0) }
+                tapInstalled = false
+                tapFormat = nil
+            }
             converter = try makeConverter(from: inputFormat)
 
-            // A fresh tap is a fresh generation: buffers from the removed tap can still be in
-            // flight, in a format the new converter does not accept.
-            captureGeneration &+= 1
-            let generation = captureGeneration
-            // 20 ms at the *input* rate, which is not the 48 kHz the frame duration counts in.
-            let tapFrames = AVAudioFrameCount(inputFormat.sampleRate * 0.02)
-            try await ops.offMain
-            { [self, engine, environment, logger] in
-                // Start before tapping: a tap installs fine on a running engine, and this way a
-                // failed start leaves no tap to remove.
-                try Self.startEngine(engine, environment: environment, logger: logger)
-                engine.inputNode.installTap(onBus: 0, bufferSize: tapFrames, format: inputFormat)
-                { [weak self] buffer, _ in
-                    guard let self else { return }
-                    let capturedAt = Date()   // the hop to the main actor below is not part of capture
-                    let muted = self.mutedAtTap.withLock { $0 }
-                    Task { @MainActor in
-                        self.accept(buffer, capturedAt: capturedAt, generation: generation, capturedWhileMuted: muted)
+            if tapInstalled
+            {
+                try await ops.offMain { [engine, environment, logger] in try Self.startEngine(engine, environment: environment, logger: logger) }
+            }
+            else
+            {
+                // A fresh tap is a fresh generation: buffers from a removed tap can still be
+                // in flight, in a format the new converter does not accept.
+                captureGeneration &+= 1
+                let generation = captureGeneration
+                // 20 ms at the *input* rate, which is not the 48 kHz the frame duration counts in.
+                let tapFrames = AVAudioFrameCount(inputFormat.sampleRate * 0.02)
+                try await ops.offMain
+                { [self, engine, environment, logger] in
+                    // Start before tapping: a tap installs fine on a running engine, and this
+                    // way a failed start leaves no tap to remove.
+                    try Self.startEngine(engine, environment: environment, logger: logger)
+                    engine.inputNode.installTap(onBus: 0, bufferSize: tapFrames, format: inputFormat)
+                    { [weak self] buffer, _ in
+                        guard let self else { return }
+                        let capturedAt = Date()   // the hop to the main actor below is not part of capture
+                        let muted = self.mutedAtTap.withLock { $0 }
+                        Task { @MainActor in
+                            self.accept(buffer, capturedAt: capturedAt, generation: generation, capturedWhileMuted: muted)
+                        }
                     }
                 }
+                tapInstalled = true
+                tapFormat = inputFormat
             }
-            tapInstalled = true
         }
         catch
         {

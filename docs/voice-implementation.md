@@ -175,12 +175,20 @@ music. So voice processing is keyed on `OutputRoute` (built-in speakers and exte
 outputs: on; wired-jack or Bluetooth headphones: off - AirPods dominate Bluetooth, and a
 Bluetooth-speaker user can live with echo).
 
-All of it converges through one `reconcileOp` on the chain: capture start, capture stop and
-`AVAudioEngineConfigurationChange` (the system stops the engine when the default device
-changes - switching to or from AirPods used to leave audio dead because nobody restarted it)
-all compare wanted state against actual and make it so, rather than each patching the engine
-its own way. Every re-tap bumps the capture generation: the removed tap's buffers can still
-be in flight, in a format the new converter does not accept.
+Mute tears the processor down too (`wantsVoiceProcessing`): muted, it buys nothing but its
+ducking, so Spotify comes back the moment the mic mutes. The trade is that unmuting on
+speakers re-opens the processor - seconds, off the main thread, nothing sent until it is up
+so no uncancelled audio ever leaves - and each toggle blips playout while the I/O unit
+swaps. If quick mute-toggles on speakers prove annoying, the refinement is hysteresis (drop
+the processor only after some seconds muted), not keeping it.
+
+All of it converges through one `reconcileOp` on the chain: capture start, capture stop,
+mute flips and `AVAudioEngineConfigurationChange` (the system stops the engine when the
+default device changes - switching to or from AirPods used to leave audio dead because
+nobody restarted it) all compare wanted state against actual and make it so, rather than
+each patching the engine its own way. A tap that can survive the pass stays (a mute flip on
+headphones costs nothing); any re-tap bumps the capture generation, because the removed
+tap's buffers can still be in flight in a format the new converter does not accept.
 
 ## Spatialisation
 
