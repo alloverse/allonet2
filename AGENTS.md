@@ -53,7 +53,7 @@ Read `README.md` and the notes under `docs/` (start at `docs/index.md`) first â€
 
 **Merge convention.** Atomic commits, module named in parentheses in the subject, body explains why/how. `gh pr merge <n> --merge` (no squash), branch off `main`.
 
-**Versioning is the compatibility contract.** A place admits a client only when major.minor match (`serverIsCompatibleWith`), and a place runs one version. So a change that breaks the wire for older clients bumps minor (or major), and a minor/major tag MUST NOT be deployed to any place until KojaApp built on it is in TestFlight external testing; deploying first locks every customer out until Apple reviews the app. Prefer wire-compatible changes (new interaction case, optional field, tolerant decode) so releases stay patches. The full order is in koja-infra's `docs/shipping-a-feature.md`.
+**Versioning is the compatibility contract.** A place admits a client only when major.minor match (`serverIsCompatibleWith`), and a place runs one version. So a change that breaks the wire for older clients bumps minor (or major), and a minor/major tag MUST NOT be deployed to any place until KojaApp built on it is in TestFlight external testing; deploying first locks every customer out until Apple reviews the app. Prefer wire-compatible changes (new interaction case, optional field, tolerant decode) so releases stay patches. The full order is in koja-infra's `docs/shipping-a-feature.md`. Until the min-version handshake ships (Koja board: "Protocol compatibility: min-version handshake"), no minor tags at all: anything wire-compatible is a patch, anything else waits for that card.
 
 @README.md
 @docs/index.md

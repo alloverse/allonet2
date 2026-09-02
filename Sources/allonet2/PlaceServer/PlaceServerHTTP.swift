@@ -7,6 +7,7 @@
 
 import Foundation
 import FlyingFox
+import Version
 
 public struct AppDescription
 {
@@ -15,6 +16,17 @@ public struct AppDescription
     public let URLProtocol: String
     public init(name: String, downloadURL: String, URLProtocol: String) { self.name = name; self.downloadURL = downloadURL; self.URLProtocol = URLProtocol }
     public static var alloverse: Self { AppDescription(name: "Alloverse", downloadURL: "https://alloverse.com/download", URLProtocol: "alloplace2") }
+
+    /// What a client rejected for its allonet version is shown. The first line is the user's
+    /// action in the app's own terms; the second names both allonet versions, so a screenshot
+    /// still tells support which pair collided.
+    public func incompatibilityMessage(client: Version, server: Version) -> String
+    {
+        let advice = client < server
+            ? "Your \(name) app is too old for this place. Update it from \(downloadURL)"
+            : "This place runs an older version than your \(name) app. Ask whoever runs it to update it."
+        return "\(advice)\n\nApp allonet \(client), place allonet \(server)."
+    }
 }
 
 @MainActor

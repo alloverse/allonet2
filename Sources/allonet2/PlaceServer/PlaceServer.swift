@@ -23,6 +23,7 @@ public class PlaceServer : AlloSessionDelegate
     let httpPort:UInt16
     let options: TransportConnectionOptions
     let alloAppAuthToken: String
+    let app: AppDescription
     
     var logger = Logger(labelSuffix: "place.server")
     
@@ -82,6 +83,7 @@ public class PlaceServer : AlloSessionDelegate
         self.httpPort = httpPort
         self.options = options
         self.alloAppAuthToken = alloAppAuthToken
+        self.app = customApp
         self.web = PlaceServerHTTP(server: self, port: httpPort, appDescription: customApp, assetsDirectory: assetsDirectory)
         self.sfu = PlaceServerSFU(server: self)
     }

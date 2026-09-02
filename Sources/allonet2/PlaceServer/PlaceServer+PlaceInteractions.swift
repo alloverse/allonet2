@@ -82,15 +82,19 @@ extension PlaceServer
         }
         client.identity = identity
 
-        guard
-            let semantic = Version(version),
-            Allonet.version().serverIsCompatibleWith(clientVersion: semantic)
-        else
+        guard let clientVersion = Version(version) else
         {
-            ilogger.error("Incompatible version (server \(Allonet.version()), client \(version)), disconnecting.")
             throw AlloverseError(
                 code: AlloverseErrorCode.incompatibleProtocolVersion,
-                description: "Please update your app.\n\nClient version \(version) is incompatible with server version \(Allonet.version())."
+                description: "Client announced an unparsable allonet version '\(version)'; place allonet is \(Allonet.version())."
+            )
+        }
+        guard Allonet.version().serverIsCompatibleWith(clientVersion: clientVersion) else
+        {
+            ilogger.error("Incompatible version (server \(Allonet.version()), client \(clientVersion)), disconnecting.")
+            throw AlloverseError(
+                code: AlloverseErrorCode.incompatibleProtocolVersion,
+                description: app.incompatibilityMessage(client: clientVersion, server: Allonet.version())
             )
         }
         // Apps always go through authenticate(), even on a place with no token to check them
