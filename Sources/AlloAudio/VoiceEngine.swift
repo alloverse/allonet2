@@ -220,7 +220,7 @@ public final class VoiceEngine
                 // Ducking is system-wide, not graph-wide: one engine stopped it ducking our own
                 // playout, but every other app's audio still drops the moment capture starts.
                 input.voiceProcessingOtherAudioDuckingConfiguration =
-                    .init(enableAdvancedDucking: false, duckingLevel: .min)
+                    .init(enableAdvancedDucking: true, duckingLevel: .min)
                 voiceProcessingEnabled = true
             }
             catch { logger.warning("Voice processing unavailable, continuing without echo cancellation: \(error)") }
