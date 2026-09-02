@@ -145,6 +145,24 @@ so the pin stays: without it, starting capture silences Spotify and every other 
 - `VOICEDEMO_NO_VPIO=1` captures in the device's native format, to take the voice processor
   out of a diagnosis.
 
+## Blocking opens
+
+Opening the voice processor or starting a device stalls for *seconds* on macOS, so no HAL
+call runs on the main thread. Graph mutations and engine start/stop are ops on a FIFO task
+chain (`chained`), and each op hops its blocking calls to a queue (`offMain`). The chain is
+the mutual exclusion - ops never interleave, even across their suspension points - which is
+why parameter sets (position, volume, rate) stay direct: an AU parameter set is safe
+alongside anything but a graph mutation.
+
+Bookkeeping flips synchronously when asked - `play` registers its source and `startCapture`
+sets `isCapturing` before any suspension - so callers' guards and the next scene update's
+poses hold without an await; the node's mixing properties are pushed again after the attach,
+before anything renders. A teardown chained behind a capture still opening finds
+`tapInstalled` saying whether there is a tap to remove (and so whether `inputNode` may be
+touched at all - its first touch prompts for microphone access). What this does *not* fix:
+the OS itself briefly interrupts system audio while the voice processor reconfigures the
+HAL; off-main only keeps the app alive through it.
+
 ## Spatialisation
 
 The place says where things are; the audio engine decides what that sounds like.
