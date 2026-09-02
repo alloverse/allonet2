@@ -49,7 +49,8 @@ with a per-session bearer token, fetched unauthenticated and cacheable — see
 [docs/assets.md](docs/assets.md)) and **voice** (media tracks above).
 
 Announce is the application-level handshake: the client presents an `Identity` and an avatar
-`EntityDescription`, protocol versions must match on major+minor, and authentication happens
+`EntityDescription`, protocol versions must match on major+minor (so a minor bump locks out
+every older client; ship the app before the place), and authentication happens
 there — apps present a shared token; user authentication is delegated to an alloapp that has
 registered as the place's authentication provider. The place also serves a human-facing
 status dashboard (`/dashboard`) and receives client logs over the `logs` channel.
