@@ -37,7 +37,7 @@ place: its entities and their components.
 history behind it, the latest changeset, and the observers. Not interchangeable with place
 contents — one is the box, the other is what is in it right now.
 
-**revision** — the place contents' version number, bumped only by a beat that actually changes
+**revision** — the place contents' version number, bumped only by a heartbeat that actually changes
 something. Unrelated to the *protocol* version exchanged in `announce`.
 
 **changeset** (`PlaceChangeSet`) — the changes between two revisions, and the unit in which
@@ -122,13 +122,11 @@ running so the echo canceller keeps its reference, and the frames are dropped.
 
 ## Clocks
 
-**beat** — one cycle of the place's broadcast loop: drain the queued changes, commit their net
+**heartbeat** — one cycle of the place's broadcast loop: drain the queued changes, commit their net
 effect, spend a revision if anything really changed, broadcast. Self-clocking, coalesced at
 20 ms.
 
 **tick** — one step of a server-side simulation (movement, grab), also 20 ms. A different clock
-from the beat; `PlaceContents.revision`'s own doc comment calls a beat a "server tick", which
+from the heartbeat; `PlaceContents.revision`'s own doc comment calls a heartbeat a "server tick", which
 is wrong.
 
-**heartbeat** (`HeartbeatTimer`) — the timer that drives a beat, and the client's matching
-intent send. The thing that fires, not the thing that happens.
