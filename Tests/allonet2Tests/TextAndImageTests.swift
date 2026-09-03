@@ -112,6 +112,33 @@ struct TextAndImageTests
         #expect(text("🇸🇪").hasColorGlyphs)          // flag
     }
 
+    /// A thumbnail lives in the changeset itself, so the cap is the whole point of the type: the
+    /// producer is told, in bytes, and sends an asset instead.
+    @Test func anInlineImageOverTheCapIsRefusedAtTheSource() throws
+    {
+        let png = Data(repeating: 0x89, count: InlineImage.maximumBytes + 1)
+        #expect(throws: InlineImageError.tooLarge(bytes: InlineImage.maximumBytes + 1)) {
+            try InlineImage(png: png)
+        }
+        #expect("\(InlineImageError.tooLarge(bytes: 20_000))".contains("20000"))
+        #expect(try InlineImage(png: Data(repeating: 0x89, count: InlineImage.maximumBytes)).png.count == InlineImage.maximumBytes)
+    }
+
+    /// A peer can put whatever it likes on the wire, and `AnyComponent.decoded()` force-tries: an
+    /// oversized image has to read as no image rather than trap every client in the place.
+    @Test func anOversizedInlineImageDecodesToNoImage() throws
+    {
+        InlineImage.register()
+        struct HostileImage: Encodable { let png: Data }
+
+        let oversized = try CBOREncoder().encode(HostileImage(png: Data(repeating: 0x89, count: InlineImage.maximumBytes + 1)))
+        #expect(try CBORDecoder().decode(InlineImage.self, from: oversized).png.isEmpty)
+
+        let image = try InlineImage(png: Data("not really a png, but bytes are bytes".utf8))
+        let wire = try CBORDecoder().decode(AnyComponent.self, from: try CBOREncoder().encode(AnyComponent(image)))
+        #expect(wire.decoded() as? InlineImage == image)
+    }
+
     @Test func imageMaterialRoundTripsThroughTheRegistry() throws
     {
         Model.register()

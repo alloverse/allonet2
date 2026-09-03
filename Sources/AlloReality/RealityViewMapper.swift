@@ -10,6 +10,7 @@ import OpenCombineShim
 import allonet2
 import SwiftUI
 import GLTFKit2
+import ImageIO
 
 /// The RealityViewMapper creates and maintains RealityKit entities and components to perfectly match corresponding entities and components inside an Alloverse connection's PlaceContents.
 @MainActor
@@ -46,6 +47,7 @@ public class RealityViewMapper
             guard let guient = self.guiForEid(netent.id) else { return }
             // Component removers don't run for an entity that merely goes away.
             guient.components[AlloModelStateComponent.self]?.loadingTask?.cancel()
+            guient.components[AlloModelStateComponent.self]?.inlineImageTask?.cancel()
             guient.components[AlloTextStateComponent.self]?.loadingTask?.cancel()
             guient.removeFromParent()
         }.store(in: &cancellables)
@@ -67,6 +69,7 @@ public class RealityViewMapper
         }
         
         startSyncingOfModel()
+        startSyncingOfInlineImage()
         startSyncingOfText()
         
         startSyncingOf(networkComponentType: Collision.self, to: CollisionComponent.self)
@@ -130,6 +133,11 @@ public class RealityViewMapper
         var current: Model? = nil
         weak var entity: RealityKit.Entity? = nil
         var loadingTask: Task<Void, Error>?
+        /// The `InlineImage` painted over the `Model`'s material, and the texture upload in
+        /// flight for it. Kept as intent rather than read back off the ModelComponent: component
+        /// order is not guaranteed, and a `Model` update rebuilds that component from scratch.
+        var inlineImage: Data? = nil
+        var inlineImageTask: Task<Void, Never>?
     }
     
     private func startSyncingOfModel()
@@ -187,6 +195,7 @@ public class RealityViewMapper
                     var state = entity.components[AlloModelStateComponent.self] ?? AlloModelStateComponent()
                     state.loadingTask = nil
                     entity.components.set(state)
+                    self.applyInlineImage(to: entity)
                 }
             }
             else
@@ -199,14 +208,114 @@ public class RealityViewMapper
                 entity.components.set(realityModel)
             }
             entity.components.set(state)
+            // The rebuild above dropped whatever was painted on the old ModelComponent.
+            self.applyInlineImage(to: entity)
         }
         remover: { (entity, _, model) in
             let state = entity.components[AlloModelStateComponent.self] ?? AlloModelStateComponent()
             state.loadingTask?.cancel()
+            state.inlineImageTask?.cancel()
             state.entity?.removeFromParent()
             entity.components.remove(ModelComponent.self)
             entity.components.remove(AlloModelStateComponent.self)
         }
+    }
+
+    private func startSyncingOfInlineImage()
+    {
+        startSyncingOf(networkComponentType: InlineImage.self)
+        { (entity, _, image) in
+            var state = entity.components[AlloModelStateComponent.self] ?? AlloModelStateComponent()
+            let wanted = image.png.isEmpty ? nil : image.png
+            guard state.inlineImage != wanted else { return }
+            state.inlineImage = wanted
+            entity.components.set(state)
+            self.applyInlineImage(to: entity)
+        }
+        remover: { (entity, _, _) in
+            guard var state = entity.components[AlloModelStateComponent.self], state.inlineImage != nil else { return }
+            state.inlineImage = nil
+            entity.components.set(state)
+            self.applyInlineImage(to: entity)
+        }
+    }
+
+    /// Paint the entity's `InlineImage` over its `ModelComponent`, or put the `Model`'s own
+    /// material back when there is no image left. Idempotent, and safe to call whenever either
+    /// component changes — which is what keeps a thumbnail alive across a `Model` update.
+    ///
+    /// Only the entity's own `ModelComponent` is touched, so a `.builtin` or `.asset` mesh (which
+    /// draws through a loaded child) is left as its file authored it.
+    private func applyInlineImage(to entity: RealityKit.Entity)
+    {
+        var state = entity.components[AlloModelStateComponent.self] ?? AlloModelStateComponent()
+        state.inlineImageTask?.cancel()
+        state.inlineImageTask = nil
+        defer { entity.components.set(state) }
+        guard entity.components[ModelComponent.self] != nil else { return }
+
+        guard let png = state.inlineImage else
+        {
+            guard let model = state.current else { return }
+            if case .image(let asset) = model.material
+            {
+                state.inlineImageTask = Task { await self.paint(await self.imageMaterial(asset: asset, for: entity.name), on: entity) }
+            }
+            else if var realityModel = entity.components[ModelComponent.self]
+            {
+                realityModel.materials = model.material.realityMaterial.map { [$0] } ?? []
+                entity.components.set(realityModel)
+            }
+            return
+        }
+
+        guard let cgImage = Self.decodePNG(png) else
+        {
+            complainAboutInlineImage(on: entity.name, bytes: png.count)
+            return
+        }
+        state.inlineImageTask = Task {
+            do
+            {
+                let texture = try await TextureResource(image: cgImage, withName: nil, options: .init(semantic: .color))
+                // As for `imageMaterial`: the base colour texture alone renders transparent
+                // texels black, and `.transparent` is what makes RealityKit read its alpha.
+                var material = PhysicallyBasedMaterial()
+                material.baseColor = .init(texture: .init(texture))
+                material.blending = .transparent(opacity: .init(scale: 1))
+                material.roughness = 1.0
+                material.metallic = 0.0
+                await self.paint(material, on: entity)
+            }
+            catch
+            {
+                if !Task.isCancelled { print("Failed to upload inline image for entity \(entity.name): \(error)") }
+            }
+        }
+    }
+
+    @MainActor
+    private func paint(_ material: RealityKit.Material, on entity: RealityKit.Entity)
+    {
+        guard !Task.isCancelled, var realityModel = entity.components[ModelComponent.self] else { return }
+        realityModel.materials = [material]
+        entity.components.set(realityModel)
+    }
+
+    /// Entities whose `InlineImage` we've already complained about; a peer can rewrite a
+    /// component as fast as it likes, so the log is bounded the way `Text`'s is.
+    private var complainedAboutInlineImage: Set<EntityID> = []
+
+    private func complainAboutInlineImage(on eid: EntityID, bytes: Int)
+    {
+        guard complainedAboutInlineImage.insert(eid).inserted else { return }
+        print("Entity \(eid) has an InlineImage of \(bytes) bytes that is not a readable image; drawing its Model instead")
+    }
+
+    private static func decodePNG(_ png: Data) -> CGImage?
+    {
+        guard let source = CGImageSourceCreateWithData(png as CFData, nil) else { return nil }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)
     }
 
     /// Load `.builtin`/`.asset` meshes, which draw through a child subtree instead of the entity's

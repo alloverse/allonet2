@@ -5,6 +5,7 @@
 //  Created by Nevyn Bengtsson on 2025-03-11.
 //
 
+import Foundation
 import simd
 import SIMDTools // for float4x4 codable
 import PotentCodables
@@ -109,6 +110,58 @@ public struct Model: Component
         catch is AssetError
         {
             self = Self.unrenderable
+        }
+    }
+}
+
+/// A small PNG carried in world state rather than published as an asset.
+///
+/// On an entity whose `Model` has a primitive mesh (box, plane, cylinder, sphere) it becomes the
+/// base colour texture, overriding the `Model`'s own material; removing the component, or setting
+/// an empty `png`, puts that material back. A `.builtin` or `.asset` mesh draws from its own file
+/// and ignores this.
+///
+/// For surfaces that change often and are too small to be worth an asset round trip - a thumbnail,
+/// a status glyph. The bytes ride every changeset the entity appears in, so the cap is small and
+/// anything bigger belongs in the asset store.
+public struct InlineImage: Component
+{
+    /// The most PNG this component will carry. 16 KiB is a legible thumbnail and a changeset
+    /// nobody notices.
+    public static let maximumBytes = 16 * 1024
+
+    /// The image, as PNG bytes. Empty means "no image": the renderer draws the `Model`'s own
+    /// material, which is also what an oversized payload off the wire decodes to.
+    public var png: Data
+
+    /// - Throws: `InlineImageError.tooLarge(bytes:)`, naming the byte count offered, for
+    ///   anything over `maximumBytes`. Publish it as an asset instead.
+    public init(png: Data) throws(InlineImageError)
+    {
+        guard png.count <= Self.maximumBytes else { throw .tooLarge(bytes: png.count) }
+        self.png = png
+    }
+
+    /// `AnyComponent.decoded()` force-tries, so throwing on a peer's oversized image would trap
+    /// every client rendering the entity. It reads as no image instead, and the `Model` draws.
+    public init(from decoder: any Decoder) throws
+    {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let png = try c.decode(Data.self, forKey: .png)
+        self.png = png.count <= Self.maximumBytes ? png : Data()
+    }
+}
+
+/// A PNG that will not fit in world state.
+public enum InlineImageError: Error, Equatable, CustomStringConvertible
+{
+    case tooLarge(bytes: Int)
+
+    public var description: String
+    {
+        switch self
+        {
+        case .tooLarge(let bytes): "inline image is \(bytes) bytes, over the \(InlineImage.maximumBytes) byte cap"
         }
     }
 }
@@ -339,6 +392,9 @@ public struct LiveMedia: Component
     public enum Format: Codable, Equatable
     {
         case audio(codec: AudioCodec, sampleRate: Int, channelCount: Int)
+        /// `width` and `height` are advisory - a layout hint for before the first picture
+        /// arrives. Receivers size themselves from the bitstream, which is what changes when a
+        /// sharer resizes the window mid-stream.
         case video(codec: VideoCodec, width: Int, height: Int)
     }
     public var format: Format
@@ -437,6 +493,7 @@ func RegisterStandardComponents()
     Transform.register()
     Relationships.register()
     Model.register()
+    InlineImage.register()
     Text.register()
     VisorInfo.register()
     Collision.register()
