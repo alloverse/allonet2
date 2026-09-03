@@ -254,8 +254,9 @@ struct PatternSpec
     init?(_ text: String)
     {
         let parts = text.split(separator: "@")
+        guard parts.count == 2 else { return nil }
         let size = parts[0].split(separator: "x")
-        guard parts.count == 2, size.count == 2,
+        guard size.count == 2,
               let width = Int(size[0]), let height = Int(size[1]), let fps = Double(parts[1]),
               width > 0, height > 0, fps > 0
         else { return nil }
