@@ -32,6 +32,7 @@ let applePlatformTargets: [Target] = [
     .testTarget(name: "alloclientTests", dependencies: ["alloclient", "allonet2"]),
     .testTarget(name: "AlloRealityTests", dependencies: ["AlloReality", "alloclient", "allonet2"]),
     .executableTarget(name: "voicedemo", dependencies: ["allonet2", "AlloAudio", "AlloOpus"]),
+    .executableTarget(name: "screendemo", dependencies: ["allonet2", "AlloVideo"]),
     // Apple-only: it needs AlloVideo, so it cannot sit with the cross-platform test targets.
     .testTarget(name: "ScreenE2ETests", dependencies: ["allonet2", "AlloVideo"]),
 ]
@@ -41,6 +42,7 @@ let applePlatformProducts: [Product] = [
     .library(name: "alloclient", targets: ["alloclient"]),
     .library(name: "AlloReality", targets: ["AlloReality"]),
     .executable(name: "voicedemo", targets: ["voicedemo"]),
+    .executable(name: "screendemo", targets: ["screendemo"]),
 ]
 #else
 let applePlatformTargets: [Target] = []
