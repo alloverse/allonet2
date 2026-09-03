@@ -120,6 +120,9 @@ public final class VideoReceiver: @unchecked Sendable
             if case .dropped = continuation.yield(sample)
             {
                 counters.update { $0.evicted += 1 }
+                // What was evicted is older than the key just yielded, and a key predicts from
+                // nothing: the picture is whole without asking the sharer for another one.
+                guard frame.kind != .h264Key else { return }
                 decoder.awaitKeyframe()
                 askForKeyframe()
             }

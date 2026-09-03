@@ -162,6 +162,32 @@ import allonet2
         #expect(asked.value == got.evicted, "asked \(asked.value) times for \(got.evicted) evictions")
     }
 
+    /// A key predicts from nothing, so the picture it paints is whole no matter what it pushed
+    /// out of the buffer. Asking the sharer for another one is a round trip for nothing.
+    @Test func aKeyframeThatEvictsAnOlderSampleAsksForNothing() async throws
+    {
+        let (_, into) = Self.streamPair()
+        let asked = Counter()
+        let receiver = VideoReceiver(stream: into, needsKeyframe: { asked.value += 1 })
+        defer { receiver.stop() }
+
+        let encoder = try H264Encoder(width: 320, height: 180, bitrate: 1_000_000)
+        var encoded: [EncodedFrame] = []
+        for index in 0..<12
+        {
+            let picture = CapturedFrame(pixels: PatternSource.picture(frame: index, width: 320, height: 180),
+                                        capturedAt: Double(index) / 30)
+            // All keys, so every eviction is a key evicting the picture before it.
+            if let frame = try await encoder.encode(picture, forceKeyframe: true) { encoded.append(frame) }
+        }
+        #expect(encoded.allSatisfy { $0.kind == .h264Key })
+        Self.deliver(encoded, to: into)
+
+        let got = receiver.counters.snapshot
+        #expect(got.evicted >= 1, "the sample buffer never overflowed: \(got)")
+        #expect(asked.value == 0, "asked \(asked.value) times with a key in hand: \(got)")
+    }
+
     /// A sharer's bitstream: `count` pattern pictures, the first of them a key.
     static func pictures(_ count: Int) async throws -> [EncodedFrame]
     {
