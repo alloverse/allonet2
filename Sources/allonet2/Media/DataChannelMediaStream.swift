@@ -17,6 +17,7 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
 {
     public let mediaId: MediaStreamId
     public let streamDirection: MediaStreamDirection
+    public let kind: MediaStreamKind
     public let counters: VoiceCountersBox
     public let jitterBuffer: JitterBuffer
 
@@ -39,6 +40,8 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     private var ringBuffer: AudioRingBuffer?
     private var pump: DispatchSourceTimer?
 
+    /// - Parameter kind: what the stream carries. Must match the kind in the underlying
+    ///   channel's label, which is where every peer reads it from.
     /// - Parameter sendFrame: writes one encoded frame to the underlying channel, returning
     ///   false when the channel is gone - which on an unreliable channel simply means the
     ///   frame is lost.
@@ -47,6 +50,7 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     public init(
         mediaId: MediaStreamId,
         direction: MediaStreamDirection,
+        kind: MediaStreamKind = .voice,
         counters: VoiceCountersBox = VoiceCountersBox(),
         jitterBuffer: JitterBuffer? = nil,
         monotonicNow: @escaping () -> Double = { Double(DispatchTime.now().uptimeNanoseconds) / 1e9 },
@@ -56,6 +60,7 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     {
         self.mediaId = mediaId
         self.streamDirection = direction
+        self.kind = kind
         self.counters = counters
         self.jitterBuffer = jitterBuffer ?? JitterBuffer(counters: counters)
         self.monotonicNow = monotonicNow

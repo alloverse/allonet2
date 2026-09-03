@@ -250,6 +250,34 @@ final class VoiceE2ETests: XCTestCase
         }
         XCTAssertNoThrow(try transport.createOutgoingMediaStream(mediaId: "voice-mic"))
     }
+
+    /// A stream's kind rides in its channel label, so the place adopts it knowing what it is and
+    /// the channel underneath is opened the way that kind needs. Asserted on the *adopted* side,
+    /// which is what the DCEP OPEN message actually carried across.
+    func testAStreamsKindDecidesTheReliabilityTheFarSideSees() async throws
+    {
+        try await withPlace { place in
+        let sharer = try await place.connectClient(named: "sharer")
+        _ = try sharer.startSpeaking(mediaId: "voice-mic")
+        _ = try sharer.transport().createOutgoingMediaStream(mediaId: "screen-0", kind: .screen)
+
+        let cid = sharer.client.cid!
+        let voiceId = PlaceStreamId(shortClientId: cid.shortClientId, incomingMediaId: "voice-mic")
+        let screenId = PlaceStreamId(shortClientId: cid.shortClientId, incomingMediaId: "screen-0")
+        try await waitUntil(timeout: 15) { place.server.sfu.available[screenId] != nil && place.server.sfu.available[voiceId] != nil }
+
+        let voice = place.server.sfu.available[voiceId]!.stream as! DataChannelMediaStream
+        let screen = place.server.sfu.available[screenId]!.stream as! DataChannelMediaStream
+        XCTAssertEqual(voice.kind, .voice)
+        XCTAssertEqual(screen.kind, .screen)
+
+        let placeTransport = place.server.clients[cid]!.session.transport as! DataChannelTransport
+        XCTAssertEqual(placeTransport.channelForTesting(.media(.voice, "voice-mic"))?.reliability,
+                       .init(loss: .maxRetransmits(0), ordered: false))
+        XCTAssertEqual(placeTransport.channelForTesting(.media(.screen, "screen-0"))?.reliability,
+                       .init(loss: .maxPacketLifeTime(ms: 1000), ordered: true))
+        }
+    }
 }
 
 // MARK: - Harness
@@ -371,8 +399,13 @@ final class TestClient
     func startSpeaking(mediaId: MediaStreamId) throws -> DataChannelMediaStream
     {
         VoiceCodecs.makeEncoder = { RawPCMVoiceCodec() }
+        return try transport().createOutgoingMediaStream(mediaId: mediaId)
+    }
+
+    func transport() throws -> DataChannelTransport
+    {
         guard let transport = client.transportForTesting else { throw TestPlaceError.noAvatar }
-        return try transport.createOutgoingMediaStream(mediaId: mediaId)
+        return transport
     }
 
     /// Publish the LiveMedia component that makes the stream visible to other clients.
