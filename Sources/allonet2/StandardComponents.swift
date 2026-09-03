@@ -114,59 +114,6 @@ public struct Model: Component
     }
 }
 
-/// A small PNG carried in world state rather than published as an asset.
-///
-/// On an entity whose `Model` has a primitive mesh (box, plane, cylinder, sphere) it becomes the
-/// base colour texture, overriding the `Model`'s own material; removing the component, or setting
-/// an empty `png`, puts that material back. A `.builtin` or `.asset` mesh draws from its own file
-/// and ignores this.
-///
-/// For surfaces that change often and are too small to be worth an asset round trip - a thumbnail,
-/// a status glyph. The bytes ride every changeset the entity appears in, so the cap is small and
-/// anything bigger belongs in the asset store. Renderers cap the picture as well as the bytes -
-/// 512 px a side - because a PNG this small can still declare tens of thousands of pixels.
-public struct InlineImage: Component
-{
-    /// The most PNG this component will carry. 16 KiB is a legible thumbnail and a changeset
-    /// nobody notices.
-    public static let maximumBytes = 16 * 1024
-
-    /// The image, as PNG bytes. Empty means "no image": the renderer draws the `Model`'s own
-    /// material, which is also what an oversized payload off the wire decodes to.
-    public var png: Data
-
-    /// - Throws: `InlineImageError.tooLarge(bytes:)`, naming the byte count offered, for
-    ///   anything over `maximumBytes`. Publish it as an asset instead.
-    public init(png: Data) throws(InlineImageError)
-    {
-        guard png.count <= Self.maximumBytes else { throw .tooLarge(bytes: png.count) }
-        self.png = png
-    }
-
-    /// `AnyComponent.decoded()` force-tries, so throwing on a peer's oversized image would trap
-    /// every client rendering the entity. It reads as no image instead, and the `Model` draws.
-    public init(from decoder: any Decoder) throws
-    {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        let png = try c.decode(Data.self, forKey: .png)
-        self.png = png.count <= Self.maximumBytes ? png : Data()
-    }
-}
-
-/// A PNG that will not fit in world state.
-public enum InlineImageError: Error, Equatable, CustomStringConvertible
-{
-    case tooLarge(bytes: Int)
-
-    public var description: String
-    {
-        switch self
-        {
-        case .tooLarge(let bytes): "inline image is \(bytes) bytes, over the \(InlineImage.maximumBytes) byte cap"
-        }
-    }
-}
-
 /// A block of text drawn at the Entity, alongside any `Model` on it rather than instead of it: the
 /// Model draws the entity's own mesh and the Text is its own geometry, so neither has to give up
 /// being a mesh. Both sit at the entity origin, so a Text over a coplanar Model plane z-fights —
@@ -494,7 +441,6 @@ func RegisterStandardComponents()
     Transform.register()
     Relationships.register()
     Model.register()
-    InlineImage.register()
     Text.register()
     VisorInfo.register()
     Collision.register()
