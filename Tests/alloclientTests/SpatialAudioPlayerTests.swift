@@ -112,6 +112,20 @@ struct SpatialAudioPlayerTests
         #expect(world.client.voiceEngine.isAudible(world.mediaId))
     }
 
+    /// A screen share is a `LiveMedia` like any other, and its stream arrives on the same session.
+    /// Neither may reach the voice path: nothing asks the place to forward it, and a stream that
+    /// turns up anyway is not handed to the audio engine.
+    @Test func videoLiveMediaIsNeitherRequestedNorPlayed() throws
+    {
+        let world = try TestWorld(advertised: false)
+
+        try world.advertiseLiveMedia(format: .video(codec: .h264, width: 16, height: 16))
+        #expect(world.player.streamIds.isEmpty, "a video stream must not be asked for")
+
+        world.streamArrives()
+        #expect(!world.isPlaying)
+    }
+
     static let listenerEid: EntityID = "listener"
     static let talkerEid: EntityID = "talker"
 }
@@ -146,9 +160,9 @@ private final class TestWorld
         player.useAsListener(SpatialAudioPlayerTests.listenerEid)
     }
 
-    func advertiseLiveMedia() throws
+    func advertiseLiveMedia(format: LiveMedia.Format = .audio(codec: .opus, sampleRate: 48000, channelCount: 1)) throws
     {
-        let media = LiveMedia(mediaId: mediaId, format: .audio(codec: .opus, sampleRate: 48000, channelCount: 1))
+        let media = LiveMedia(mediaId: mediaId, format: format)
         try apply([.componentAdded(SpatialAudioPlayerTests.talkerEid, AnyComponent(media))])
     }
 
