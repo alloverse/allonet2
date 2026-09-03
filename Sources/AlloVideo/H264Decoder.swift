@@ -53,6 +53,14 @@ public final class H264Decoder: @unchecked Sendable
     /// True once a keyframe has been fed in, which is when `decode` starts returning samples.
     public var hasKeyframe: Bool { lock.lock(); defer { lock.unlock() }; return format != nil }
 
+    /// Forget the current picture: `decode` returns nil for deltas until the next keyframe.
+    /// For after a lost frame, when every delta would predict from a picture this decoder
+    /// never saw and smear the screen until the next key anyway.
+    public func awaitKeyframe()
+    {
+        lock.lock(); format = nil; parameterSets = []; lock.unlock()
+    }
+
     /// Turn one media frame into a sample a display layer can show.
     ///
     /// - Returns: the sample, or nil for a delta frame arriving before the first keyframe.

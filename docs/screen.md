@@ -63,8 +63,9 @@ one each.
     observeFrames -> MediaFrame -> H264Decoder -> CMSampleBuffer -> AVSampleBufferDisplayLayer
 
 `ScreenReceiver` takes frames on the thread that delivered them, drops non-video kinds as
-`malformed`, drops deltas until its first keyframe (`droppedAwaitingKey`), notices sequence gaps
-(`gaps`) and calls `needsKeyframe` — the owner turns that into a request to the sharer.
+`malformed`, drops deltas until a keyframe (`droppedAwaitingKey`) — the first one, and again
+after a sequence gap (`gaps`), when it also calls `needsKeyframe` for the owner to turn into a
+request to the sharer.
 
 The samples carry **compressed** data plus the format description built from the stream's own
 SPS/PPS: `AVSampleBufferDisplayLayer` decodes them itself, marked to display immediately since

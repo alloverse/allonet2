@@ -87,6 +87,7 @@ public final class ScreenReceiver: @unchecked Sendable
         if let previous, frame.sequence.sequenceDistance(from: previous) > 1
         {
             counters.update { $0.gaps += 1 }
+            decoder.awaitKeyframe()
             needsKeyframe?()
         }
         if frame.kind == .h264Key { counters.update { $0.keyframes += 1 } }
@@ -104,6 +105,7 @@ public final class ScreenReceiver: @unchecked Sendable
         catch
         {
             counters.update { $0.malformed += 1 }
+            decoder.awaitKeyframe()
             needsKeyframe?()
         }
     }

@@ -103,8 +103,11 @@ import allonet2
             into.deliver(numbered.encoded)
         }
 
-        #expect(receiver.counters.snapshot.gaps == 1, "\(receiver.counters.snapshot)")
+        let got = receiver.counters.snapshot
+        #expect(got.gaps == 1, "\(got)")
         #expect(asked.value == 1)
+        // The key decoded; the deltas after the hole predict from a picture nobody has.
+        #expect(got.decoded == 1 && got.droppedAwaitingKey == encoded.count - 2, "\(got)")
     }
 
     @Test func aFrameOverItsKindsCapNeverReachesTheWire() throws
