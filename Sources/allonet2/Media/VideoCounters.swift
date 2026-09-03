@@ -1,11 +1,11 @@
 //
-//  ScreenCounters.swift
+//  VideoCounters.swift
 //  allonet2
 //
 
 import Foundation
 
-/// Per-hop tallies for one screen stream, as data rather than log lines: a test asserts on them,
+/// Per-hop tallies for one video stream, as data rather than log lines: a test asserts on them,
 /// and a demo or a status page prints them. The audio counterpart is `VoiceCounters`.
 ///
 /// On a sender every `captured` picture ends up exactly one of `encoded` (then `sent` or
@@ -13,7 +13,7 @@ import Foundation
 /// message ends up exactly one of `decoded`, `malformed` or `droppedAwaitingKey`.
 ///
 /// Platform-neutral so the place can count video without linking a codec.
-public struct ScreenCounters: Equatable, Sendable, Codable, CustomStringConvertible
+public struct VideoCounters: Equatable, Sendable, Codable, CustomStringConvertible
 {
     // Sender
     /// Pictures the source handed over.
@@ -51,7 +51,7 @@ public struct ScreenCounters: Equatable, Sendable, Codable, CustomStringConverti
     /// Decoded samples the sample buffer threw away before the owner read them, because it was
     /// not keeping up. Counted with `decoded`, and as damaging to the picture as a gap.
     public var evicted = 0
-    /// Samples the owner put on screen. Counted by whoever owns the display, not by the receiver.
+    /// Samples the owner showed. Counted by whoever owns the display, not by the receiver.
     public var displayed = 0
 
     public init() {}
@@ -73,20 +73,20 @@ public struct ScreenCounters: Equatable, Sendable, Codable, CustomStringConverti
 
 /// Thread-safe holder, the same shape as `VoiceCountersBox`: counters are written from the
 /// capture source, the encoder's queue and libdatachannel's network threads, and read anywhere.
-public final class ScreenCountersBox: @unchecked Sendable
+public final class VideoCountersBox: @unchecked Sendable
 {
     private let lock = NSLock()
-    private var counters = ScreenCounters()
+    private var counters = VideoCounters()
 
     public init() {}
 
-    public func update(_ change: (inout ScreenCounters) -> Void)
+    public func update(_ change: (inout VideoCounters) -> Void)
     {
         lock.lock(); defer { lock.unlock() }
         change(&counters)
     }
 
-    public var snapshot: ScreenCounters
+    public var snapshot: VideoCounters
     {
         lock.lock(); defer { lock.unlock() }
         return counters

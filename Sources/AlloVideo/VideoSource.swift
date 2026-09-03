@@ -132,7 +132,8 @@ public final class PatternSource: VideoSource, @unchecked Sendable
     }
 
     /// The frame index a picture carries, read back out of its luma plane. The counterpart of
-    /// `picture`: a test that decodes a picture can name the frame it came from.
+    /// `picture`: a test that decodes a picture can name the frame it came from. A picture
+    /// narrower than the bar carries only the bits that fit, so the index reads back truncated.
     public static func frameIndex(in pixels: CVPixelBuffer) -> Int
     {
         CVPixelBufferLockBaseAddress(pixels, .readOnly)
@@ -141,7 +142,7 @@ public final class PatternSource: VideoSource, @unchecked Sendable
         let luma = plane.assumingMemoryBound(to: UInt8.self)
         let stride = CVPixelBufferGetBytesPerRowOfPlane(pixels, 0)
         var index = 0
-        for bit in 0..<counterBits
+        for bit in 0..<counterBits where bit * blockWidth + blockWidth / 2 < CVPixelBufferGetWidth(pixels)
         {
             // Middle of the block, and of the bar, so a rescale or a lossy encode still reads it.
             let sample = luma[8 * stride + bit * blockWidth + blockWidth / 2]
@@ -173,7 +174,8 @@ public final class PatternSource: VideoSource, @unchecked Sendable
                     row[x] = low + UInt8((x &+ y &+ frame &* 4) % 220)
                 }
             }
-            for bit in 0..<counterBits
+            // A picture too narrow for all 24 blocks carries the low bits it has room for.
+            for bit in 0..<counterBits where bit * blockWidth < width
             {
                 let value = (frame >> bit) & 1 == 1 ? high : low
                 for y in 0..<min(barHeight, height)

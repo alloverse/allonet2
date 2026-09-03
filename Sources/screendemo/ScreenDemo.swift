@@ -98,8 +98,8 @@ final class ScreenDemoClient: AlloClient
     var windowed = false
 
     private var screenTransport: DataChannelTransport!
-    private var sender: ScreenSender?
-    private var receivers: [MediaStreamId: ScreenReceiver] = [:]
+    private var sender: VideoSender?
+    private var receivers: [MediaStreamId: VideoReceiver] = [:]
     private var windows: [MediaStreamId: ViewerWindow?] = [:]
     private var outgoingMediaId: MediaStreamId?
 
@@ -140,7 +140,7 @@ final class ScreenDemoClient: AlloClient
             print("Sharing the picked window or display")
         }
 
-        let sender = ScreenSender(source: source, stream: stream)
+        let sender = VideoSender(source: source, stream: stream)
         let latency = self.latency
         let loggedId = placeStreamId.outgoingMediaId
         sender.onFrameSent = { timestamp, capturedAt in
@@ -193,7 +193,7 @@ final class ScreenDemoClient: AlloClient
         let mediaId = stream.mediaId
         let window = windowed ? ViewerWindow(title: mediaId) : nil
         windows[mediaId] = window
-        let receiver = ScreenReceiver(stream: stream)
+        let receiver = VideoReceiver(stream: stream)
         receivers[mediaId] = receiver
         // Wave 1 has no interaction to ask a sharer with; the sharer's periodic keyframe is what
         // recovers a viewer here. KojaNet's screen.requestKeyframe is where this goes.

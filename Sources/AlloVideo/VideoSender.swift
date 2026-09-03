@@ -1,5 +1,5 @@
 //
-//  ScreenSender.swift
+//  VideoSender.swift
 //  AlloVideo
 //
 
@@ -16,13 +16,13 @@ import allonet2
 /// back, between a 500 kbit/s floor and a 4 Mbit/s ceiling.
 ///
 /// ```swift
-/// let sender = ScreenSender(source: capturer, stream: stream)
+/// let sender = VideoSender(source: capturer, stream: stream)
 /// Task { try await sender.start() }   // returns when the source stops
 /// sender.requestKeyframe()            // a viewer joined, or lost its picture
 /// ```
-public final class ScreenSender: @unchecked Sendable
+public final class VideoSender: @unchecked Sendable
 {
-    public let counters: ScreenCountersBox
+    public let counters: VideoCountersBox
 
     /// Called once every picture has reached the channel, with the timestamp it carries and the
     /// monotonic time it was captured at. For latency measurement; runs on the send loop, so
@@ -54,7 +54,7 @@ public final class ScreenSender: @unchecked Sendable
     /// A keyframe costs a full picture; asking for one more often than this cannot help.
     public static let keyframeInterval = 1.0
 
-    public init(source: any VideoSource, stream: DataChannelMediaStream, counters: ScreenCountersBox = ScreenCountersBox())
+    public init(source: any VideoSource, stream: DataChannelMediaStream, counters: VideoCountersBox = VideoCountersBox())
     {
         self.source = source
         self.stream = stream
@@ -95,20 +95,20 @@ public final class ScreenSender: @unchecked Sendable
     {
         let (encoder, isNew) = try encoder(width: CVPixelBufferGetWidth(frame.pixels),
                                            height: CVPixelBufferGetHeight(frame.pixels))
-        // Before the keyframe request is taken: a dropped picture must not swallow it, or a
-        // viewer that lost its picture waits out the periodic keyframe instead.
         if adaptToBackpressure(now: frame.capturedAt, encoder: encoder)
         {
             counters.update { $0.droppedForBackpressure += 1 }
             return
         }
-        let forceKeyframe = takeKeyframeRequest(at: frame.capturedAt) || isNew
+        let requested = keyframeIsDue(at: frame.capturedAt)
 
-        guard let encoded = try await encoder.encode(frame, forceKeyframe: forceKeyframe) else
+        guard let encoded = try await encoder.encode(frame, forceKeyframe: requested || isNew) else
         {
             counters.update { $0.encoderDropped += 1 }
             return
         }
+        // Only a picture that exists answers the request; a dropped one leaves it pending.
+        if requested { takeKeyframeRequest(at: frame.capturedAt) }
         // Exponential, over about the last dozen frames: the water mark has to follow a share
         // that goes from a still document to a scrolling one.
         lock.withLock { averageEncodedBytes += (Double(encoded.annexB.count) - averageEncodedBytes) / 12 }
@@ -139,18 +139,18 @@ public final class ScreenSender: @unchecked Sendable
         return (made, true)
     }
 
-    /// Take a pending keyframe request if one is due. The clock runs from the last *requested*
+    /// Whether a pending keyframe request is due. The clock runs from the last *requested*
     /// keyframe: the stream's own first picture is a keyframe too, and letting it start the
     /// second would make the first viewer to ask wait for nothing.
-    private func takeKeyframeRequest(at now: Double) -> Bool
+    internal func keyframeIsDue(at now: Double) -> Bool
     {
-        lock.withLock
-        {
-            guard keyframeRequested, now - lastKeyframeAt >= Self.keyframeInterval else { return false }
-            keyframeRequested = false
-            lastKeyframeAt = now
-            return true
-        }
+        lock.withLock { keyframeRequested && now - lastKeyframeAt >= Self.keyframeInterval }
+    }
+
+    /// Consume the request the picture just encoded satisfies, and restart the rate limit.
+    internal func takeKeyframeRequest(at now: Double)
+    {
+        lock.withLock { keyframeRequested = false; lastKeyframeAt = now }
     }
 
     /// - Returns: true when this picture should be dropped rather than encoded.

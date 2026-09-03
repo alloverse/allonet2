@@ -24,7 +24,7 @@ import AlloVideo
         let client: TestClient
         let stream: DataChannelMediaStream
         let source: PatternSource
-        let sender: ScreenSender
+        let sender: VideoSender
         let placeStreamId: MediaStreamId
 
         func stop() { sender.stop() }
@@ -36,7 +36,7 @@ import AlloVideo
         let stream = try client.transport().createOutgoingMediaStream(mediaId: mediaId, kind: .video)
         let placeStreamId = try await client.advertise(mediaId: mediaId, format: .video(codec: .h264, width: width, height: height))
         let source = PatternSource(width: width, height: height, fps: fps)
-        let sender = ScreenSender(source: source, stream: stream)
+        let sender = VideoSender(source: source, stream: stream)
         Task { try await sender.start() }
         return Sharer(client: client, stream: stream, source: source, sender: sender, placeStreamId: placeStreamId)
     }
@@ -54,7 +54,7 @@ import AlloVideo
         #expect(incoming.kind == .video, "a video stream must arrive as one")
 
         let renegotiationsBefore = (sharerClient.session.renegotiationCount, viewer.session.renegotiationCount)
-        let receiver = ScreenReceiver(stream: incoming)
+        let receiver = VideoReceiver(stream: incoming)
         display(receiver)
         defer { receiver.stop() }
 
@@ -85,7 +85,7 @@ import AlloVideo
         let viewer = try await place.connectClient(named: "viewer")
         try await viewer.listen(to: [sharer.placeStreamId])
         let incoming = try await viewer.awaitStream(sharer.placeStreamId)
-        let receiver = ScreenReceiver(stream: incoming)
+        let receiver = VideoReceiver(stream: incoming)
         display(receiver)
         defer { receiver.stop() }
 
@@ -105,7 +105,7 @@ import AlloVideo
 
         try await viewer.listen(to: [sharer.placeStreamId])
         let incoming = try await viewer.awaitStream(sharer.placeStreamId)
-        let receiver = ScreenReceiver(stream: incoming)
+        let receiver = VideoReceiver(stream: incoming)
         display(receiver)
         defer { receiver.stop() }
         try await waitFor("the first picture") { receiver.counters.snapshot.decoded > 0 }
@@ -132,7 +132,7 @@ import AlloVideo
 
         try await viewer.listen(to: [sharer.placeStreamId])
         let incoming = try await viewer.awaitStream(sharer.placeStreamId)
-        let receiver = ScreenReceiver(stream: incoming)
+        let receiver = VideoReceiver(stream: incoming)
         display(receiver)
         defer { receiver.stop() }
         try await waitFor("the first picture") { receiver.counters.snapshot.decoded > 0 }

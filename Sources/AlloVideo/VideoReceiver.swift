@@ -1,5 +1,5 @@
 //
-//  ScreenReceiver.swift
+//  VideoReceiver.swift
 //  AlloVideo
 //
 
@@ -7,20 +7,20 @@ import Foundation
 import CoreMedia
 import allonet2
 
-/// Stream to decoder to samples: the viewer's half of a screen share.
+/// Stream to decoder to samples: the viewer's half of a video stream.
 ///
 /// Frames are taken on the thread that delivered them - hopping first would drop the frames that
 /// arrive while a channel is being adopted - decoded there, and yielded into `samples`. The
 /// samples are compressed, for `AVSampleBufferDisplayLayer` to decode as it shows them.
 ///
 /// ```swift
-/// let receiver = ScreenReceiver(stream: stream)
+/// let receiver = VideoReceiver(stream: stream)
 /// receiver.needsKeyframe = { client.requestKeyframe(from: sharer) }
 /// for await sample in receiver.samples { layer.enqueue(sample) }
 /// ```
-public final class ScreenReceiver: @unchecked Sendable
+public final class VideoReceiver: @unchecked Sendable
 {
-    public let counters: ScreenCountersBox
+    public let counters: VideoCountersBox
     public let samples: AsyncStream<CMSampleBuffer>
 
     /// Fires when the picture cannot continue from here: a gap in the sequence, an access unit the
@@ -46,13 +46,13 @@ public final class ScreenReceiver: @unchecked Sendable
 
     /// - Parameter needsKeyframe: installed before the first frame is observed, so a stream
     ///   that arrives mid-GOP asks for its key at once rather than after the first gap.
-    public init(stream: any MediaStream, needsKeyframe: (() -> Void)? = nil, counters: ScreenCountersBox = ScreenCountersBox())
+    public init(stream: any MediaStream, needsKeyframe: (() -> Void)? = nil, counters: VideoCountersBox = VideoCountersBox())
     {
         self.stream = stream
         self.counters = counters
         var continuation: AsyncStream<CMSampleBuffer>.Continuation!
         // A viewer that falls behind should skip to the newest picture rather than replay old
-        // ones: a screen share has no value in a frame nobody could show in time.
+        // ones: video has no value in a frame nobody could show in time.
         samples = AsyncStream(bufferingPolicy: .bufferingNewest(4)) { continuation = $0 }
         self.continuation = continuation
         _needsKeyframe = needsKeyframe

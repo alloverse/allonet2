@@ -27,8 +27,8 @@ import allonet2
     {
         let (out, into) = Self.streamPair()
         let source = PatternSource(width: 320, height: 180, fps: 60)
-        let sender = ScreenSender(source: source, stream: out)
-        let receiver = ScreenReceiver(stream: into)
+        let sender = VideoSender(source: source, stream: out)
+        let receiver = VideoReceiver(stream: into)
         display(receiver)
         defer { sender.stop(); receiver.stop() }
 
@@ -56,15 +56,15 @@ import allonet2
         let buffered = Counter()
         let (out, _) = Self.streamPair(buffered: buffered)
         let source = PatternSource(width: 320, height: 180, fps: 60)
-        let sender = ScreenSender(source: source, stream: out)
+        let sender = VideoSender(source: source, stream: out)
         defer { sender.stop() }
 
         let running = Task { try await sender.start() }
         try await waitFor("the first picture") { sender.counters.snapshot.sent >= 1 }
 
-        buffered.value = ScreenSender.minimumHighWater * 2
+        buffered.value = VideoSender.minimumHighWater * 2
         try await waitFor("dropped pictures") { sender.counters.snapshot.droppedForBackpressure >= 3 }
-        #expect(sender.bitrate ?? 0 < ScreenSender.initialBitrate, "bitrate stayed at \(sender.bitrate ?? -1)")
+        #expect(sender.bitrate ?? 0 < VideoSender.initialBitrate, "bitrate stayed at \(sender.bitrate ?? -1)")
 
         let sentWhileFull = sender.counters.snapshot.sent
         buffered.value = 0
@@ -74,16 +74,34 @@ import allonet2
         let resumed = sender.counters.snapshot.droppedForBackpressure
         try await waitFor("a few more pictures") { sender.counters.snapshot.sent > sentWhileFull + 3 }
         #expect(sender.counters.snapshot.droppedForBackpressure == resumed, "kept dropping after the queue drained")
-        #expect(sender.bitrate ?? 0 >= ScreenSender.minimumBitrate)
+        #expect(sender.bitrate ?? 0 >= VideoSender.minimumBitrate)
 
         sender.stop()
         _ = try await running.value
     }
 
+    /// VideoToolbox gives nothing back for some pictures under load. A request answered by one
+    /// of those is a viewer left waiting out the periodic keyframe.
+    @Test func aPictureTheEncoderDropsDoesNotAnswerAKeyframeRequest()
+    {
+        let (out, _) = Self.streamPair()
+        let sender = VideoSender(source: PatternSource(width: 16, height: 16, fps: 1), stream: out)
+        sender.requestKeyframe()
+
+        #expect(sender.keyframeIsDue(at: 100))
+        #expect(sender.keyframeIsDue(at: 100.1), "nothing was encoded, so the request still stands")
+
+        sender.takeKeyframeRequest(at: 100.1)
+        #expect(!sender.keyframeIsDue(at: 100.2))
+        sender.requestKeyframe()
+        #expect(!sender.keyframeIsDue(at: 100.2), "the rate limit runs from the picture that answered")
+        #expect(sender.keyframeIsDue(at: 101.2))
+    }
+
     @Test func aGapInTheSequenceAsksForAKeyframe() async throws
     {
         let (_, into) = Self.streamPair()
-        let receiver = ScreenReceiver(stream: into)
+        let receiver = VideoReceiver(stream: into)
         let asked = Counter()
         receiver.needsKeyframe = { asked.value += 1 }
         defer { receiver.stop() }
@@ -111,7 +129,7 @@ import allonet2
     {
         let (_, into) = Self.streamPair()
         let asked = Counter()
-        let receiver = ScreenReceiver(stream: into, needsKeyframe: { asked.value += 1 })
+        let receiver = VideoReceiver(stream: into, needsKeyframe: { asked.value += 1 })
         defer { receiver.stop() }
 
         // The key went out before this receiver existed; only the deltas after it arrive.
@@ -132,7 +150,7 @@ import allonet2
     {
         let (_, into) = Self.streamPair()
         let asked = Counter()
-        let receiver = ScreenReceiver(stream: into, needsKeyframe: { asked.value += 1 })
+        let receiver = VideoReceiver(stream: into, needsKeyframe: { asked.value += 1 })
         defer { receiver.stop() }
 
         // Nothing iterates `samples`, so the buffer fills and then overflows.
@@ -196,7 +214,7 @@ final class Counter: @unchecked Sendable
 /// whose buffer overflows counts pictures the display never got and waits for a fresh keyframe.
 /// Ends when the receiver stops.
 @discardableResult
-func display(_ receiver: ScreenReceiver) -> Task<Void, Never>
+func display(_ receiver: VideoReceiver) -> Task<Void, Never>
 {
     Task { for await _ in receiver.samples { receiver.counters.update { $0.displayed += 1 } } }
 }
