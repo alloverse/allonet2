@@ -22,14 +22,14 @@ struct DataChannelLabelTests
             #expect(label.isMedia)
             #expect(label.channelId == nil, "media channels are opened in-band")
         }
-        #expect(DataChannelLabel(rawValue: "screen/x") == .media(.screen, "x"))
+        #expect(DataChannelLabel(rawValue: "video/x") == .media(.video, "x"))
     }
 
     @Test func rejectsLabelsThatAreNeitherControlNorMedia()
     {
-        #expect(DataChannelLabel(rawValue: "video/x") == nil)
+        #expect(DataChannelLabel(rawValue: "screen/x") == nil, "the video prefix was renamed; the old one names nothing")
         #expect(DataChannelLabel(rawValue: "voice/") == nil, "a prefix with no id names no stream")
-        #expect(DataChannelLabel(rawValue: "screen") == nil)
+        #expect(DataChannelLabel(rawValue: "video") == nil)
         #expect(DataChannelLabel(rawValue: "") == nil)
     }
 

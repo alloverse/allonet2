@@ -113,7 +113,7 @@ final class ScreenDemoClient: AlloClient
     {
         guard let avatarId else { return }
         let mediaId = "screen-demo"
-        let stream = try screenTransport.createOutgoingMediaStream(mediaId: mediaId, kind: .screen)
+        let stream = try screenTransport.createOutgoingMediaStream(mediaId: mediaId, kind: .video)
         let placeStreamId = PlaceStreamId(shortClientId: cid!.shortClientId, incomingMediaId: mediaId)
         outgoingMediaId = placeStreamId.outgoingMediaId
 
@@ -189,7 +189,7 @@ final class ScreenDemoClient: AlloClient
 
     override func session(_ session: AlloSession, didReceiveMediaStream stream: MediaStream)
     {
-        guard stream.kind == .screen else { return }
+        guard stream.kind == .video else { return }
         let mediaId = stream.mediaId
         let window = windowed ? ViewerWindow(title: mediaId) : nil
         windows[mediaId] = window

@@ -260,7 +260,7 @@ final class VoiceE2ETests: XCTestCase
         try await withPlace { place in
         let sharer = try await place.connectClient(named: "sharer")
         _ = try sharer.startSpeaking(mediaId: "voice-mic")
-        _ = try sharer.transport().createOutgoingMediaStream(mediaId: "screen-0", kind: .screen)
+        _ = try sharer.transport().createOutgoingMediaStream(mediaId: "screen-0", kind: .video)
 
         let cid = sharer.client.cid!
         let voiceId = PlaceStreamId(shortClientId: cid.shortClientId, incomingMediaId: "voice-mic")
@@ -270,12 +270,12 @@ final class VoiceE2ETests: XCTestCase
         let voice = place.server.sfu.available[voiceId]!.stream as! DataChannelMediaStream
         let screen = place.server.sfu.available[screenId]!.stream as! DataChannelMediaStream
         XCTAssertEqual(voice.kind, .voice)
-        XCTAssertEqual(screen.kind, .screen)
+        XCTAssertEqual(screen.kind, .video)
 
         let placeTransport = place.server.clients[cid]!.session.transport as! DataChannelTransport
         XCTAssertEqual(placeTransport.channelForTesting(.media(.voice, "voice-mic"))?.reliability,
                        .init(loss: .maxRetransmits(0), ordered: false))
-        XCTAssertEqual(placeTransport.channelForTesting(.media(.screen, "screen-0"))?.reliability,
+        XCTAssertEqual(placeTransport.channelForTesting(.media(.video, "screen-0"))?.reliability,
                        .init(loss: .maxPacketLifeTime(ms: 1000), ordered: true))
         }
     }

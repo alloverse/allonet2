@@ -33,7 +33,7 @@ import AlloVideo
     @MainActor
     static func share(from client: TestClient, fps: Double = 30) async throws -> Sharer
     {
-        let stream = try client.transport().createOutgoingMediaStream(mediaId: mediaId, kind: .screen)
+        let stream = try client.transport().createOutgoingMediaStream(mediaId: mediaId, kind: .video)
         let placeStreamId = try await client.advertise(mediaId: mediaId, format: .video(codec: .h264, width: width, height: height))
         let source = PatternSource(width: width, height: height, fps: fps)
         let sender = ScreenSender(source: source, stream: stream)
@@ -51,7 +51,7 @@ import AlloVideo
 
         try await viewer.listen(to: [sharer.placeStreamId])
         let incoming = try await viewer.awaitStream(sharer.placeStreamId)
-        #expect(incoming.kind == .screen, "a screen stream must arrive as one")
+        #expect(incoming.kind == .video, "a video stream must arrive as one")
 
         let renegotiationsBefore = (sharerClient.session.renegotiationCount, viewer.session.renegotiationCount)
         let receiver = ScreenReceiver(stream: incoming)
@@ -144,7 +144,7 @@ import AlloVideo
 
         // Past the delta cap but inside the channel's 2 MiB message size, so only the cap can
         // stop it. Written straight to the channel: the stream's own send would refuse it.
-        let channel = try #require(sharerClient.transport().channelForTesting(.media(.screen, Self.mediaId)))
+        let channel = try #require(sharerClient.transport().channelForTesting(.media(.video, Self.mediaId)))
         let oversized = MediaFrame(kind: .h264Delta, sequence: 9999, timestamp: 0,
                                    payload: Data(repeating: 0, count: MediaFrame.Kind.h264Delta.maximumFrameBytes))
         try channel.send(data: oversized.encoded)

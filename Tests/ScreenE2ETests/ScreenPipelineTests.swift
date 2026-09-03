@@ -16,8 +16,8 @@ import allonet2
     /// the same bytes and no place in between.
     static func streamPair(buffered: Counter = Counter()) -> (out: DataChannelMediaStream, into: DataChannelMediaStream)
     {
-        let into = DataChannelMediaStream(mediaId: "screen-test", direction: .recvonly, kind: .screen) { _ in true }
-        let out = DataChannelMediaStream(mediaId: "screen-test", direction: .sendonly, kind: .screen,
+        let into = DataChannelMediaStream(mediaId: "screen-test", direction: .recvonly, kind: .video) { _ in true }
+        let out = DataChannelMediaStream(mediaId: "screen-test", direction: .sendonly, kind: .video,
                                          bufferedAmount: { buffered.value })
         { data in into.deliver(data); return true }
         return (out, into)

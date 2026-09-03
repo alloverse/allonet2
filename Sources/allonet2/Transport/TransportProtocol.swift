@@ -117,12 +117,13 @@ public enum MediaStreamKind: String, Sendable, CaseIterable
     /// Real-time audio. A frame that arrives after its play slot is worthless and a
     /// retransmission only delays the frames behind it, so its channel does neither.
     case voice
-    /// A shared screen. An H.264 access unit needs every byte, and in order, or the decoder
-    /// loses the pictures after it too - but a frame nobody could render within a second is
-    /// not worth blocking the ones behind it either.
-    case screen
+    /// Moving pictures, from wherever: a shared screen, a camera, an alloapp's own rendering.
+    /// An H.264 access unit needs every byte, and in order, or the decoder loses the pictures
+    /// after it too - but a frame nobody could render within a second is not worth blocking
+    /// the ones behind it either.
+    case video
 
-    /// The prefix every one of this kind's channel labels starts with: `"voice/"`, `"screen/"`.
+    /// The prefix every one of this kind's channel labels starts with: `"voice/"`, `"video/"`.
     public var labelPrefix: String { rawValue + "/" }
 }
 
@@ -189,7 +190,7 @@ public enum MediaStreamDirection: UInt32
 }
 
 /// Names one media stream, and is the suffix of its data channel's label - `voice/<id>` or
-/// `screen/<id>`, depending on the stream's `MediaStreamKind`.
+/// `video/<id>`, depending on the stream's `MediaStreamKind`.
 ///
 /// It has two shapes, and which one a value carries depends on where it is read:
 ///
@@ -207,7 +208,7 @@ public enum MediaStreamDirection: UInt32
 /// signature or a dictionary key says which of the two it is. See docs/voice.md.
 public typealias MediaStreamId = String
 
-/// One media stream, flowing one way: one data channel carrying one mono voice, or one screen.
+/// One media stream, flowing one way: one data channel carrying one mono voice, or one video.
 ///
 /// There is no track layer under this and no bundle over it - a stream is not a set of
 /// anything, and nothing is multiplexed inside one. `DataChannelMediaStream` is the only

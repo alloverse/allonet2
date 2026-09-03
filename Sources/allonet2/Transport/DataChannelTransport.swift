@@ -487,7 +487,7 @@ extension MediaStreamKind
     /// which only the transport imports.
     ///
     /// Voice is unordered with no retransmits: a late frame is worthless and waiting for one
-    /// delays the frames behind it. Screen is ordered - H.264 loses everything after a hole -
+    /// delays the frames behind it. Video is ordered - H.264 loses everything after a hole -
     /// but bounded by a one-second lifetime, so a stalled link abandons a picture rather than
     /// queueing the share further and further behind.
     public var reliability: AlloWebRTCPeer.Reliability
@@ -495,7 +495,7 @@ extension MediaStreamKind
         switch self
         {
         case .voice: .unreliable
-        case .screen: .init(loss: .maxPacketLifeTime(ms: 1000), ordered: true)
+        case .video: .init(loss: .maxPacketLifeTime(ms: 1000), ordered: true)
         }
     }
 }
