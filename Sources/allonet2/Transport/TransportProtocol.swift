@@ -207,7 +207,7 @@ public enum MediaStreamDirection: UInt32
 /// signature or a dictionary key says which of the two it is. See docs/voice.md.
 public typealias MediaStreamId = String
 
-/// One media stream, flowing one way: today, one data channel carrying one mono voice stream.
+/// One media stream, flowing one way: one data channel carrying one mono voice, or one screen.
 ///
 /// There is no track layer under this and no bundle over it - a stream is not a set of
 /// anything, and nothing is multiplexed inside one. `DataChannelMediaStream` is the only
@@ -226,7 +226,26 @@ public protocol MediaStream: CustomStringConvertible
     /// opened, `.recvonly` for one it adopted from a peer.
     var streamDirection: MediaStreamDirection { get }
 
-    /// This stream's decoded audio, and the act of starting to decode it.
+    /// What this stream carries, as its channel's label says. Decides which renderer should
+    /// take it, and how its channel was opened.
+    var kind: MediaStreamKind { get }
+
+    /// Every frame off the wire, header included, on the thread that delivered it - so an
+    /// observer that touches isolated state must hop first, and one that blocks stalls the
+    /// stream. Frames are not decoded, so this is the seam the SFU forwards through and a video
+    /// receiver decodes from.
+    ///
+    /// - Returns: the token that stops delivery again. Observing costs nothing until frames
+    ///   arrive, and an observer added mid-stream sees the next frame, never the ones before it.
+    @discardableResult
+    func observeFrames(_ observer: @escaping (Data) -> Void) -> FrameObservers.Token
+
+    /// Stop delivering frames to the observer behind `token`. Safe from any thread, including
+    /// from inside an observer, and a token already removed is ignored.
+    func removeObserver(_ token: FrameObservers.Token)
+
+    /// This stream's decoded **audio**, and the act of starting to decode it. A video stream has
+    /// none: its frames are read through `observeFrames`.
     ///
     /// The first call starts a decode pump that drains the jitter buffer into a ring buffer at
     /// playout rate; every later call hands back that same buffer, so several renderers share
