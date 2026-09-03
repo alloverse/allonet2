@@ -9,7 +9,7 @@ import Foundation
 public protocol VoiceEncoder: AnyObject
 {
     /// The kind the frames it produces must be tagged with.
-    var kind: VoiceFrame.Kind { get }
+    var kind: MediaFrame.Kind { get }
     /// Tell the encoder what fraction of frames the far end is losing, so in-band FEC can be
     /// spent where it helps. Ignored by codecs without FEC.
     func setExpectedPacketLoss(percent: Int)
@@ -23,7 +23,7 @@ public protocol VoiceEncoder: AnyObject
 public protocol VoiceDecoder: AnyObject
 {
     /// The frame kind this decoder accepts; a frame of any other kind must not reach it.
-    var kind: VoiceFrame.Kind { get }
+    var kind: MediaFrame.Kind { get }
     /// Whether a payload carries recovery data for the frame *before* it.
     var supportsFEC: Bool { get }
     /// Decode into `output`, returning samples written.
@@ -65,7 +65,7 @@ public enum VoiceCodecError: Error, CustomStringConvertible
 /// depending on a codec being linked. Concealment repeats nothing - it emits silence.
 public final class RawPCMVoiceCodec: VoiceEncoder, VoiceDecoder
 {
-    public let kind = VoiceFrame.Kind.pcmFloat32
+    public let kind = MediaFrame.Kind.pcmFloat32
     public let supportsFEC = false
 
     public init() {}

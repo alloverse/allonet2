@@ -30,7 +30,7 @@ public enum Opus
 
 public final class OpusVoiceEncoder: VoiceEncoder
 {
-    public let kind = VoiceFrame.Kind.opus
+    public let kind = MediaFrame.Kind.opus
     private let encoder: OpaquePointer
     /// Opus never emits more than this for one frame at our bitrate; sized for the worst case.
     private var scratch = [UInt8](repeating: 0, count: 4000)
@@ -71,7 +71,7 @@ public final class OpusVoiceEncoder: VoiceEncoder
 
 public final class OpusVoiceDecoder: VoiceDecoder
 {
-    public let kind = VoiceFrame.Kind.opus
+    public let kind = MediaFrame.Kind.opus
     public let supportsFEC = true
     private let decoder: OpaquePointer
 

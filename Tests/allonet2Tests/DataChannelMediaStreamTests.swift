@@ -24,7 +24,7 @@ struct DataChannelMediaStreamTests
         {
             let samples = [Float](repeating: Float(sequence), count: frameDuration)
             let payload = samples.withUnsafeBytes { Data($0) }
-            stream.deliver(VoiceFrame(kind: .pcmFloat32,
+            stream.deliver(MediaFrame(kind: .pcmFloat32,
                                       sequence: sequence,
                                       timestamp: sequence &* UInt32(frameDuration),
                                       payload: payload).encoded)
@@ -186,7 +186,7 @@ struct DataChannelMediaStreamTests
                                             monotonicNow: { clock.now() }) { _ in true }
 
         let stopped = stream.render()
-        let preStop = VoiceFrame(kind: .pcmFloat32, sequence: 5, timestamp: 5 * 960,
+        let preStop = MediaFrame(kind: .pcmFloat32, sequence: 5, timestamp: 5 * 960,
                                  payload: [Float](repeating: 5, count: 960).withUnsafeBytes { Data($0) }).encoded
         let delivered = DispatchSemaphore(value: 0)
         DispatchQueue.global().async { clock.parkThisThread(); stream.deliver(preStop); delivered.signal() }
@@ -235,11 +235,50 @@ struct DataChannelMediaStreamTests
         let seen = FrameLog()
         stream.observeFrames { seen.append($0) }
 
-        let payload = Data(repeating: 7, count: DataChannelMediaStream.maximumFrameBytes - VoiceFrame.headerSize)
-        stream.deliver(VoiceFrame(kind: .opus, sequence: 0, timestamp: 0, payload: payload).encoded)
+        let payload = Data(repeating: 7, count: MediaFrame.Kind.opus.maximumFrameBytes - MediaFrame.headerSize)
+        stream.deliver(MediaFrame(kind: .opus, sequence: 0, timestamp: 0, payload: payload).encoded)
 
         #expect(stream.counters.snapshot.malformed == 0)
         #expect(seen.count == 1)
+    }
+
+    /// The cap is per kind, or a keyframe is either impossible or an audio channel's licence to
+    /// hold a megabyte. Each kind is judged by its own limit and nobody else's.
+    @Test func capsEachKindByItsOwnLimit()
+    {
+        func delivered(_ kind: MediaFrame.Kind, payloadBytes: Int) -> (seen: Int, malformed: Int)
+        {
+            let stream = receiver()
+            let seen = FrameLog()
+            stream.observeFrames { seen.append($0) }
+            let payload = Data(repeating: 7, count: payloadBytes)
+            stream.deliver(MediaFrame(kind: kind, sequence: 0, timestamp: 0, payload: payload).encoded)
+            return (seen.count, stream.counters.snapshot.malformed)
+        }
+
+        let big = 900 * 1024
+        #expect(delivered(.h264Key, payloadBytes: big) == (seen: 1, malformed: 0), "a keyframe well under 1 MiB")
+        #expect(delivered(.h264Delta, payloadBytes: big) == (seen: 0, malformed: 1), "a delta frame over 256 KiB")
+        #expect(delivered(.opus, payloadBytes: 4000) == (seen: 0, malformed: 1), "audio over one uncompressed frame")
+    }
+
+    /// Video and audio can share a stream's cap and its forwarding without sharing its decoder:
+    /// a picture on a stream being played as audio is counted and skipped, never decoded.
+    @Test func skipsVideoFramesOnAStreamBeingPlayedAsAudio() throws
+    {
+        VoiceCodecs.makeDecoder = { RawPCMVoiceCodec() }
+        let stream = receiver()
+        let seen = FrameLog()
+        stream.observeFrames { seen.append($0) }
+        _ = stream.render()
+
+        stream.deliver(MediaFrame(kind: .h264Key, sequence: 0, timestamp: 0, payload: Data(repeating: 7, count: 64)).encoded)
+
+        let counters = stream.counters.snapshot
+        #expect(counters.malformed == 0, "a video frame within its cap is well-formed")
+        #expect(counters.skippedForeignKind == 1)
+        #expect(seen.count == 1, "it is still forwarded")
+        #expect(stream.jitterBuffer.depth == 0, "and never reaches the audio path")
     }
 
     /// The SFU forwards raw bytes without decoding them, so a bad header has to be caught at the
@@ -253,10 +292,10 @@ struct DataChannelMediaStreamTests
         stream.deliver(Data(repeating: 0, count: 5))
 
         var unknownKind = Data([0xFF])
-        unknownKind.append(Data(repeating: 0, count: VoiceFrame.headerSize - 1))
+        unknownKind.append(Data(repeating: 0, count: MediaFrame.headerSize - 1))
         stream.deliver(unknownKind)
 
-        stream.deliver(VoiceFrame(kind: .opus, sequence: 0, timestamp: 0, payload: Data()).encoded)
+        stream.deliver(MediaFrame(kind: .opus, sequence: 0, timestamp: 0, payload: Data()).encoded)
 
         let counters = stream.counters.snapshot
         #expect(counters.received == 3)
@@ -277,7 +316,7 @@ struct DataChannelMediaStreamTests
         for sequence in UInt32(0)..<2
         {
             let payload = Data(count: frameCount * MemoryLayout<Float>.size)
-            let frame = VoiceFrame(kind: .pcmFloat32, sequence: sequence, timestamp: sequence &* 960, payload: payload)
+            let frame = MediaFrame(kind: .pcmFloat32, sequence: sequence, timestamp: sequence &* 960, payload: payload)
             stream.jitterBuffer.insert(frame, arrival: Double(sequence) * 0.02)
         }
         stream.refill(ring, using: decoder)
@@ -320,7 +359,7 @@ struct DataChannelMediaStreamTests
             // Arrival derived from the timestamp, so transit is exactly constant and the jitter
             // estimate stays at zero: this test is about depth, not about jitter.
             let timestamp = nextSequence &* UInt32(frameCount)
-            stream.jitterBuffer.insert(VoiceFrame(kind: .pcmFloat32, sequence: nextSequence,
+            stream.jitterBuffer.insert(MediaFrame(kind: .pcmFloat32, sequence: nextSequence,
                                                   timestamp: timestamp, payload: payload),
                                        arrival: Double(timestamp) / DataChannelMediaStream.sampleRate)
             nextSequence += 1
@@ -367,7 +406,7 @@ struct DataChannelMediaStreamTests
         // Far enough past target that any tick which steers at all leaves the rate off 1.
         for sequence in UInt32(0)..<12
         {
-            stream.jitterBuffer.insert(VoiceFrame(kind: .pcmFloat32, sequence: sequence,
+            stream.jitterBuffer.insert(MediaFrame(kind: .pcmFloat32, sequence: sequence,
                                                   timestamp: sequence &* UInt32(frameCount), payload: payload),
                                        arrival: Double(sequence) * 0.02)
         }
@@ -440,7 +479,7 @@ private final class GatedPCMVoiceCodec: VoiceDecoder, @unchecked Sendable
     var entered: DispatchSemaphore { gate.entered }
     var release: DispatchSemaphore { gate.release }
 
-    let kind = VoiceFrame.Kind.pcmFloat32
+    let kind = MediaFrame.Kind.pcmFloat32
     var supportsFEC: Bool { if step == .supportsFEC { gate.hold() }; return false }
 
     private let step: Step

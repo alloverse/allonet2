@@ -93,7 +93,7 @@ final class VoiceE2ETests: XCTestCase
         var previousSequence: UInt32?
         for data in collected.frames
         {
-            let frame = try VoiceFrame(decoding: data)
+            let frame = try MediaFrame(decoding: data)
             XCTAssertEqual(frame.kind, .pcmFloat32)
             if let previous = previousSequence
             {
