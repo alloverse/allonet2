@@ -64,11 +64,14 @@ import allonet2
         try await waitFor("dropped pictures") { sender.counters.snapshot.droppedForBackpressure >= 3 }
         #expect(sender.bitrate ?? 0 < ScreenSender.initialBitrate, "bitrate stayed at \(sender.bitrate ?? -1)")
 
-        let droppedWhileFull = sender.counters.snapshot.droppedForBackpressure
         let sentWhileFull = sender.counters.snapshot.sent
         buffered.value = 0
         try await waitFor("sending to resume") { sender.counters.snapshot.sent > sentWhileFull }
-        #expect(sender.counters.snapshot.droppedForBackpressure == droppedWhileFull, "kept dropping after the queue drained")
+        // Counted after the drain, not before it: a picture already in flight may be dropped
+        // between reading the counter and clearing the queue.
+        let resumed = sender.counters.snapshot.droppedForBackpressure
+        try await waitFor("a few more pictures") { sender.counters.snapshot.sent > sentWhileFull + 3 }
+        #expect(sender.counters.snapshot.droppedForBackpressure == resumed, "kept dropping after the queue drained")
         #expect(sender.bitrate ?? 0 >= ScreenSender.minimumBitrate)
 
         sender.stop()

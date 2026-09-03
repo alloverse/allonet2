@@ -9,6 +9,7 @@ import Foundation
 import ScreenCaptureKit
 import CoreMedia
 import CoreVideo
+import Atomics
 
 public enum ScreenCaptureError: Error, CustomStringConvertible
 {
@@ -194,6 +195,7 @@ extension ScreenCapturer: SCContentSharingPickerObserver
 private final class Output: NSObject, SCStreamOutput, SCStreamDelegate, @unchecked Sendable
 {
     private let continuation: AsyncStream<CapturedFrame>.Continuation
+    private let flowing = ManagedAtomic<Bool>(false)
     weak var owner: ScreenCapturer?
 
     init(continuation: AsyncStream<CapturedFrame>.Continuation)
@@ -207,6 +209,9 @@ private final class Output: NSObject, SCStreamOutput, SCStreamDelegate, @uncheck
     {
         guard type == .screen, Self.isComplete(sampleBuffer), let pixels = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
         continuation.yield(CapturedFrame(pixels: pixels, capturedAt: monotonicNow()))
+        // Only the first picture resolves `pickAndStart`; hopping to the main actor per frame
+        // for a continuation that is already gone would cost a task at the frame rate.
+        guard !flowing.exchange(true, ordering: .relaxed) else { return }
         Task { @MainActor [owner] in owner?.finishPicking(with: nil) }
     }
 

@@ -93,39 +93,18 @@ public final class ScreenSender: @unchecked Sendable
 
     private func send(_ frame: CapturedFrame) async throws
     {
-        let width = CVPixelBufferGetWidth(frame.pixels)
-        let height = CVPixelBufferGetHeight(frame.pixels)
-
-        var (forceKeyframe, encoder) = lock.withLock
-        { () -> (Bool, H264Encoder?) in
-            // A resized share is a new bitstream: the old encoder cannot take the new size, and
-            // the first picture out of the new one has to be a key.
-            if size == nil || size! != (width, height)
-            {
-                size = (width, height)
-                self.encoder = nil
-            }
-            var force = keyframeRequested && frame.capturedAt - lastKeyframeAt >= Self.keyframeInterval
-            if self.encoder == nil { force = true }
-            if force { keyframeRequested = false; lastKeyframeAt = frame.capturedAt }
-            return (force, self.encoder)
-        }
-
-        if encoder == nil
-        {
-            let made = try H264Encoder(width: width, height: height, bitrate: Self.initialBitrate)
-            lock.withLock { self.encoder = made }
-            encoder = made
-        }
-        let current = encoder!
-
-        if adaptToBackpressure(now: frame.capturedAt, encoder: current)
+        let (encoder, isNew) = try encoder(width: CVPixelBufferGetWidth(frame.pixels),
+                                           height: CVPixelBufferGetHeight(frame.pixels))
+        // Before the keyframe request is taken: a dropped picture must not swallow it, or a
+        // viewer that lost its picture waits out the periodic keyframe instead.
+        if adaptToBackpressure(now: frame.capturedAt, encoder: encoder)
         {
             counters.update { $0.droppedForBackpressure += 1 }
             return
         }
+        let forceKeyframe = takeKeyframeRequest(at: frame.capturedAt) || isNew
 
-        guard let encoded = try await current.encode(frame, forceKeyframe: forceKeyframe) else { return }
+        guard let encoded = try await encoder.encode(frame, forceKeyframe: forceKeyframe) else { return }
         // Exponential, over about the last dozen frames: the water mark has to follow a share
         // that goes from a still document to a scrolling one.
         lock.withLock { averageEncodedBytes += (Double(encoded.annexB.count) - averageEncodedBytes) / 12 }
@@ -138,6 +117,36 @@ public final class ScreenSender: @unchecked Sendable
         }
         counters.update { $0.sent += 1; $0.bytesSent += encoded.annexB.count }
         onFrameSent?(encoded.timestamp, frame.capturedAt)
+    }
+
+    /// The encoder for this picture size, made if the share resized under us - which is a new
+    /// bitstream, so `isNew` says the picture has to be a keyframe.
+    private func encoder(width: Int, height: Int) throws -> (encoder: H264Encoder, isNew: Bool)
+    {
+        let existing = lock.withLock { () -> H264Encoder? in
+            if let size, size == (width, height) { return self.encoder }
+            self.size = (width, height)
+            self.encoder = nil
+            return nil
+        }
+        if let existing { return (existing, false) }
+        let made = try H264Encoder(width: width, height: height, bitrate: Self.initialBitrate)
+        lock.withLock { self.encoder = made }
+        return (made, true)
+    }
+
+    /// Take a pending keyframe request if one is due. The clock runs from the last *requested*
+    /// keyframe: the stream's own first picture is a keyframe too, and letting it start the
+    /// second would make the first viewer to ask wait for nothing.
+    private func takeKeyframeRequest(at now: Double) -> Bool
+    {
+        lock.withLock
+        {
+            guard keyframeRequested, now - lastKeyframeAt >= Self.keyframeInterval else { return false }
+            keyframeRequested = false
+            lastKeyframeAt = now
+            return true
+        }
     }
 
     /// - Returns: true when this picture should be dropped rather than encoded.

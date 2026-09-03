@@ -27,7 +27,7 @@ let applePlatformTargets: [Target] = [
         .product(name: "GLTFKit2", package: "GLTFKit2"),
     ]),
     // ScreenCaptureKit and VideoToolbox: pixels in, H.264 media frames out, and back again.
-    .target(name: "AlloVideo", dependencies: ["allonet2"]),
+    .target(name: "AlloVideo", dependencies: ["allonet2", .product(name: "Atomics", package: "swift-atomics")]),
     .testTarget(name: "AlloAudioTests", dependencies: ["AlloAudio"]),
     .testTarget(name: "alloclientTests", dependencies: ["alloclient", "allonet2"]),
     .testTarget(name: "AlloRealityTests", dependencies: ["AlloReality", "alloclient", "allonet2"]),
