@@ -100,11 +100,11 @@ instances on loopback, `SCREENDEMO_PATTERN=1280x720@15`, ~60 s.
 
 | | |
 |---|---|
-| capture to display | p50 **4 ms**, p95 **5 ms** (n=841) |
-| pictures | 901 captured, 901 encoded, 901 sent, 0 dropped for backpressure, 0 send failures |
-| viewer | 805 decoded, 0 malformed, 0 gaps, 7 deltas dropped before its first keyframe |
-| payload rate | ~252 kbit/s (a test pattern compresses far below the 4 Mbit/s ceiling) |
-| CPU, one core | sharer 5.0-5.3 %, viewer 1.7-1.8 %, place 1.0-1.1 % |
+| capture to display | p50 **4 ms**, p95 **5 ms** (n=881) |
+| pictures | 976 captured, 976 encoded, 976 sent - 15.0 fps, 0 dropped for backpressure, 0 send failures |
+| viewer | 806 decoded, 0 malformed, 0 gaps, 5 deltas dropped before its first keyframe |
+| payload rate | ~248 kbit/s (a test pattern compresses far below the 4 Mbit/s ceiling) |
+| CPU, one core | sharer 5.1-5.7 %, viewer 1.7-2.0 %, place 0.9-1.0 % |
 
 Latency is capture to the sample being handed to the display layer; what the layer then adds
 before glass is not in it. The same run in a **debug** build costs the sharer a whole core and
