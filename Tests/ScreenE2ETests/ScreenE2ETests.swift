@@ -55,6 +55,7 @@ import AlloVideo
 
         let renegotiationsBefore = (sharerClient.session.renegotiationCount, viewer.session.renegotiationCount)
         let receiver = ScreenReceiver(stream: incoming)
+        display(receiver)
         defer { receiver.stop() }
 
         try await waitFor("15 decoded pictures", timeout: 15) { receiver.counters.snapshot.decoded >= 15 }
@@ -85,6 +86,7 @@ import AlloVideo
         try await viewer.listen(to: [sharer.placeStreamId])
         let incoming = try await viewer.awaitStream(sharer.placeStreamId)
         let receiver = ScreenReceiver(stream: incoming)
+        display(receiver)
         defer { receiver.stop() }
 
         try await waitFor("deltas to be dropped for want of a key") { receiver.counters.snapshot.droppedAwaitingKey > 0 }
@@ -104,6 +106,7 @@ import AlloVideo
         try await viewer.listen(to: [sharer.placeStreamId])
         let incoming = try await viewer.awaitStream(sharer.placeStreamId)
         let receiver = ScreenReceiver(stream: incoming)
+        display(receiver)
         defer { receiver.stop() }
         try await waitFor("the first picture") { receiver.counters.snapshot.decoded > 0 }
 
@@ -130,6 +133,7 @@ import AlloVideo
         try await viewer.listen(to: [sharer.placeStreamId])
         let incoming = try await viewer.awaitStream(sharer.placeStreamId)
         let receiver = ScreenReceiver(stream: incoming)
+        display(receiver)
         defer { receiver.stop() }
         try await waitFor("the first picture") { receiver.counters.snapshot.decoded > 0 }
 

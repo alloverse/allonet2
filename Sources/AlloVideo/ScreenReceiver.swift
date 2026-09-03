@@ -23,10 +23,12 @@ public final class ScreenReceiver: @unchecked Sendable
     public let counters: ScreenCountersBox
     public let samples: AsyncStream<CMSampleBuffer>
 
-    /// Fires when the picture cannot continue from here: a gap in the sequence, or an access unit
-    /// the decoder refused. The owner turns it into a keyframe request to the sharer, which is
-    /// rate-limited there. Called on the delivering thread, so hop before touching isolated
-    /// state, and assign it before frames flow - it is read without synchronisation.
+    /// Fires when the picture cannot continue from here: a gap in the sequence, an access unit the
+    /// decoder refused, a sample `samples` evicted, or a delta arriving before any key. The owner
+    /// turns it into a keyframe request to the sharer, which is rate-limited there. Fires once per
+    /// episode, not once per frame, so the deltas that follow the hole do not ask again. Called on
+    /// the delivering thread, so hop before touching isolated state; pass it to `init` rather than
+    /// setting it here if frames can already be arriving.
     public var needsKeyframe: (() -> Void)?
     {
         get { lock.lock(); defer { lock.unlock() }; return _needsKeyframe }
@@ -40,6 +42,7 @@ public final class ScreenReceiver: @unchecked Sendable
     private let lock = NSLock()
     private var token: FrameObservers.Token?
     private var lastSequence: UInt32?
+    private var askedForKeyframe = false
 
     /// - Parameter needsKeyframe: installed before the first frame is observed, so a stream
     ///   that arrives mid-GOP asks for its key at once rather than after the first gap.
@@ -96,7 +99,7 @@ public final class ScreenReceiver: @unchecked Sendable
         {
             counters.update { $0.gaps += 1 }
             decoder.awaitKeyframe()
-            needsKeyframe?()
+            askForKeyframe()
         }
         if frame.kind == .h264Key { counters.update { $0.keyframes += 1 } }
 
@@ -104,17 +107,39 @@ public final class ScreenReceiver: @unchecked Sendable
         {
             guard let sample = try decoder.decode(frame) else
             {
+                // A viewer that joined mid-GOP has no hole to notice; this is the only sign it
+                // needs a key of its own.
                 counters.update { $0.droppedAwaitingKey += 1 }
+                askForKeyframe()
                 return
             }
             counters.update { $0.decoded += 1 }
-            continuation.yield(sample)
+            lock.lock(); askedForKeyframe = false; lock.unlock()
+            // `samples` keeps only the newest few, so a viewer that stopped consuming loses a
+            // picture the deltas after it predict from - a hole like any other.
+            if case .dropped = continuation.yield(sample)
+            {
+                counters.update { $0.evicted += 1 }
+                decoder.awaitKeyframe()
+                askForKeyframe()
+            }
         }
         catch
         {
             counters.update { $0.malformed += 1 }
             decoder.awaitKeyframe()
-            needsKeyframe?()
+            askForKeyframe()
         }
+    }
+
+    /// One request per episode of waiting for a key: an episode ends when a picture decodes.
+    private func askForKeyframe()
+    {
+        lock.lock()
+        let already = askedForKeyframe
+        askedForKeyframe = true
+        let ask = _needsKeyframe
+        lock.unlock()
+        if !already { ask?() }
     }
 }

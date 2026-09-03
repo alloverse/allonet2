@@ -29,6 +29,7 @@ import allonet2
         let source = PatternSource(width: 320, height: 180, fps: 60)
         let sender = ScreenSender(source: source, stream: out)
         let receiver = ScreenReceiver(stream: into)
+        display(receiver)
         defer { sender.stop(); receiver.stop() }
 
         let running = Task { try await sender.start() }
@@ -44,6 +45,7 @@ import allonet2
         #expect(got.keyframes >= 1, "\(got)")
         #expect(got.gaps == 0, "a stream with no wire under it cannot lose frames: \(got)")
         #expect(got.malformed == 0, "\(got)")
+        #expect(got.evicted == 0, "a viewer that keeps up loses no pictures: \(got)")
         #expect(got.decoded >= 10, "\(got)")
     }
 
@@ -86,14 +88,7 @@ import allonet2
         receiver.needsKeyframe = { asked.value += 1 }
         defer { receiver.stop() }
 
-        let encoder = try H264Encoder(width: 320, height: 180, bitrate: 1_000_000)
-        var encoded: [EncodedFrame] = []
-        for index in 0..<4
-        {
-            let picture = CapturedFrame(pixels: PatternSource.picture(frame: index, width: 320, height: 180),
-                                        capturedAt: Double(index) / 30)
-            if let frame = try await encoder.encode(picture, forceKeyframe: index == 0) { encoded.append(frame) }
-        }
+        let encoded = try await Self.pictures(4)
         #expect(encoded.count >= 3)
 
         // Numbered here rather than by the stream, so the wire can lose the second frame.
@@ -108,6 +103,69 @@ import allonet2
         #expect(asked.value == 1)
         // The key decoded; the deltas after the hole predict from a picture nobody has.
         #expect(got.decoded == 1 && got.droppedAwaitingKey == encoded.count - 2, "\(got)")
+    }
+
+    /// A viewer that subscribed mid-GOP never sees a hole, so nothing but the undecodable deltas
+    /// themselves can tell it to ask - and it must ask once, not once per delta.
+    @Test func aViewerThatJoinedMidGopAsksOnceForAKeyframe() async throws
+    {
+        let (_, into) = Self.streamPair()
+        let asked = Counter()
+        let receiver = ScreenReceiver(stream: into, needsKeyframe: { asked.value += 1 })
+        defer { receiver.stop() }
+
+        // The key went out before this receiver existed; only the deltas after it arrive.
+        let encoded = try await Self.pictures(6)
+        let deltas = encoded.filter { $0.kind == .h264Delta }
+        #expect(deltas.count >= 3)
+        Self.deliver(deltas, to: into)
+
+        let got = receiver.counters.snapshot
+        #expect(got.gaps == 0, "consecutive sequences are not a gap: \(got)")
+        #expect(got.droppedAwaitingKey == deltas.count, "\(got)")
+        #expect(asked.value == 1, "asked \(asked.value) times")
+    }
+
+    /// `samples` keeps only the newest few pictures. One evicted from it is one the display never
+    /// got, and every delta after it predicts from exactly that picture.
+    @Test func aSampleEvictedFromTheBufferAsksForAKeyframe() async throws
+    {
+        let (_, into) = Self.streamPair()
+        let asked = Counter()
+        let receiver = ScreenReceiver(stream: into, needsKeyframe: { asked.value += 1 })
+        defer { receiver.stop() }
+
+        // Nothing iterates `samples`, so the buffer fills and then overflows.
+        Self.deliver(try await Self.pictures(12), to: into)
+
+        let got = receiver.counters.snapshot
+        #expect(got.gaps == 0, "\(got)")
+        #expect(got.evicted >= 1, "the sample buffer never overflowed: \(got)")
+        #expect(asked.value == got.evicted, "asked \(asked.value) times for \(got.evicted) evictions")
+    }
+
+    /// A sharer's bitstream: `count` pattern pictures, the first of them a key.
+    static func pictures(_ count: Int) async throws -> [EncodedFrame]
+    {
+        let encoder = try H264Encoder(width: 320, height: 180, bitrate: 1_000_000)
+        var encoded: [EncodedFrame] = []
+        for index in 0..<count
+        {
+            let picture = CapturedFrame(pixels: PatternSource.picture(frame: index, width: 320, height: 180),
+                                        capturedAt: Double(index) / 30)
+            if let frame = try await encoder.encode(picture, forceKeyframe: index == 0) { encoded.append(frame) }
+        }
+        return encoded
+    }
+
+    /// Deliver as an unbroken sequence, so nothing the receiver sees looks like a lost frame.
+    static func deliver(_ frames: [EncodedFrame], to stream: DataChannelMediaStream)
+    {
+        for (index, frame) in frames.enumerated()
+        {
+            let numbered = MediaFrame(kind: frame.kind, sequence: UInt32(index), timestamp: frame.timestamp, payload: frame.annexB)
+            stream.deliver(numbered.encoded)
+        }
     }
 
     @Test func aFrameOverItsKindsCapNeverReachesTheWire() throws
@@ -132,6 +190,15 @@ final class Counter: @unchecked Sendable
         get { lock.withLock { storage } }
         set { lock.withLock { storage = newValue } }
     }
+}
+
+/// A viewer's display loop without a display. `samples` has to be consumed by someone: a receiver
+/// whose buffer overflows counts pictures the display never got and waits for a fresh keyframe.
+/// Ends when the receiver stops.
+@discardableResult
+func display(_ receiver: ScreenReceiver) -> Task<Void, Never>
+{
+    Task { for await _ in receiver.samples { receiver.counters.update { $0.displayed += 1 } } }
 }
 
 /// Poll until `condition` holds, or fail naming what never happened.

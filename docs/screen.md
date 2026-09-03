@@ -63,9 +63,12 @@ one each.
     observeFrames -> MediaFrame -> H264Decoder -> CMSampleBuffer -> AVSampleBufferDisplayLayer
 
 `ScreenReceiver` takes frames on the thread that delivered them, drops non-video kinds as
-`malformed`, drops deltas until a keyframe (`droppedAwaitingKey`) — the first one, and again
-after a sequence gap (`gaps`), when it also calls `needsKeyframe` for the owner to turn into a
-request to the sharer.
+`malformed`, and drops deltas until a keyframe (`droppedAwaitingKey`). It calls `needsKeyframe`,
+for the owner to turn into a request to the sharer, whenever the picture cannot continue from
+here: a sequence gap (`gaps`), a decode error, a delta that will not decode because this viewer
+subscribed mid-GOP, and a sample `samples` evicted before the owner read it (`evicted`) — the
+deltas after that sample predict from a picture the display never got. Once per episode, not
+once per frame: every delta behind one hole says the same thing.
 
 The samples carry **compressed** data plus the format description built from the stream's own
 SPS/PPS: `AVSampleBufferDisplayLayer` decodes them itself, marked to display immediately since

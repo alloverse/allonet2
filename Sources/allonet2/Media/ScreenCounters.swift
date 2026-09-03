@@ -45,6 +45,9 @@ public struct ScreenCounters: Equatable, Sendable, Codable, CustomStringConverti
     public var gaps = 0
     /// Frames turned into a displayable sample.
     public var decoded = 0
+    /// Decoded samples the sample buffer threw away before the owner read them, because it was
+    /// not keeping up. Counted with `decoded`, and as damaging to the picture as a gap.
+    public var evicted = 0
     /// Samples the owner put on screen. Counted by whoever owns the display, not by the receiver.
     public var displayed = 0
 
@@ -59,7 +62,7 @@ public struct ScreenCounters: Equatable, Sendable, Codable, CustomStringConverti
         add("backpressureDropped", droppedForBackpressure); add("keyframesSent", keyframesSent)
         add("received", received); add("malformed", malformed); add("keyframes", keyframes)
         add("awaitingKey", droppedAwaitingKey); add("gaps", gaps)
-        add("decoded", decoded); add("displayed", displayed)
+        add("decoded", decoded); add("evicted", evicted); add("displayed", displayed)
         return parts.isEmpty ? "(none)" : parts.joined(separator: " ")
     }
 }
