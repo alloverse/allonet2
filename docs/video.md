@@ -1,17 +1,24 @@
-# Screen sharing
+# Video
 
-A shared screen is H.264 on a media data channel: the same stream, the same nine-byte frame
-header and the same place-side forwarding as voice ([voice.md](voice.md) has both, and is worth
-reading first). Nothing in the media path knows a screen from a voice — the kind byte in the
-header and the `screen/` prefix on the channel label are the whole difference.
+Video is H.264 on a media data channel: the same stream, the same nine-byte frame header and the
+same place-side forwarding as voice ([voice.md](voice.md) has both, and is worth reading first).
+Nothing in the media path knows video from voice — the kind byte in the header and the `video/`
+prefix on the channel label are the whole difference. A shared screen is the first thing to ride
+it; a camera and an alloapp rendering its own pictures are the same stream.
 
 `AlloVideo` is the Apple-only target that turns pixels into media frames and back. It knows
 nothing about entities, `LiveMedia` or Koja: a caller opens the stream, hands it a source, and
 puts the resulting samples wherever it draws.
 
+The seam for sending is `VideoSource`: anything that yields `CapturedFrame`s can be sent, and
+`ScreenCapturer` is one convenience over one of them rather than the way in. A camera is an
+`AVCaptureSession` wrapped as a `VideoSource`, and needs nothing here to change. A caller that
+already has an encoder skips `AlloVideo` altogether and writes its own Annex B access units to
+`DataChannelMediaStream.send(payload:kind:timestamp:)`.
+
 ## On the wire
 
-- **Channel**: `screen/<mediaId>`, opened in-band like every media channel, **ordered with a
+- **Channel**: `video/<mediaId>`, opened in-band like every media channel, **ordered with a
   1000 ms packet lifetime** — H.264 loses every picture after a hole, but a picture nobody could
   render within a second is not worth queueing the share behind (`MediaStreamKind.reliability`).
 - **Frames**: `h264Key` (2) and `h264Delta` (3). Payload is one Annex B access unit; a keyframe
@@ -39,13 +46,13 @@ puts the resulting samples wherever it draws.
   profile at AutoLevel, keyframe every 2 s, with `DataRateLimits` capping any one second at 1.5x
   the average bitrate. It converts VideoToolbox's AVCC output to Annex B and prepends the
   parameter sets to every keyframe.
-- `ScreenSender` owns the loop, and `stream.send(payload:kind:timestamp:)` numbers each frame in
+- `VideoSender` owns the loop, and `stream.send(payload:kind:timestamp:)` numbers each frame in
   the stream's own sequence and refuses anything over its kind's cap before it reaches the wire.
 
 ### Adaptation
 
 A data channel never says "slow down"; the only signal is `DataChannelMediaStream.bufferedBytes`
-climbing, so `ScreenSender` reads it before every encode.
+climbing, so `VideoSender` reads it before every encode.
 
 | | |
 |---|---|
@@ -56,13 +63,15 @@ climbing, so `ScreenSender` reads it before every encode.
 
 Dropping is what stops the queue growing; the cut is what stops it happening again. A keyframe
 request is rate-limited to one per second, so a burst of viewers costs one keyframe rather than
-one each.
+one each. It is consumed only once a picture comes back out of the encoder: a picture dropped
+for backpressure, or one VideoToolbox gives nothing back for, leaves the request standing rather
+than making the viewer wait out the periodic keyframe.
 
 ## Viewer
 
     observeFrames -> MediaFrame -> H264Decoder -> CMSampleBuffer -> AVSampleBufferDisplayLayer
 
-`ScreenReceiver` takes frames on the thread that delivered them, drops non-video kinds as
+`VideoReceiver` takes frames on the thread that delivered them, drops non-video kinds as
 `malformed`, and drops deltas until a keyframe (`droppedAwaitingKey`). It calls `needsKeyframe`,
 for the owner to turn into a request to the sharer, whenever the picture cannot continue from
 here: a sequence gap (`gaps`), a decode error, a delta that will not decode because this viewer
@@ -75,7 +84,7 @@ SPS/PPS: `AVSampleBufferDisplayLayer` decodes them itself, marked to display imm
 the stream carries no timebase. That is one hardware path fewer to own; a caller who wants
 pixels instead can run the same samples through a `VTDecompressionSession`, as the tests do.
 
-`ScreenCounters` is the accounting, mirroring `VoiceCounters`: on a sender every `captured`
+`VideoCounters` is the accounting, mirroring `VoiceCounters`: on a sender every `captured`
 picture is exactly one of `encoded` (then `sent` or `sendFailed`), `droppedForBackpressure` or
 `encoderDropped`; on a receiver every `received` message is exactly one of `decoded`, `malformed`
 or `droppedAwaitingKey`.

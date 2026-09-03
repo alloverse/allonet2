@@ -8,7 +8,7 @@ channels without decoding.
 ## One stream, one channel
 
 A media stream is a data channel whose label is `<kind>/<mediaId>`: `voice/` for audio,
-`screen/` for a shared screen. The label is the stream's identity, so frames carry no stream id
+`video/` for pictures. The label is the stream's identity, so frames carry no stream id
 and nothing is demultiplexed; the kind prefix is how the far side knows what it adopted before
 a single frame arrives.
 
@@ -19,7 +19,7 @@ reliability. The receiver learns about the stream from that message. No SDP is e
 
 The kind decides the channel's reliability (`MediaStreamKind.reliability`). `voice/` is
 **unordered with zero retransmits**: a frame that arrives after its play slot is worthless, and
-a retransmission only delays the frames behind it. `screen/` is **ordered with a 1000 ms
+a retransmission only delays the frames behind it. `video/` is **ordered with a 1000 ms
 lifetime**: H.264 loses every picture after a hole, so order and delivery matter, but a frame
 nobody could render within a second is not worth queueing the share behind. The place forwards
 a copy of a stream with the same kind, so a listener's channel is opened the way the sender's
@@ -126,7 +126,7 @@ channel are a trust boundary and both are bounded:
 - **Sixty-four adopted streams per transport** (`DataChannelTransport.maximumMediaStreams`).
   The sixty-fifth channel a peer opens is closed rather than adopted, with a warning naming
   the media id. Outgoing streams don't count, so a place forwarding to a listener is
-  unaffected. Voice and screen streams share the one cap.
+  unaffected. Voice and video streams share the one cap.
 - **`MediaFrame.Kind.maximumFrameBytes` per message**, per kind - see the table above. One
   cap for all of them would be either a keyframe that cannot fit or an audio channel licensed
   to hold a megabyte.
