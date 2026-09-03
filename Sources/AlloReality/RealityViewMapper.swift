@@ -283,6 +283,8 @@ public class RealityViewMapper
                 var material = PhysicallyBasedMaterial()
                 material.baseColor = .init(texture: .init(texture))
                 material.blending = .transparent(opacity: .init(scale: 1))
+                // A plane is one-sided; a thumbnail seen from behind should still be a thumbnail.
+                material.faceCulling = .none
                 material.roughness = 1.0
                 material.metallic = 0.0
                 await self.paint(material, on: entity)
