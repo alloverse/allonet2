@@ -101,7 +101,7 @@ public class SpatialAudioPlayer
     /// The media around us we want to hear, and what the addon wants done with their samples.
     /// Both follow the `LiveMedia` components, not the streams: the place stops forwarding while
     /// we are deafened, and the very same media ids come back on undeafen.
-    private var streamIds = Set<MediaStreamId>()
+    private(set) var streamIds = Set<MediaStreamId>()
     private var pcmCallbacks: [MediaStreamId: PCMCallback] = [:]
     /// Ask the place to forward the streams we want to hear — none while deafened.
     /// `speakerEnabled` is passed in because a $speakerEnabled sink fires on willSet.
@@ -145,6 +145,7 @@ public class SpatialAudioPlayer
         client.placeState.observers[LiveMedia.self].addedWithInitial.sink { eid, liveMedia in
             guard let edata = self.client.placeState.current.entities[eid] else { return }
             guard edata.ownerClientId != self.client.cid else { return }
+            guard liveMedia.format.isAudio else { return }
             self.streamIds.insert(liveMedia.mediaId)
             self.pcmCallbacks[liveMedia.mediaId] = self.addon?.mediaAdded(eid, liveMedia)
             self.updateListener(speakerEnabled: self.client.speakerEnabled)
@@ -153,6 +154,7 @@ public class SpatialAudioPlayer
             if let stream = self.client.session.incomingStreams[liveMedia.mediaId] { self.play(stream: stream) }
         }.store(in: &listenerCancellables)
         client.placeState.observers[LiveMedia.self].removed.sink { edata, liveMedia in
+            guard liveMedia.format.isAudio else { return }
             self.streamIds.remove(liveMedia.mediaId)
             self.pcmCallbacks[liveMedia.mediaId] = nil
             self.updateListener(speakerEnabled: self.client.speakerEnabled)
@@ -171,7 +173,7 @@ public class SpatialAudioPlayer
 
         guard let eid = entity(carrying: stream.mediaId) else
         {
-            streamLogger.error("No entity around us carries LiveMedia \(stream.mediaId); not playing it")
+            streamLogger.error("No entity around us carries audio LiveMedia \(stream.mediaId); not playing it")
             return
         }
         guard let stream = stream as? DataChannelMediaStream else
@@ -187,12 +189,16 @@ public class SpatialAudioPlayer
         streamLogger.info("Successfully set up audio renderer \(eid)")
     }
 
-    /// The entity whose `LiveMedia` names `mediaId`, as the place has it right now. Asked of the
-    /// world on every stream rather than remembered from when the component arrived: a stream
+    /// The entity whose audio `LiveMedia` names `mediaId`, as the place has it right now. Asked of
+    /// the world on every stream rather than remembered from when the component arrived: a stream
     /// outlives no component, but a component outlives many streams.
+    ///
+    /// Video shares this path, and every incoming stream reaches `play` whoever asked for it, so
+    /// the format check is what keeps a screen share out of the voice decoder.
     private func entity(carrying mediaId: MediaStreamId) -> EntityID?
     {
-        client.placeState.current.components[LiveMedia.self].first { $0.value.mediaId == mediaId }?.key
+        client.placeState.current.components[LiveMedia.self]
+            .first { $0.value.mediaId == mediaId && $0.value.format.isAudio }?.key
     }
 
     func stop(streamId: MediaStreamId)
@@ -289,4 +295,11 @@ public class SpatialAudioPlayer
             self.mediaRemoved = mediaRemoved
         }
     }
+}
+
+extension LiveMedia.Format
+{
+    /// Whether this stream is something a voice engine can play. Video rides the same
+    /// `LiveMedia`/`LiveMediaListener` path, so every consumer has to say which it wants.
+    fileprivate var isAudio: Bool { if case .audio = self { return true }; return false }
 }
