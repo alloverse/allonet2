@@ -26,13 +26,18 @@ let applePlatformTargets: [Target] = [
         "AlloAudio",
         .product(name: "GLTFKit2", package: "GLTFKit2"),
     ]),
+    // ScreenCaptureKit and VideoToolbox: pixels in, H.264 media frames out, and back again.
+    .target(name: "AlloVideo", dependencies: ["allonet2"]),
     .testTarget(name: "AlloAudioTests", dependencies: ["AlloAudio"]),
     .testTarget(name: "alloclientTests", dependencies: ["alloclient", "allonet2"]),
     .testTarget(name: "AlloRealityTests", dependencies: ["AlloReality", "alloclient", "allonet2"]),
     .executableTarget(name: "voicedemo", dependencies: ["allonet2", "AlloAudio", "AlloOpus"]),
+    // Apple-only: it needs AlloVideo, so it cannot sit with the cross-platform test targets.
+    .testTarget(name: "ScreenE2ETests", dependencies: ["allonet2", "AlloVideo"]),
 ]
 let applePlatformProducts: [Product] = [
     .library(name: "AlloAudio", targets: ["AlloAudio"]),
+    .library(name: "AlloVideo", targets: ["AlloVideo"]),
     .library(name: "alloclient", targets: ["alloclient"]),
     .library(name: "AlloReality", targets: ["AlloReality"]),
     .executable(name: "voicedemo", targets: ["voicedemo"]),
