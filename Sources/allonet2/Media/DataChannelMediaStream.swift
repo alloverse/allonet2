@@ -221,6 +221,13 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     @discardableResult
     public func send(payload: Data, kind: MediaFrame.Kind, timestamp: UInt32) -> UInt32?
     {
+        // The number is spent even when the picture is not sent, so a receiver sees the gap and
+        // asks for a key instead of predicting from a reference that never arrived.
+        lock.lock()
+        let sequence = nextSequence
+        nextSequence &+= 1
+        lock.unlock()
+
         // Refused here rather than on the wire: every receiver would count it malformed and drop
         // it, so the sender is the only place that can say which frame was too big.
         guard payload.count + MediaFrame.headerSize <= kind.maximumFrameBytes else
@@ -229,10 +236,6 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
             logger.error("Refusing to send \(kind) frame of \(payload.count) bytes: cap is \(kind.maximumFrameBytes) including a \(MediaFrame.headerSize) byte header")
             return nil
         }
-        lock.lock()
-        let sequence = nextSequence
-        nextSequence &+= 1
-        lock.unlock()
 
         let frame = MediaFrame(kind: kind, sequence: sequence, timestamp: timestamp, payload: payload)
         guard sendFrame(frame.encoded) else

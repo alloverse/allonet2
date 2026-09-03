@@ -229,6 +229,19 @@ struct DataChannelMediaStreamTests
         #expect(seen.count == 0, "an oversized message must not reach forwarders")
     }
 
+    /// A refused picture still spends its number, so the receiver sees a hole and asks for a key
+    /// rather than predicting the next delta from a reference that was never sent.
+    @Test func anOversizedPictureStillSpendsItsSequence()
+    {
+        let stream = DataChannelMediaStream(mediaId: "screen-1", direction: .sendonly, kind: .video) { _ in true }
+        let small = Data(repeating: 7, count: 10)
+        let oversized = Data(repeating: 7, count: MediaFrame.Kind.h264Delta.maximumFrameBytes)
+
+        #expect(stream.send(payload: small, kind: .h264Delta, timestamp: 0) == 0)
+        #expect(stream.send(payload: oversized, kind: .h264Delta, timestamp: 1) == nil)
+        #expect(stream.send(payload: small, kind: .h264Delta, timestamp: 2) == 2, "sequence 1 belongs to the frame that was refused")
+    }
+
     @Test func deliversAFrameAtTheSizeLimit() throws
     {
         let stream = receiver()
