@@ -76,9 +76,9 @@ the stream carries no timebase. That is one hardware path fewer to own; a caller
 pixels instead can run the same samples through a `VTDecompressionSession`, as the tests do.
 
 `ScreenCounters` is the accounting, mirroring `VoiceCounters`: on a sender every `captured`
-picture is exactly one of `encoded` (then `sent` or `sendFailed`) or `droppedForBackpressure`;
-on a receiver every `received` message is exactly one of `decoded`, `malformed` or
-`droppedAwaitingKey`.
+picture is exactly one of `encoded` (then `sent` or `sendFailed`), `droppedForBackpressure` or
+`encoderDropped`; on a receiver every `received` message is exactly one of `decoded`, `malformed`
+or `droppedAwaitingKey`.
 
 ## Running it
 

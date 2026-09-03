@@ -9,8 +9,8 @@ import Foundation
 /// and a demo or a status page prints them. The audio counterpart is `VoiceCounters`.
 ///
 /// On a sender every `captured` picture ends up exactly one of `encoded` (then `sent` or
-/// `sendFailed`) or `droppedForBackpressure`. On a receiver every `received` message ends up
-/// exactly one of `decoded`, `malformed` or `droppedAwaitingKey`.
+/// `sendFailed`), `droppedForBackpressure` or `encoderDropped`. On a receiver every `received`
+/// message ends up exactly one of `decoded`, `malformed` or `droppedAwaitingKey`.
 ///
 /// Platform-neutral so the place can count video without linking a codec.
 public struct ScreenCounters: Equatable, Sendable, Codable, CustomStringConvertible
@@ -29,6 +29,9 @@ public struct ScreenCounters: Equatable, Sendable, Codable, CustomStringConverti
     public var bytesSent = 0
     /// Pictures skipped without encoding because the channel was still draining the last ones.
     public var droppedForBackpressure = 0
+    /// Pictures the encoder took and gave nothing back for. VideoToolbox does that under load;
+    /// a share where this climbs is one the hardware encoder cannot keep up with.
+    public var encoderDropped = 0
     /// Keyframes sent, whether periodic or asked for.
     public var keyframesSent = 0
 
@@ -59,7 +62,8 @@ public struct ScreenCounters: Equatable, Sendable, Codable, CustomStringConverti
         func add(_ name: String, _ value: Int) { if value != 0 { parts.append("\(name)=\(value)") } }
         add("captured", captured); add("encoded", encoded); add("sent", sent)
         add("sendFailed", sendFailed); add("bytesSent", bytesSent)
-        add("backpressureDropped", droppedForBackpressure); add("keyframesSent", keyframesSent)
+        add("backpressureDropped", droppedForBackpressure); add("encoderDropped", encoderDropped)
+        add("keyframesSent", keyframesSent)
         add("received", received); add("malformed", malformed); add("keyframes", keyframes)
         add("awaitingKey", droppedAwaitingKey); add("gaps", gaps)
         add("decoded", decoded); add("evicted", evicted); add("displayed", displayed)

@@ -104,7 +104,11 @@ public final class ScreenSender: @unchecked Sendable
         }
         let forceKeyframe = takeKeyframeRequest(at: frame.capturedAt) || isNew
 
-        guard let encoded = try await encoder.encode(frame, forceKeyframe: forceKeyframe) else { return }
+        guard let encoded = try await encoder.encode(frame, forceKeyframe: forceKeyframe) else
+        {
+            counters.update { $0.encoderDropped += 1 }
+            return
+        }
         // Exponential, over about the last dozen frames: the water mark has to follow a share
         // that goes from a still document to a scrolling one.
         lock.withLock { averageEncodedBytes += (Double(encoded.annexB.count) - averageEncodedBytes) / 12 }
