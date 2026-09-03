@@ -7,16 +7,23 @@ channels without decoding.
 
 ## One stream, one channel
 
-A voice stream is a data channel whose label is `voice/<mediaId>`. The label is the stream's
-identity, so frames carry no stream id and nothing is demultiplexed.
+A media stream is a data channel whose label is `<kind>/<mediaId>`: `voice/` for audio,
+`screen/` for a shared screen. The label is the stream's identity, so frames carry no stream id
+and nothing is demultiplexed; the kind prefix is how the far side knows what it adopted before
+a single frame arrives.
 
 Channels are opened **in-band**: the sender creates the channel with `negotiated: false`, and
 libdatachannel announces it over DCEP (Data Channel Establishment Protocol, RFC 8832) - a
 `DATA_CHANNEL_OPEN` message sent on the SCTP stream itself, carrying the label and the
 reliability. The receiver learns about the stream from that message. No SDP is exchanged.
 
-Channels are **unordered with zero retransmits**: a voice frame that arrives after its play
-slot is worthless, and a retransmission only delays the frames behind it.
+The kind decides the channel's reliability (`MediaStreamKind.reliability`). `voice/` is
+**unordered with zero retransmits**: a frame that arrives after its play slot is worthless, and
+a retransmission only delays the frames behind it. `screen/` is **ordered with a 1000 ms
+lifetime**: H.264 loses every picture after a hole, so order and delivery matter, but a frame
+nobody could render within a second is not worth queueing the share behind. The place forwards
+a copy of a stream with the same kind, so a listener's channel is opened the way the sender's
+was.
 
     Speaker                        Place (SFU)                         Listener
        |                               |                                  |
@@ -37,7 +44,7 @@ slot is worthless, and a retransmission only delays the frames behind it.
 `A'` is the place-side id: the speaker's short client id plus its media id, so two speakers'
 streams never collide at a listener.
 
-## Frame format
+## Media frame format
 
 Nine-byte header, big-endian, then the codec payload:
 
@@ -49,12 +56,23 @@ Nine-byte header, big-endian, then the codec payload:
  |                           timestamp                           | payload ...
  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
 
-- `kind` (u8): `0` Opus, `1` Float32 PCM (tests only). Exists so a control message could
-  share the channel later without a format change.
 - `sequence` (u32): one per frame, wraps.
-- `timestamp` (u32): playout position of the frame's first sample, in samples since the
-  stream started. 48 kHz, 20 ms frames: advances by 960 per frame.
-- payload: one Opus packet, 48 kHz mono, 20 ms, ~32 kbit/s.
+- `timestamp` (u32): where the frame plays, in 48 kHz ticks since the stream started. For
+  audio those ticks are its own samples, so 20 ms frames advance it by 960.
+- `kind` (u8) says what the payload is, and how large it may get. The cap is per kind and is
+  enforced before the fan-out, on the place and on every receiver: an oversized or
+  unknown-kind message is counted `malformed` and dropped, so no forwarder re-emits it and no
+  jitter buffer holds it.
+
+| kind | payload | timestamp unit | cap |
+| --- | --- | --- | --- |
+| 0 `opus` | one Opus packet, 48 kHz mono, 20 ms, ~32 kbit/s | samples | 3849 B |
+| 1 `pcmFloat32` | interleaved Float32, tests only | samples | 3849 B |
+| 2 `h264Key` | Annex B access unit, SPS+PPS then one IDR | 48 kHz ticks | 1 MiB |
+| 3 `h264Delta` | Annex B access unit, P pictures only (no B frames) | 48 kHz ticks | 256 KiB |
+
+A well-formed frame of a kind a consumer cannot decode is not malformed: audio playout counts
+it `skippedForeignKind` and forwards it anyway.
 
 ## Pipeline
 
@@ -88,8 +106,8 @@ libwebrtc never retransmitted voice either; this keeps the same two tools, both 
 ## Counters
 
 `VoiceCounters` are values tests assert on, not log lines. On a receiver every `received`
-frame ends up exactly one of `decoded`, `late`, `duplicate`, `malformed`, `overflowed`, or
-still buffered; every 20 ms of playout is exactly one of `decoded`, `fecRecovered` or
+frame ends up exactly one of `decoded`, `late`, `duplicate`, `malformed`, `overflowed`,
+`skippedForeignKind`, or still buffered; every 20 ms of playout is exactly one of `decoded`, `fecRecovered` or
 `concealed`. `late` means the network was slower than the buffer depth; `overflowed` means
 nothing is draining playout. They call for opposite fixes, so they are never merged.
 The place status page renders them read-only, per available stream and per active forwarding.
@@ -102,16 +120,16 @@ server links no codec: it never decodes.
 
 ## Limits
 
-A peer opens voice channels in-band, before it has announced anything, so both ends of the
+A peer opens media channels in-band, before it has announced anything, so both ends of the
 channel are a trust boundary and both are bounded:
 
 - **Sixty-four adopted streams per transport** (`DataChannelTransport.maximumMediaStreams`).
   The sixty-fifth channel a peer opens is closed rather than adopted, with a warning naming
   the media id. Outgoing streams don't count, so a place forwarding to a listener is
-  unaffected; the cap is also the most speakers one listener can hear at once.
-- **`maximumFrameBytes` per message** - one uncompressed Float32 frame, the most verbose
-  kind the format has. Anything larger counts as `malformed` and is dropped before the
-  fan-out, so no forwarder re-emits it and no jitter buffer holds it.
+  unaffected. Voice and screen streams share the one cap.
+- **`MediaFrame.Kind.maximumFrameBytes` per message**, per kind - see the table above. One
+  cap for all of them would be either a keyframe that cannot fit or an audio channel licensed
+  to hold a megabyte.
 - **A media id may not contain a period.** The place names a forwarded stream
   `<shortClientId>.<mediaId>` and parses it back as exactly two components.
   `createOutgoingMediaStream` throws `MediaStreamIdError.containsPeriod` rather than opening

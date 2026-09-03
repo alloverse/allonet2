@@ -28,6 +28,13 @@ Hard-won non-obvious facts. Fold a new one in here when it doesn't fit a topic d
   cascades, so it also deletes a still-connected client's entity if it was parented under the
   departing one; deliberately owner-blind, for the simpler code.
 
+## Building
+
+- Adding a **defaulted parameter** to an initializer or method changes its mangled symbol, and
+  SwiftPM does not always recompile the test objects that call it: `swift build --build-tests`
+  then fails to link with an undefined symbol spelling out the *old* signature. `touch` the
+  file named in the "referenced from" line and build again; the sources are fine.
+
 ## Connection lifecycle and trust
 
 - A place can't tell a dead client from a live one until ICE gives up (tens of seconds). Anything

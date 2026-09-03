@@ -88,12 +88,25 @@ channels, media forwarding. One session, one transport.
 
 ## Voice and spatial audio
 
-**media stream** (`MediaStream`, `MediaStreamId`) — one one-way flow of media; today one data
-channel carrying one mono voice stream. Nothing is multiplexed inside one and nothing bundles
-several.
+**media stream** (`MediaStream`, `MediaStreamId`) — one one-way flow of media: one data channel
+carrying one mono voice, or one shared screen. Nothing is multiplexed inside one and nothing
+bundles several.
 *Discouraged: track, audio track, RTP track.* "Track" survives in `AudioTrack` /
 `MicrophoneTrack`, which are on/off switches over a stream rather than a media concept, and in
 `README.md`, which still describes voice as SRTP tracks and is stale.
+
+**media frame** (`MediaFrame`) — one message on a media data channel: the nine-byte header
+(kind, sequence, timestamp) and its payload. The unit the place copies without decoding.
+*Discouraged: voice frame*, which is what the tree called it while audio was the only kind.
+
+**stream kind** (`MediaStreamKind`) — `voice` or `screen`: what a media stream carries. It is
+the prefix of the channel's label and it decides the channel's reliability, so it is on the
+wire rather than inferred.
+*Discouraged: media type, stream type.*
+
+**inline image** (`InlineImage`) — a small PNG carried in a component rather than published to
+the asset store, for a surface that changes too often to be worth a content address.
+*Discouraged: embedded image, thumbnail component.*
 
 **forward** — what the place's SFU does with a media stream: copy it to the agents whose
 `LiveMediaListener` asks for it.

@@ -63,6 +63,8 @@ links. Swift tools 6.1, language mode 5, platforms macOS 15 / iOS 18 / visionOS 
   (reliable, stream id 1), `worldstate` (unreliable, id 2; `PlaceChangeSet` down, `Intent`
   up), `logs` (reliable, id 3) — CBOR-encoded via PotentCodables (`AlloSession.swift`;
   encoder/decoder are chosen there and nowhere else).
+- Media rides its own in-band channels, one per stream, in two kinds: `voice/` unordered with
+  no retransmits, `screen/` ordered with a 1000 ms lifetime ([voice.md](voice.md)).
 - Signalling: one JSON POST to the place (`RTCSignalling.swift`, `PlaceServerHTTP.swift`).
   Renegotiation is in-band (`internal_renegotiate` interaction) with perfect-negotiation
   conflict resolution: client polite, server impolite (`AlloSession.swift`). Every SFU
