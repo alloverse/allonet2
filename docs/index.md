@@ -11,6 +11,7 @@ aren't easily rediscovered from the code. Pick the doc whose situation matches y
 | [assets.md](assets.md) | You publish, fetch or name an asset, and want to know what content addressing buys you and what the rules are. |
 | [assets-implementation.md](assets-implementation.md) | You are inside the asset pipeline: the place's HTTP server (FlyingFox has teeth), or making a peer's mesh fail as an error instead of a crash. |
 | [voice.md](voice.md) | You touch voice or any other media stream: how a stream becomes a data channel, stream kinds and their reliability, the media frame format, loss handling, counters, how to run it. |
+| [screen.md](screen.md) | You share, forward or watch a screen: how H.264 rides a media stream, the encode and decode pipelines, the bitrate loop, and how to run `screendemo`. |
 | [voice-implementation.md](voice-implementation.md) | You change the voice path and want the decisions, the thread rules, and the bugs that were already found once. |
 | [realitykit-rendering.md](realitykit-rendering.md) | You render `Text` or textured materials through RealityKit and the geometry or alpha looks wrong. |
 | [gotchas.md](gotchas.md) | Something behaves weirdly — a component won't decode, audio dies after reconnect, a client won't leave. |

@@ -108,6 +108,14 @@ wire rather than inferred.
 the asset store, for a surface that changes too often to be worth a content address.
 *Discouraged: embedded image, thumbnail component.*
 
+**sharer** — the client sending a screen stream. The word for the role, not for the person:
+a user shares, and so can an alloapp.
+*Discouraged: presenter, host, broadcaster.*
+
+**viewer** — the client receiving a screen stream. It is not a synonym for visor: a visor is
+the whole 3D application, a viewer is one end of one screen stream.
+*Discouraged: watcher, subscriber, receiver* (which is the class, `ScreenReceiver`, not the role).
+
 **forward** — what the place's SFU does with a media stream: copy it to the agents whose
 `LiveMediaListener` asks for it.
 *Discouraged: relay, mix* — nothing is mixed.
