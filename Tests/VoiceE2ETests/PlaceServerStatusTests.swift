@@ -2,12 +2,13 @@
 //  PlaceServerStatusTests.swift
 //  allonet2
 //
-//  PlaceServerStatus only renders from a live PlaceServer, so this reuses the VoiceE2ETests
-//  harness instead of a fake server state.
+//  PlaceServerStatus only renders from a live PlaceServer, so this runs against the shared
+//  end-to-end harness instead of a fake server state.
 //
 
 import Testing
 import Foundation
+import E2ESupport
 @testable import allonet2
 
 @MainActor

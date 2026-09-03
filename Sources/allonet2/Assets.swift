@@ -78,6 +78,8 @@ public enum AssetError: Error, CustomStringConvertible, Equatable
     /// Publishing needs the token from the announce response, so it needs a live session.
     case notAllowedToPublish
     case tooLarge(bytes: Int, max: Int)
+    /// The place's ephemeral store has no room for these bytes beside what it already holds.
+    case ephemeralStoreFull(bytes: Int, held: Int, max: Int)
     /// The bytes we got don't hash to the id we asked for: the place is buggy or lying.
     case hashMismatch(expected: AssetID, actual: AssetID)
     case transferFailed(id: AssetID?, status: Int, body: String)
@@ -93,6 +95,7 @@ public enum AssetError: Error, CustomStringConvertible, Equatable
         case .notFound(let id): return "The place has no asset \(id)"
         case .notAllowedToPublish: return "Not allowed to publish assets; the place issues that right when you announce"
         case .tooLarge(let bytes, let max): return "Asset is \(bytes) bytes, which is over the \(max) byte limit"
+        case .ephemeralStoreFull(let bytes, let held, let max): return "No room for a \(bytes) byte ephemeral asset: the place already holds \(held) of \(max) bytes"
         case .hashMismatch(let expected, let actual): return "Asked for \(expected) but the bytes hash to \(actual)"
         case .transferFailed(let id, let status, let body): return "Transfer of \(id?.description ?? "asset") failed with HTTP \(status): \(body)"
         case .damagedStore(let id, let path): return "Asset store is damaged around \(id) at \(path)"
@@ -178,6 +181,12 @@ public actor AssetStore
     public func address(ofFileAt fileURL: URL) throws -> AssetID
     {
         try AssetID(hashingContentsOf: fileURL)
+    }
+
+    /// Address bytes we are not storing, for a publish the cache should not keep.
+    public func address(of data: Data) -> AssetID
+    {
+        AssetID(hashing: data)
     }
 
     /// Store `data` under its own content address. Identical bytes are a no-op.

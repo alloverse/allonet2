@@ -73,13 +73,18 @@ public class DataChannelTransport: Transport
         }
     }
     public static var version: String { LibdatachannelVersion() }
-    
+
+    /// Advertised as `a=max-message-size`, and obeyed by whichever peer is sending, so both ends
+    /// must agree: a keyframe up to `MediaFrame.Kind.h264Key.maximumFrameBytes` has to fit in one
+    /// message, and libdatachannel's own default of 256 KiB would refuse it.
+    static let maximumMessageSize = 2 * 1024 * 1024
+
     public init(with connectionOptions: TransportConnectionOptions, status: ConnectionStatus)
     {
         if(!Self.initialized) { Self.initialize() }
         
         self.connectionStatus = status
-        peer = AlloWebRTCPeer(portRange: connectionOptions.portRange, ipOverride: connectionOptions.ipOverride?.adc, bindAddress: connectionOptions.bindAddress)
+        peer = AlloWebRTCPeer(portRange: connectionOptions.portRange, ipOverride: connectionOptions.ipOverride?.adc, bindAddress: connectionOptions.bindAddress, maxMessageSize: Self.maximumMessageSize)
         
         // Both capture lists are load-bearing. An inner `[weak self]` alone leaves the closure
         // Combine stores holding self strongly, and its publisher lives in `peer`, which this
@@ -288,7 +293,7 @@ public class DataChannelTransport: Transport
     {
         guard let channelId = label.channelId else
         {
-            // Media: in-band (no offer/answer), unreliable - a retransmitted voice frame is too late.
+            // Media: in-band, no offer/answer, and the reliability its kind asks for.
             return createMediaChannel(label: label)
         }
 
@@ -312,9 +317,11 @@ public class DataChannelTransport: Transport
 
     private func createMediaChannel(label: DataChannelLabel) -> DataChannel?
     {
+        guard case .media(let kind, _) = label
+        else { preconditionFailure("\(label.rawValue) is not a media channel") }
         do
         {
-            let channel = try peer.createDataChannel(label: label.rawValue, reliability: .unreliable)
+            let channel = try peer.createDataChannel(label: label.rawValue, reliability: kind.reliability)
             channels[label.rawValue] = channel
             return channel
         }
@@ -325,36 +332,43 @@ public class DataChannelTransport: Transport
         }
     }
 
-    /// Open an outgoing voice stream. No m-line, no offer/answer: the channel is the stream,
-    /// and the far side learns about it in-band.
+    /// Open an outgoing media stream. No m-line, no offer/answer: the channel is the stream,
+    /// and the far side learns about it - and about its kind - in-band, from the label.
     ///
     /// - Parameter mediaId: names the stream inside this client's own namespace, and must
     ///   contain no period; the place prefixes it with the sender's short client id to build
     ///   the id listeners see.
+    /// - Parameter kind: what the stream will carry, which decides the channel's reliability.
     /// - Throws: `MediaStreamIdError.containsPeriod` for an id the place could not encode.
-    public func createOutgoingMediaStream(mediaId: MediaStreamId) throws -> DataChannelMediaStream
+    public func createOutgoingMediaStream(mediaId: MediaStreamId, kind: MediaStreamKind = .voice) throws -> DataChannelMediaStream
     {
         guard !mediaId.contains(".") else { throw MediaStreamIdError.containsPeriod(mediaId) }
-        return try openOutgoingMediaStream(mediaId: mediaId)
+        return try openOutgoingMediaStream(mediaId: mediaId, kind: kind)
     }
 
     /// The place's own outgoing ids are already two-component, so forwarding skips the check
     /// the client-facing API makes.
-    private func openOutgoingMediaStream(mediaId: MediaStreamId) throws -> DataChannelMediaStream
+    private func openOutgoingMediaStream(mediaId: MediaStreamId, kind: MediaStreamKind) throws -> DataChannelMediaStream
     {
-        let label = DataChannelLabel.media(mediaId)
+        let label = DataChannelLabel.media(kind, mediaId)
         guard let channel = createMediaChannel(label: label) as? AlloWebRTCPeer.DataChannel else
         {
             throw AlloverseError(code: AlloverseErrorCode.internalServerError, description: "Could not open media channel for \(mediaId)")
         }
         // Captured by value: this closure runs on whichever thread produced the frame.
         let logger = self.logger
-        let stream = DataChannelMediaStream(mediaId: mediaId, direction: .sendonly, closeChannel: { [weak channel] in channel?.close() }) { [weak channel] data in
+        let stream = DataChannelMediaStream(
+            mediaId: mediaId,
+            direction: .sendonly,
+            kind: kind,
+            closeChannel: { [weak channel] in channel?.close() },
+            bufferedAmount: { [weak channel] in channel?.bufferedAmount ?? 0 }
+        ) { [weak channel] data in
             guard let channel, channel.isOpen else { return false }
             do { try channel.send(data: data); return true }
             catch
             {
-                logger.error("Failed to send voice frame on \(mediaId): \(error)")
+                logger.error("Failed to send media frame on \(mediaId): \(error)")
                 return false
             }
         }
@@ -362,8 +376,9 @@ public class DataChannelTransport: Transport
         return stream
     }
 
-    /// How many voice channels a remote peer may open on one transport. A peer can open them
-    /// in-band before it has announced, so nothing else bounds what it costs us to keep.
+    /// How many media channels a remote peer may open on one transport, of every kind together.
+    /// A peer can open them in-band before it has announced, so nothing else bounds what it
+    /// costs us to keep.
     static let maximumMediaStreams = 64
     private var adoptedMediaStreams: Int { mediaStreams.values.count { $0.streamDirection == .recvonly } }
 
@@ -371,9 +386,14 @@ public class DataChannelTransport: Transport
     /// thread - see docs/voice-implementation.md, Threads.
     private nonisolated func adopt(remote channel: AlloWebRTCPeer.DataChannel)
     {
-        guard let label = DataChannelLabel(rawValue: channel.label), case .media(let mediaId) = label else { return }
+        guard let label = DataChannelLabel(rawValue: channel.label), case .media(let kind, let mediaId) = label else { return }
 
-        let stream = DataChannelMediaStream(mediaId: mediaId, direction: .recvonly) { [weak channel] data in
+        let stream = DataChannelMediaStream(
+            mediaId: mediaId,
+            direction: .recvonly,
+            kind: kind,
+            bufferedAmount: { [weak channel] in channel?.bufferedAmount ?? 0 }
+        ) { [weak channel] data in
             guard let channel, channel.isOpen else { return false }
             do { try channel.send(data: data); return true }
             catch { return false }
@@ -396,14 +416,21 @@ public class DataChannelTransport: Transport
             mediaStreams[mediaId] = stream
             channels[channel.label] = channel
             cancellables.insert(subscription)
-            logger.info("Adopted incoming media stream \(mediaId)")
+            logger.info("Adopted incoming \(kind.rawValue) stream \(mediaId)")
             delegate?.transport(self, didReceiveMediaStream: stream)
         }
     }
 
+    /// The channel behind a label, so a test can assert on what the two peers actually
+    /// negotiated rather than on what this side asked for.
+    internal func channelForTesting(_ label: DataChannelLabel) -> AlloWebRTCPeer.DataChannel?
+    {
+        channels[label.rawValue]
+    }
+
     private func forget(remote channel: AlloWebRTCPeer.DataChannel)
     {
-        guard let label = DataChannelLabel(rawValue: channel.label), case .media(let mediaId) = label else { return }
+        guard let label = DataChannelLabel(rawValue: channel.label), case .media(_, let mediaId) = label else { return }
         // A stale close for a channel we already replaced must not take its successor with it.
         guard channels[channel.label] === channel else { return }
         guard let stream = mediaStreams.removeValue(forKey: mediaId) else { return }
@@ -443,12 +470,33 @@ public class DataChannelTransport: Transport
             preconditionFailure("Stream \(source.mediaId) arrived on a transport with no client id")
         }
 
-        logger.info("Forwarding media stream \(source.mediaId) from \(senderId.shortClientId)")
+        logger.info("Forwarding \(source.kind.rawValue) stream \(source.mediaId) from \(senderId.shortClientId)")
 
         let placeStreamId = PlaceStreamId(shortClientId: senderId.shortClientId, incomingMediaId: source.mediaId)
-        let destination = try openOutgoingMediaStream(mediaId: placeStreamId.outgoingMediaId)
+        // The copy is the same stream: same bytes, so the same kind and the same reliability.
+        let destination = try openOutgoingMediaStream(mediaId: placeStreamId.outgoingMediaId, kind: source.kind)
         // No scheduleRenegotiation(): an in-band data channel needs no offer/answer.
         return DataChannelForwarder(from: source, to: destination)
+    }
+}
+
+extension MediaStreamKind
+{
+    /// How a channel of this kind is opened, and what the far side reads back off the DCEP OPEN
+    /// message. Lives here rather than in the enum because the type is libdatachannel's binding,
+    /// which only the transport imports.
+    ///
+    /// Voice is unordered with no retransmits: a late frame is worthless and waiting for one
+    /// delays the frames behind it. Video is ordered - H.264 loses everything after a hole -
+    /// but bounded by a one-second lifetime, so a stalled link abandons a picture rather than
+    /// queueing the share further and further behind.
+    public var reliability: AlloWebRTCPeer.Reliability
+    {
+        switch self
+        {
+        case .voice: .unreliable
+        case .video: .init(loss: .maxPacketLifeTime(ms: 1000), ordered: true)
+        }
     }
 }
 

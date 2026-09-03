@@ -11,9 +11,9 @@ import Foundation
 struct JitterBufferTests
 {
     /// Loss and reordering are injected at the framing layer, so these stay deterministic.
-    static func frame(_ sequence: UInt32) -> VoiceFrame
+    static func frame(_ sequence: UInt32) -> MediaFrame
     {
-        VoiceFrame(kind: .opus, sequence: sequence, timestamp: sequence &* 960, payload: Data([UInt8(sequence & 0xFF)]))
+        MediaFrame(kind: .opus, sequence: sequence, timestamp: sequence &* 960, payload: Data([UInt8(sequence & 0xFF)]))
     }
 
     /// Perfect-clock arrival: jitter stays 0 and target depth stays at the minimum.
@@ -260,7 +260,7 @@ struct JitterBufferTests
 
         let total: UInt32 = 400
         var inserted = 0
-        var pending: [(VoiceFrame, Double)] = []
+        var pending: [(MediaFrame, Double)] = []
 
         for sequence in UInt32(0)..<total
         {

@@ -26,16 +26,23 @@ let applePlatformTargets: [Target] = [
         "AlloAudio",
         .product(name: "GLTFKit2", package: "GLTFKit2"),
     ]),
+    // ScreenCaptureKit and VideoToolbox: pixels in, H.264 media frames out, and back again.
+    .target(name: "AlloVideo", dependencies: ["allonet2", .product(name: "Atomics", package: "swift-atomics")]),
     .testTarget(name: "AlloAudioTests", dependencies: ["AlloAudio"]),
     .testTarget(name: "alloclientTests", dependencies: ["alloclient", "allonet2"]),
     .testTarget(name: "AlloRealityTests", dependencies: ["AlloReality", "alloclient", "allonet2"]),
     .executableTarget(name: "voicedemo", dependencies: ["allonet2", "AlloAudio", "AlloOpus"]),
+    .executableTarget(name: "screendemo", dependencies: ["allonet2", "AlloVideo"]),
+    // Apple-only: it needs AlloVideo, so it cannot sit with the cross-platform test targets.
+    .testTarget(name: "ScreenE2ETests", dependencies: ["allonet2", "AlloVideo", "E2ESupport"]),
 ]
 let applePlatformProducts: [Product] = [
     .library(name: "AlloAudio", targets: ["AlloAudio"]),
+    .library(name: "AlloVideo", targets: ["AlloVideo"]),
     .library(name: "alloclient", targets: ["alloclient"]),
     .library(name: "AlloReality", targets: ["AlloReality"]),
     .executable(name: "voicedemo", targets: ["voicedemo"]),
+    .executable(name: "screendemo", targets: ["screendemo"]),
 ]
 #else
 let applePlatformTargets: [Target] = []
@@ -167,10 +174,17 @@ let package = Package(
             name: "AlloOpusTests",
             dependencies: ["AlloOpus", "allonet2"]
         ),
+        // The place, the clients and the polling every end-to-end suite runs against. A test
+        // target rather than a plain one so it may `@testable import`, and so no release build
+        // of the package has to compile it.
+        .testTarget(
+            name: "E2ESupport",
+            dependencies: ["allonet2"]
+        ),
         // End-to-end: a real PlaceServer and real clients over real libdatachannel loopback.
         .testTarget(
             name: "VoiceE2ETests",
-            dependencies: ["allonet2"]
+            dependencies: ["allonet2", "E2ESupport"]
         ),
         .executableTarget(
             name: "AlloPlace",

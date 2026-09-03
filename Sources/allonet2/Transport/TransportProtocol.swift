@@ -107,23 +107,41 @@ public enum TransportSignallingState: UInt32
     case haveRemotePRAnswer = 4
 }
 
+/// What a media stream carries, and therefore how its data channel is opened.
+///
+/// The kind is the label's prefix, so it travels in the DCEP OPEN message: a peer knows what it
+/// has adopted before a single frame arrives, and the place forwards a stream with the
+/// reliability its own kind asks for.
+public enum MediaStreamKind: String, Sendable, CaseIterable
+{
+    /// Real-time audio. A frame that arrives after its play slot is worthless and a
+    /// retransmission only delays the frames behind it, so its channel does neither.
+    case voice
+    /// Moving pictures, from wherever: a shared screen, a camera, an alloapp's own rendering.
+    /// An H.264 access unit needs every byte, and in order, or the decoder loses the pictures
+    /// after it too - but a frame nobody could render within a second is not worth blocking
+    /// the ones behind it either.
+    case video
+
+    /// The prefix every one of this kind's channel labels starts with: `"voice/"`, `"video/"`.
+    public var labelPrefix: String { rawValue + "/" }
+}
+
 public enum DataChannelLabel: RawRepresentable, Hashable, Sendable
 {
     case interactions
     case intentWorldState
     case logs
-    /// One voice stream. Channel-per-stream is what lets the SFU route frames without
-    /// looking inside them, and removes the stream id from the frame header.
-    case media(MediaStreamId)
-
-    static let mediaPrefix = "voice/"
+    /// One media stream, of one kind. Channel-per-stream is what lets the SFU route frames
+    /// without looking inside them, and removes the stream id from the frame header.
+    case media(MediaStreamKind, MediaStreamId)
 
     public var rawValue: String {
         switch self {
         case .interactions: "interactions"
         case .intentWorldState: "worldstate"
         case .logs: "logs"
-        case .media(let mediaId): Self.mediaPrefix + mediaId
+        case .media(let kind, let mediaId): kind.labelPrefix + mediaId
         }
     }
 
@@ -132,11 +150,12 @@ public enum DataChannelLabel: RawRepresentable, Hashable, Sendable
         case "interactions": self = .interactions
         case "worldstate": self = .intentWorldState
         case "logs": self = .logs
-        case let label where label.hasPrefix(Self.mediaPrefix):
-            let mediaId = String(label.dropFirst(Self.mediaPrefix.count))
+        default:
+            // A peer picks the label, so only the prefixes this build knows are media at all.
+            guard let kind = MediaStreamKind.allCases.first(where: { rawValue.hasPrefix($0.labelPrefix) }) else { return nil }
+            let mediaId = String(rawValue.dropFirst(kind.labelPrefix.count))
             guard !mediaId.isEmpty else { return nil }
-            self = .media(mediaId)
-        default: return nil
+            self = .media(kind, mediaId)
         }
     }
 
@@ -170,7 +189,8 @@ public enum MediaStreamDirection: UInt32
     public var isSend: Bool { self == .sendonly || self == .sendrecv }
 }
 
-/// Names one voice stream, and is the suffix of its data channel's label (`voice/<id>`).
+/// Names one media stream, and is the suffix of its data channel's label - `voice/<id>` or
+/// `video/<id>`, depending on the stream's `MediaStreamKind`.
 ///
 /// It has two shapes, and which one a value carries depends on where it is read:
 ///
@@ -188,7 +208,7 @@ public enum MediaStreamDirection: UInt32
 /// signature or a dictionary key says which of the two it is. See docs/voice.md.
 public typealias MediaStreamId = String
 
-/// One media stream, flowing one way: today, one data channel carrying one mono voice stream.
+/// One media stream, flowing one way: one data channel carrying one mono voice, or one video.
 ///
 /// There is no track layer under this and no bundle over it - a stream is not a set of
 /// anything, and nothing is multiplexed inside one. `DataChannelMediaStream` is the only
@@ -207,7 +227,26 @@ public protocol MediaStream: CustomStringConvertible
     /// opened, `.recvonly` for one it adopted from a peer.
     var streamDirection: MediaStreamDirection { get }
 
-    /// This stream's decoded audio, and the act of starting to decode it.
+    /// What this stream carries, as its channel's label says. Decides which renderer should
+    /// take it, and how its channel was opened.
+    var kind: MediaStreamKind { get }
+
+    /// Every frame off the wire, header included, on the thread that delivered it - so an
+    /// observer that touches isolated state must hop first, and one that blocks stalls the
+    /// stream. Frames are not decoded, so this is the seam the SFU forwards through and a video
+    /// receiver decodes from.
+    ///
+    /// - Returns: the token that stops delivery again. Observing costs nothing until frames
+    ///   arrive, and an observer added mid-stream sees the next frame, never the ones before it.
+    @discardableResult
+    func observeFrames(_ observer: @escaping (Data) -> Void) -> FrameObservers.Token
+
+    /// Stop delivering frames to the observer behind `token`. Safe from any thread, including
+    /// from inside an observer, and a token already removed is ignored.
+    func removeObserver(_ token: FrameObservers.Token)
+
+    /// This stream's decoded **audio**, and the act of starting to decode it. A video stream has
+    /// none: its frames are read through `observeFrames`.
     ///
     /// The first call starts a decode pump that drains the jitter buffer into a ring buffer at
     /// playout rate; every later call hands back that same buffer, so several renderers share

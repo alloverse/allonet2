@@ -1,38 +1,76 @@
 //
-//  VoiceFrame.swift
+//  MediaFrame.swift
 //  allonet2
 //
 
 import Foundation
 
-/// One encoded audio frame as it travels over a media data channel.
+/// One media frame as it travels over a media data channel.
 ///
 /// Wire format, big-endian, 9 byte header:
 ///
 ///     0        kind
 ///     1..<5    sequence
-///     5..<9    timestamp, in samples
+///     5..<9    timestamp, 48 kHz ticks: audio samples, and the same ticks for video
 ///     9...     payload
 ///
 /// The stream identity is the channel, not the header: one stream is one data channel, so
-/// there is nothing to demultiplex and no stream id to carry. `kind` exists so a later
-/// control message (a video keyframe request, say) can share the channel without a format
-/// change.
-public struct VoiceFrame: Equatable, Sendable
+/// there is nothing to demultiplex and no stream id to carry. `kind` says what the payload is
+/// and how large it may get, and leaves room for a later control message (a keyframe request,
+/// say) to share the channel without a format change.
+public struct MediaFrame: Equatable, Sendable
 {
     public enum Kind: UInt8, Sendable
     {
-        /// Opus, 48 kHz mono, 20 ms frames.
+        /// Opus, 48 kHz mono, 20 ms frames. Timestamp in samples.
         case opus = 0
         /// Interleaved Float32 PCM. Only used by tests, which need to assert on samples
-        /// without depending on a codec.
+        /// without depending on a codec. Timestamp in samples.
         case pcmFloat32 = 1
+        /// One H.264 Annex B access unit holding exactly one IDR picture, with SPS and PPS
+        /// prepended to every one of them so a viewer can start on any keyframe. Timestamp in
+        /// 48 kHz ticks.
+        case h264Key = 2
+        /// One H.264 Annex B access unit holding one P picture; no B frames, so decode order
+        /// is display order and a decoder needs no reordering delay. Timestamp in 48 kHz ticks.
+        case h264Delta = 3
+
+        /// Largest message a stream will take off the wire for this kind, header included.
+        /// Enforced on the place and on every receiver, before the fan-out: an oversized frame
+        /// would otherwise be re-emitted by every forwarder and held by every jitter buffer
+        /// downstream.
+        public var maximumFrameBytes: Int
+        {
+            switch self
+            {
+            // One frame of the most verbose audio kind, uncompressed Float32. Opus at its
+            // maximum bitrate is a third of it.
+            case .opus, .pcmFloat32: DataChannelMediaStream.frameDuration * MemoryLayout<Float>.size + MediaFrame.headerSize
+            // A full-screen keyframe with its parameter sets; a delta frame is a fraction of it,
+            // and a stream whose deltas approach this is misconfigured rather than detailed.
+            case .h264Key: 1 << 20
+            case .h264Delta: 256 << 10
+            }
+        }
+
+        /// Whether this payload is a picture rather than audio. An audio playout path skips
+        /// what this says yes to: it passed the cap and was forwarded, but there is no decoder
+        /// for it here.
+        public var isVideo: Bool
+        {
+            switch self
+            {
+            case .opus, .pcmFloat32: false
+            case .h264Key, .h264Delta: true
+            }
+        }
     }
 
     public let kind: Kind
     public let sequence: UInt32
-    /// Playout position of the frame's first sample, counted in samples since the stream
-    /// started. At 48 kHz with 20 ms frames this advances by 960 per frame.
+    /// Where this frame plays, in 48 kHz ticks since the stream started. For audio those ticks
+    /// are its own samples, so 20 ms frames advance it by 960; video uses the same unit so that
+    /// a picture and a voice can be placed on one timeline.
     public let timestamp: UInt32
     public let payload: Data
 
@@ -60,23 +98,23 @@ public struct VoiceFrame: Equatable, Sendable
     /// this build knows. The same check `init(decoding:)` makes, for callers that route frames
     /// without parsing them - it reads one byte and allocates nothing on the path that succeeds.
     ///
-    /// Throws `VoiceFrameError.tooShort` or `.unknownKind`, either of which names the byte or
+    /// Throws `MediaFrameError.tooShort` or `.unknownKind`, either of which names the byte or
     /// the length that failed, so a router turning a frame away can say which.
     public static func validateHeader(_ data: Data) throws -> Kind
     {
         guard data.count >= headerSize else
         {
-            throw VoiceFrameError.tooShort(byteCount: data.count)
+            throw MediaFrameError.tooShort(byteCount: data.count)
         }
         // `data` may be a slice; index from its own start.
         guard let kind = Kind(rawValue: data[data.startIndex]) else
         {
-            throw VoiceFrameError.unknownKind(data[data.startIndex])
+            throw MediaFrameError.unknownKind(data[data.startIndex])
         }
         return kind
     }
 
-    /// Parse a frame off the wire; `data` may be a slice. Throws `VoiceFrameError.tooShort`
+    /// Parse a frame off the wire; `data` may be a slice. Throws `MediaFrameError.tooShort`
     /// or `.unknownKind`. The payload aliases `data` rather than copying it.
     public init(decoding data: Data) throws
     {
@@ -88,7 +126,7 @@ public struct VoiceFrame: Equatable, Sendable
     }
 }
 
-public enum VoiceFrameError: Error, CustomStringConvertible, Equatable
+public enum MediaFrameError: Error, CustomStringConvertible, Equatable
 {
     case tooShort(byteCount: Int)
     case unknownKind(UInt8)
@@ -98,9 +136,9 @@ public enum VoiceFrameError: Error, CustomStringConvertible, Equatable
         switch self
         {
         case .tooShort(let byteCount):
-            "voice frame is \(byteCount) bytes, needs at least \(VoiceFrame.headerSize)"
+            "media frame is \(byteCount) bytes, needs at least \(MediaFrame.headerSize)"
         case .unknownKind(let kind):
-            "voice frame has unknown kind \(kind)"
+            "media frame has unknown kind \(kind)"
         }
     }
 }

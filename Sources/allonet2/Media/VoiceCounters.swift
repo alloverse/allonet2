@@ -32,8 +32,12 @@ public struct VoiceCounters: Equatable, Sendable, Codable, CustomStringConvertib
     // Receiver
     /// Messages that arrived on the channel, parsed or not.
     public var received = 0
-    /// Received messages that would not decode as a `VoiceFrame`.
+    /// Received messages that would not decode as a `MediaFrame`, or that were larger than
+    /// their kind allows.
     public var malformed = 0
+    /// Well-formed frames of a kind this playout cannot decode - a video frame on a stream
+    /// something is rendering as audio. Forwarded, just not played.
+    public var skippedForeignKind = 0
     /// Arrived after their playout slot had already been played.
     public var late = 0
     /// Dropped because the buffer was full - nothing is draining playout, which calls for the
@@ -71,6 +75,7 @@ public struct VoiceCounters: Equatable, Sendable, Codable, CustomStringConvertib
         add("captured", captured); add("encoded", encoded); add("sent", sent); add("sendFailed", sendFailed)
         add("in", forwardedIn); add("out", forwardedOut); add("fwdDropped", forwardDropped)
         add("received", received); add("malformed", malformed); add("late", late)
+        add("skippedForeignKind", skippedForeignKind)
         add("overflowed", overflowed)
         add("dup", duplicate); add("reordered", reordered); add("decoded", decoded)
         add("fec", fecRecovered); add("concealed", concealed); add("played", played)

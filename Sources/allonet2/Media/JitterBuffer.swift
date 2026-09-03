@@ -36,10 +36,10 @@ public final class JitterBuffer: @unchecked Sendable
     public enum Step: Equatable
     {
         /// Decode this frame normally.
-        case decode(VoiceFrame)
+        case decode(MediaFrame)
         /// The frame for this slot never arrived, but the next one did and carries in-band
         /// FEC for it. Decode `next` in FEC mode; it stays buffered for its own slot.
-        case recoverFromFEC(next: VoiceFrame)
+        case recoverFromFEC(next: MediaFrame)
         /// Nothing to work with. Run packet loss concealment.
         case conceal
         /// Still filling up. Emit silence and do not advance playout.
@@ -50,7 +50,7 @@ public final class JitterBuffer: @unchecked Sendable
     private let counters: VoiceCountersBox
     private let lock = NSLock()
 
-    private var frames: [UInt32: VoiceFrame] = [:]
+    private var frames: [UInt32: MediaFrame] = [:]
     private var playhead: UInt32?
     private var consecutiveConcealments = 0
     private var seenHighestSequence: UInt32?
@@ -102,7 +102,7 @@ public final class JitterBuffer: @unchecked Sendable
     }
 
     /// Take a frame off the network. `arrival` is a monotonic time in seconds.
-    public func insert(_ frame: VoiceFrame, arrival: Double)
+    public func insert(_ frame: MediaFrame, arrival: Double)
     {
         lock.lock(); defer { lock.unlock() }
 
@@ -233,7 +233,7 @@ public final class JitterBuffer: @unchecked Sendable
         return .conceal
     }
 
-    private func updateJitter(for frame: VoiceFrame, arrival: Double)
+    private func updateJitter(for frame: MediaFrame, arrival: Double)
     {
         let frameSeconds = Double(configuration.frameDuration) / 48000.0
         let sent = Double(frame.timestamp) / 48000.0

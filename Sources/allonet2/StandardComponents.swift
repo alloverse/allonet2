@@ -5,6 +5,7 @@
 //  Created by Nevyn Bengtsson on 2025-03-11.
 //
 
+import Foundation
 import simd
 import SIMDTools // for float4x4 codable
 import PotentCodables
@@ -339,6 +340,9 @@ public struct LiveMedia: Component
     public enum Format: Codable, Equatable
     {
         case audio(codec: AudioCodec, sampleRate: Int, channelCount: Int)
+        /// `width` and `height` are advisory - a layout hint for before the first picture
+        /// arrives. Receivers size themselves from the bitstream, which is what changes when a
+        /// sharer resizes the window mid-stream.
         case video(codec: VideoCodec, width: Int, height: Int)
     }
     public var format: Format

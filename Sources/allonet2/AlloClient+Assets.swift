@@ -23,15 +23,24 @@ public extension AlloClient
     /// Publish `data` so any agent in the place can fetch it by the returned id. Idempotent: if the
     /// place already has these bytes, nothing is uploaded, which is what makes re-publishing across
     /// reconnects cheap.
+    ///
+    /// - Parameter ephemeral: keep the bytes in the place's memory for two minutes instead of on
+    ///   its disk, for something replaced faster than it is worth storing - a screen's thumbnail,
+    ///   a status glyph. Only for an id nothing will need again: it 404s once the lease runs out.
+    ///   An ephemeral publish always uploads, because the upload is what renews that lease, and it
+    ///   does not seed the local cache.
+    /// - Throws: `AssetError.transferFailed` carrying the place's reason, which for an ephemeral
+    ///   publish that does not fit is HTTP 507 naming the size and the cap.
     @discardableResult
-    func publish(asset data: Data, contentType: String = AssetStore.defaultContentType) async throws -> AssetID
+    func publish(asset data: Data, contentType: String = AssetStore.defaultContentType, ephemeral: Bool = false) async throws -> AssetID
     {
         // Hashed inside the store's actor, which both keeps SHA-256 over a whole mesh off the main
         // actor and means the bytes are addressed once rather than here and again on the way in.
-        let id = try await assetCache.store(data, contentType: contentType)
-        if try await placeAlreadyKnows(id, as: contentType) { return id }
+        let id = ephemeral ? await assetCache.address(of: data)
+                           : try await assetCache.store(data, contentType: contentType)
+        if !ephemeral, try await placeAlreadyKnows(id, as: contentType) { return id }
 
-        let request = try assetUploadRequest(contentType: contentType)
+        let request = try assetUploadRequest(contentType: contentType, ephemeral: ephemeral)
         let response = try await retryingIfDropped { try await URLSession.shared.upload(for: request, from: data) }
         return try confirmUpload(response, expecting: id)
     }
@@ -142,7 +151,7 @@ private extension AlloClient
         return url
     }
 
-    func assetUploadRequest(contentType: String) throws -> URLRequest
+    func assetUploadRequest(contentType: String, ephemeral: Bool = false) throws -> URLRequest
     {
         // The upload is a bare HTTP request with no session behind it, so the token from our
         // announce response is the only thing telling the place we belong here.
@@ -151,6 +160,7 @@ private extension AlloClient
         request.httpMethod = "POST"
         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(assetToken)", forHTTPHeaderField: "Authorization")
+        if ephemeral { request.setValue("1", forHTTPHeaderField: PlaceServerAssets.ephemeralHeader) }
         return request
     }
 

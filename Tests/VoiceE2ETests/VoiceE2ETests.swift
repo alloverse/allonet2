@@ -7,6 +7,7 @@
 
 import XCTest
 import Foundation
+import E2ESupport
 @testable import allonet2
 
 @MainActor
@@ -93,7 +94,7 @@ final class VoiceE2ETests: XCTestCase
         var previousSequence: UInt32?
         for data in collected.frames
         {
-            let frame = try VoiceFrame(decoding: data)
+            let frame = try MediaFrame(decoding: data)
             XCTAssertEqual(frame.kind, .pcmFloat32)
             if let previous = previousSequence
             {
@@ -250,213 +251,32 @@ final class VoiceE2ETests: XCTestCase
         }
         XCTAssertNoThrow(try transport.createOutgoingMediaStream(mediaId: "voice-mic"))
     }
-}
 
-// MARK: - Harness
-
-/// Wraps the accounting a test needs: a place, its clients, and cleanup.
-@MainActor
-final class TestPlace
-{
-    let server: PlaceServer
-    let port: UInt16
-    private var clients: [TestClient] = []
-
-    init() async throws
+    /// A stream's kind rides in its channel label, so the place adopts it knowing what it is and
+    /// the channel underneath is opened the way that kind needs. Asserted on the *adopted* side,
+    /// which is what the DCEP OPEN message actually carried across.
+    func testAStreamsKindDecidesTheReliabilityTheFarSideSees() async throws
     {
-        // A fixed range per process would collide between test cases; ask the OS instead.
-        port = try Self.freePort()
-        server = PlaceServer(
-            name: "Voice E2E",
-            httpPort: port,
-            // Loopback only: this host gathers no candidates otherwise.
-            options: TransportConnectionOptions(routing: .direct, bindAddress: "127.0.0.1"),
-            alloAppAuthToken: ""
-        )
-        Task { try await server.start() }
-        try await waitUntil(timeout: 10) { Self.isListening(on: self.port) }
-    }
+        try await withPlace { place in
+        let sharer = try await place.connectClient(named: "sharer")
+        _ = try sharer.startSpeaking(mediaId: "voice-mic")
+        _ = try sharer.transport().createOutgoingMediaStream(mediaId: "screen-0", kind: .video)
 
-    func connectClient(named name: String) async throws -> TestClient
-    {
-        let client = try await TestClient(name: name, port: port)
-        clients.append(client)
-        return client
-    }
+        let cid = sharer.client.cid!
+        let voiceId = PlaceStreamId(shortClientId: cid.shortClientId, incomingMediaId: "voice-mic")
+        let screenId = PlaceStreamId(shortClientId: cid.shortClientId, incomingMediaId: "screen-0")
+        try await waitUntil(timeout: 15) { place.server.sfu.available[screenId] != nil && place.server.sfu.available[voiceId] != nil }
 
-    /// Awaited, not fired off - see docs/voice-implementation.md, Tests.
-    func stop() async
-    {
-        for client in clients { client.client.disconnect() }
-        clients.removeAll()
-        await server.stop()
-        try? await Task.sleep(nanoseconds: 300_000_000)
-    }
+        let voice = place.server.sfu.available[voiceId]!.stream as! DataChannelMediaStream
+        let screen = place.server.sfu.available[screenId]!.stream as! DataChannelMediaStream
+        XCTAssertEqual(voice.kind, .voice)
+        XCTAssertEqual(screen.kind, .video)
 
-    private static func freePort() throws -> UInt16
-    {
-        let handle = socket(AF_INET, SOCK_STREAM, 0)
-        defer { close(handle) }
-        var address = sockaddr_in()
-        address.sin_family = sa_family_t(AF_INET)
-        address.sin_addr.s_addr = INADDR_ANY
-        address.sin_port = 0
-        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
-        let bound = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(handle, $0, length) }
-        }
-        guard bound == 0 else { throw TestPlaceError.noFreePort }
-        let named = withUnsafeMutablePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(handle, $0, &length) }
-        }
-        guard named == 0 else { throw TestPlaceError.noFreePort }
-        return UInt16(bigEndian: address.sin_port)
-    }
-
-    private static func isListening(on port: UInt16) -> Bool
-    {
-        let handle = socket(AF_INET, SOCK_STREAM, 0)
-        defer { close(handle) }
-        var address = sockaddr_in()
-        address.sin_family = sa_family_t(AF_INET)
-        address.sin_addr.s_addr = inet_addr("127.0.0.1")
-        address.sin_port = port.bigEndian
-        let connected = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                connect(handle, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-            }
-        }
-        return connected == 0
-    }
-}
-
-enum TestPlaceError: Error, CustomStringConvertible
-{
-    case noFreePort
-    case noAvatar
-    case streamNeverArrived(MediaStreamId)
-
-    var description: String
-    {
-        switch self
-        {
-        case .noFreePort: "could not reserve a port for the test place"
-        case .noAvatar: "client announced without an avatar"
-        case .streamNeverArrived(let mediaId): "stream \(mediaId) never arrived at the listener"
+        let placeTransport = place.server.clients[cid]!.session.transport as! DataChannelTransport
+        XCTAssertEqual(placeTransport.channelForTesting(.media(.voice, "voice-mic"))?.reliability,
+                       .init(loss: .maxRetransmits(0), ordered: false))
+        XCTAssertEqual(placeTransport.channelForTesting(.media(.video, "screen-0"))?.reliability,
+                       .init(loss: .maxPacketLifeTime(ms: 1000), ordered: true))
         }
     }
 }
-
-/// A connected client plus the bits a voice test needs to reach.
-@MainActor
-final class TestClient
-{
-    let client: VoiceCapturingClient
-    var session: AlloSession { client.session }
-
-    init(name: String, port: UInt16) async throws
-    {
-        client = VoiceCapturingClient(
-            url: URL(string: "alloplace2://localhost:\(port)")!,
-            identity: Identity(expectation: .none, displayName: name, emailAddress: "", authenticationToken: ""),
-            avatarDescription: EntityDescription(),
-            connectionOptions: TransportConnectionOptions(routing: .direct, bindAddress: "127.0.0.1")
-        )
-        client.stayConnected()
-        try await waitUntil(timeout: 20) { self.client.avatarId != nil }
-    }
-
-    /// Open an outgoing voice channel. Uncompressed PCM, so assertions are about the
-    /// transport, not a codec.
-    func startSpeaking(mediaId: MediaStreamId) throws -> DataChannelMediaStream
-    {
-        VoiceCodecs.makeEncoder = { RawPCMVoiceCodec() }
-        guard let transport = client.transportForTesting else { throw TestPlaceError.noAvatar }
-        return try transport.createOutgoingMediaStream(mediaId: mediaId)
-    }
-
-    /// Publish the LiveMedia component that makes the stream visible to other clients.
-    func advertise(mediaId: MediaStreamId) async throws -> MediaStreamId
-    {
-        guard let avatarId = client.avatarId else { throw TestPlaceError.noAvatar }
-        let placeStreamId = PlaceStreamId(shortClientId: client.cid!.shortClientId, incomingMediaId: mediaId)
-        try await client.changeEntity(entityId: avatarId, addOrChange: [
-            LiveMedia(mediaId: placeStreamId.outgoingMediaId, format: .audio(codec: .opus, sampleRate: 48000, channelCount: 1))
-        ])
-        return placeStreamId.outgoingMediaId
-    }
-
-    /// Ask the place to forward these streams to us.
-    func listen(to mediaIds: [MediaStreamId]) async throws
-    {
-        guard let avatarId = client.avatarId else { throw TestPlaceError.noAvatar }
-        try await client.changeEntity(entityId: avatarId, addOrChange: [
-            LiveMediaListener(mediaIds: Set(mediaIds))
-        ])
-    }
-
-    func awaitStream(_ mediaId: MediaStreamId, timeout: TimeInterval = 15) async throws -> DataChannelMediaStream
-    {
-        try await waitUntil(timeout: timeout) { self.client.streams[mediaId] != nil }
-        guard let stream = client.streams[mediaId] else { throw TestPlaceError.streamNeverArrived(mediaId) }
-        return stream
-    }
-}
-
-/// Captures incoming streams, which the app would otherwise pick up in SpatialAudioPlayer.
-@MainActor
-final class VoiceCapturingClient: AlloAppClient
-{
-    private(set) var streams: [MediaStreamId: DataChannelMediaStream] = [:]
-    private(set) var transportForTesting: DataChannelTransport!
-
-    override func reset()
-    {
-        let transport = DataChannelTransport(with: self.connectionOptions, status: connectionStatus)
-        transportForTesting = transport
-        reset(with: transport)
-    }
-
-    override func session(_ session: AlloSession, didReceiveMediaStream stream: MediaStream)
-    {
-        guard let stream = stream as? DataChannelMediaStream else { return }
-        streams[stream.mediaId] = stream
-    }
-
-    override func session(_ session: AlloSession, didRemoveMediaStream stream: MediaStream)
-    {
-        streams[stream.mediaId] = nil
-    }
-}
-
-/// Frames arrive on libdatachannel's thread; collecting them needs a lock.
-final class FrameLog: @unchecked Sendable
-{
-    private let lock = NSLock()
-    private var storage: [Data] = []
-    func append(_ data: Data) { lock.lock(); storage.append(data); lock.unlock() }
-    var frames: [Data] { lock.lock(); defer { lock.unlock() }; return storage }
-    var count: Int { lock.lock(); defer { lock.unlock() }; return storage.count }
-}
-
-/// Runs `body` against a fresh place and always tears it down, awaited.
-@MainActor
-func withPlace(_ body: (TestPlace) async throws -> Void) async throws
-{
-    let place = try await TestPlace()
-    do { try await body(place) }
-    catch { await place.stop(); throw error }
-    await place.stop()
-}
-
-func waitUntil(timeout: TimeInterval = 10, _ condition: @escaping () async -> Bool) async throws
-{
-    let deadline = Date().addingTimeInterval(timeout)
-    while await !condition()
-    {
-        guard Date() < deadline else { throw PublisherTimeout() }
-        try await Task.sleep(nanoseconds: 5_000_000)
-    }
-}
-
-struct PublisherTimeout: Error, CustomStringConvertible { var description: String { "timed out" } }

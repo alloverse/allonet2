@@ -65,6 +65,15 @@ despite their names.
 *Discouraged: world space, field space, scene space.* A renderer's own frame is renderer space,
 and is nobody else's business — a place drawn as a diorama is still authored in metres.
 
+**asset** (`AssetID`, `AssetStore`) — an immutable blob addressed by the SHA-256 of its own
+bytes, published to the place and fetched from it over HTTP. See [assets.md](assets.md).
+
+**ephemeral asset** — an asset the place holds in memory for two minutes and never writes down,
+published with `ephemeral: true`. For a picture replaced faster than it is worth storing: a
+screen's thumbnail, a status glyph. Nothing that must stay fetchable may use one.
+*Discouraged: inline image, embedded image, thumbnail component* — bytes used to ride inside a
+component, and no longer do.
+
 **peer** — whoever authored the data you are holding. Used as a trust statement: "the string is
 a peer's word" means validate it before you act on it.
 
@@ -88,12 +97,34 @@ channels, media forwarding. One session, one transport.
 
 ## Voice and spatial audio
 
-**media stream** (`MediaStream`, `MediaStreamId`) — one one-way flow of media; today one data
-channel carrying one mono voice stream. Nothing is multiplexed inside one and nothing bundles
-several.
+**media stream** (`MediaStream`, `MediaStreamId`) — one one-way flow of media: one data channel
+carrying one mono voice, or one video. Nothing is multiplexed inside one and nothing
+bundles several.
 *Discouraged: track, audio track, RTP track.* "Track" survives in `AudioTrack` /
 `MicrophoneTrack`, which are on/off switches over a stream rather than a media concept, and in
 `README.md`, which still describes voice as SRTP tracks and is stale.
+
+**media frame** (`MediaFrame`) — one message on a media data channel: the nine-byte header
+(kind, sequence, timestamp) and its payload. Media frames are forwarded by the place without
+decoding them first.
+*Discouraged: voice frame*, which is what the tree called it while audio was the only kind.
+
+**stream kind** (`MediaStreamKind`) — `voice` or `video`: what a media stream carries. It is
+the prefix of the channel's label and it decides the channel's reliability, so it is on the
+wire rather than inferred.
+*Discouraged: media type, stream type.*
+
+**video stream** — a media stream of kind `video`, whatever draws the pictures: a shared screen,
+a camera, an alloapp rendering its own.
+*Discouraged: screen stream*, which is one use of a video stream rather than the thing itself.
+
+**sharer** — the client sending a video stream. The word for the role, not for the person:
+a user shares, and so can an alloapp.
+*Discouraged: presenter, host, broadcaster.*
+
+**viewer** — the client receiving a video stream. It is not a synonym for visor: a visor is
+the whole 3D application, a viewer is one end of one video stream.
+*Discouraged: watcher, subscriber, receiver* (which is the class, `VideoReceiver`, not the role).
 
 **forward** — what the place's SFU does with a media stream: copy it to the agents whose
 `LiveMediaListener` asks for it.

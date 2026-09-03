@@ -10,6 +10,7 @@ import OpenCombineShim
 import allonet2
 import SwiftUI
 import GLTFKit2
+import ImageIO
 
 /// The RealityViewMapper creates and maintains RealityKit entities and components to perfectly match corresponding entities and components inside an Alloverse connection's PlaceContents.
 @MainActor

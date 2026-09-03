@@ -46,6 +46,27 @@ is a POST *to* the place — so a place-initiated fetch would have to ride the d
 rebuild allonet1's chunking and back-pressure. Lazy pull, if it ever lands, moves only the *trigger*
 in-band and still needs this token on the POST that follows.
 
+## Ephemeral assets
+
+A publisher that passes `ephemeral: true` asks the place to hold the bytes in memory instead of
+writing them into the store: the same content address, the same fetch, gone 120 seconds after the
+publish that wrote it. It exists for a picture replaced faster than it is worth storing — a
+screen's thumbnail every ten seconds is a different address every time, and keeping each one
+would grow the directory forever for bytes nobody will ask for twice.
+
+The rules that follow from "it disappears":
+
+- **Only for an id nothing needs again.** Once the lease runs out the fetch is a 404, and since a
+  component that stopped changing is never re-read, an entity must be pointed at a fresh id
+  rather than left holding a stale one.
+- **Republishing is what renews the lease**, so an ephemeral publish always uploads rather than
+  HEADing first, and it does not seed the publisher's own cache.
+- **Bounded**: 64 MiB of unexpired bytes across every publisher, swept on a timer. A publish that
+  would not fit is refused with HTTP 507 naming its size and the cap — the store is the place's
+  memory, so this is the only thing between a publisher and it.
+- The fetch carries `Cache-Control: no-store`. **`AssetStore` does not honour it**: a client that
+  fetches an ephemeral asset still writes it into its own cache directory, where it stays.
+
 ## Media types
 
 The publisher declares one, and it decides the stored extension and therefore which loader can open

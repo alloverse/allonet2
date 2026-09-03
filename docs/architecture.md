@@ -11,8 +11,11 @@ source of truth; update this doc when they move.
 | `AlloAudio` | library | `VoiceEngine`: the one `AVAudioEngine` voice runs on - voice-processing capture and spatialised playout through an `AVAudioEnvironmentNode`. Apple-only (AVFAudio). |
 | `alloclient` | library | Visor-side client: `AlloUserClient`, which owns the `VoiceEngine` and the microphone track, on the same transport; `SpatialAudioPlayer` drives spatial voice off `PlaceState`, with no renderer involved. Apple-only in practice. |
 | `AlloReality` | library | RealityKit layer: `RealityViewMapper` mirrors `PlaceState` into an entity tree. Apple-only. |
+| `AlloVideo` | library | Screen capture, H.264 encode and decode, and the sender/receiver that put pictures on a media stream (`ScreenCapturer`, `H264Encoder`, `H264Decoder`, `VideoSender`, `VideoReceiver`). Apple-only (ScreenCaptureKit, VideoToolbox). |
 | `AlloPlace` | executable | The place server CLI (ArgumentParser) around `PlaceServer`. |
 | `demoapp` | executable | Minimal example alloapp: spawns an avatar, orbits it, answers a `custom` interaction. |
+| `voicedemo` | executable | Two of them on one place is a voice call: microphone or tone in, spatialised voice out, counters and latency. Apple-only. |
+| `screendemo` | executable | The same for screens: `--share` a picked window or a test pattern, `--view` every screen in the place. Apple-only. |
 
 `Package.swift` has no platform conditions; Apple-only-ness is enforced by what a consumer
 links. Swift tools 6.1, language mode 5, platforms macOS 15 / iOS 18 / visionOS 2.
@@ -63,6 +66,8 @@ links. Swift tools 6.1, language mode 5, platforms macOS 15 / iOS 18 / visionOS 
   (reliable, stream id 1), `worldstate` (unreliable, id 2; `PlaceChangeSet` down, `Intent`
   up), `logs` (reliable, id 3) — CBOR-encoded via PotentCodables (`AlloSession.swift`;
   encoder/decoder are chosen there and nowhere else).
+- Media rides its own in-band channels, one per stream, in two kinds: `voice/` unordered with
+  no retransmits, `video/` ordered with a 1000 ms lifetime ([voice.md](voice.md)).
 - Signalling: one JSON POST to the place (`RTCSignalling.swift`, `PlaceServerHTTP.swift`).
   Renegotiation is in-band (`internal_renegotiate` interaction) with perfect-negotiation
   conflict resolution: client polite, server impolite (`AlloSession.swift`). Every SFU

@@ -7,7 +7,7 @@ import Foundation
 import Atomics
 import Logging
 
-/// A voice stream carried by one unreliable data channel.
+/// One media stream carried by one data channel.
 ///
 /// The same implementation serves every role, because all three only ever touch frames:
 /// a sending client encodes and writes, the server routes the bytes without decoding them,
@@ -17,6 +17,7 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
 {
     public let mediaId: MediaStreamId
     public let streamDirection: MediaStreamDirection
+    public let kind: MediaStreamKind
     public let counters: VoiceCountersBox
     public let jitterBuffer: JitterBuffer
 
@@ -24,12 +25,10 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     public static let frameDuration = 960
     /// The one sample rate this path runs at, capture through playout.
     public static let sampleRate = 48000.0
-    /// Largest message this stream will take off the wire: one frame of the most verbose kind
-    /// the format has, uncompressed Float32. Opus at its maximum bitrate is a third of it.
-    public static let maximumFrameBytes = frameDuration * MemoryLayout<Float>.size + VoiceFrame.headerSize
 
     private let sendFrame: (Data) -> Bool
     private let closeChannel: () -> Void
+    private let bufferedAmount: () -> Int
     private let monotonicNow: () -> Double
     private let observers = FrameObservers()
     private let lock = NSLock()
@@ -42,23 +41,31 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     private var ringBuffer: AudioRingBuffer?
     private var pump: DispatchSourceTimer?
 
+    /// - Parameter kind: what the stream carries. Must match the kind in the underlying
+    ///   channel's label, which is where every peer reads it from.
     /// - Parameter sendFrame: writes one encoded frame to the underlying channel, returning
     ///   false when the channel is gone - which on an unreliable channel simply means the
     ///   frame is lost.
     /// - Parameter monotonicNow: seconds on a clock that only moves forward, used to measure
     ///   arrival jitter. Override it to drive the jitter buffer from a test's own clock.
+    /// - Parameter bufferedAmount: bytes `sendFrame` has taken but the transport has not yet put
+    ///   on the wire; see `bufferedBytes`. The default reports a stream with nothing behind it.
     public init(
         mediaId: MediaStreamId,
         direction: MediaStreamDirection,
+        kind: MediaStreamKind = .voice,
         counters: VoiceCountersBox = VoiceCountersBox(),
         jitterBuffer: JitterBuffer? = nil,
         monotonicNow: @escaping () -> Double = { Double(DispatchTime.now().uptimeNanoseconds) / 1e9 },
         closeChannel: @escaping () -> Void = {},
+        bufferedAmount: @escaping () -> Int = { 0 },
         sendFrame: @escaping (Data) -> Bool
     )
     {
+        self.bufferedAmount = bufferedAmount
         self.mediaId = mediaId
         self.streamDirection = direction
+        self.kind = kind
         self.counters = counters
         self.jitterBuffer = jitterBuffer ?? JitterBuffer(counters: counters)
         self.monotonicNow = monotonicNow
@@ -84,21 +91,21 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     public func deliver(_ data: Data)
     {
         counters.update { $0.received += 1 }
-        // Before the fan-out: every forwarder would re-emit an oversized frame, and every
-        // jitter buffer downstream would hold on to it.
-        guard data.count <= Self.maximumFrameBytes else
-        {
-            counters.update { $0.malformed += 1 }
-            logger.debug("Dropped oversized voice frame: \(data.count) bytes")
-            return
-        }
         // Header only, so this costs no allocation on the SFU's path, which never parses the
-        // payload at all.
-        do { _ = try VoiceFrame.validateHeader(data) }
+        // payload at all. Both checks precede the fan-out: every forwarder would re-emit a frame
+        // that failed them, and every jitter buffer downstream would hold on to it.
+        let kind: MediaFrame.Kind
+        do { kind = try MediaFrame.validateHeader(data) }
         catch
         {
             counters.update { $0.malformed += 1 }
-            logger.debug("Dropped voice frame with invalid header: \(error)")
+            logger.debug("Dropped media frame with invalid header: \(error)")
+            return
+        }
+        guard data.count <= kind.maximumFrameBytes else
+        {
+            counters.update { $0.malformed += 1 }
+            logger.debug("Dropped oversized \(kind) frame: \(data.count) bytes, cap \(kind.maximumFrameBytes)")
             return
         }
         observers.emit(data)
@@ -106,9 +113,16 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         // The server routes without parsing; only a receiver needs the frame itself.
         lock.lock(); let playout = ringBuffer != nil ? playoutGeneration : nil; lock.unlock()
         guard let playout else { return }
+        // A video frame on a stream someone is rendering as audio is well-formed and was
+        // forwarded; there is simply no decoder for it on this path.
+        guard !kind.isVideo else
+        {
+            counters.update { $0.skippedForeignKind += 1 }
+            return
+        }
         do
         {
-            let frame = try VoiceFrame(decoding: data)
+            let frame = try MediaFrame(decoding: data)
             let arrival = monotonicNow()
             lock.lock(); defer { lock.unlock() }
             // Playout stopped while this frame was in flight, so its slot went with it. The
@@ -124,7 +138,7 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         catch
         {
             counters.update { $0.malformed += 1 }
-            logger.debug("Dropped unparseable voice frame: \(error)")
+            logger.debug("Dropped unparseable media frame: \(error)")
         }
     }
 
@@ -178,7 +192,7 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         {
             let payload = try encoder.encode(samples, frameCount: frameCount)
             counters.update { $0.encoded += 1 }
-            let frame = VoiceFrame(kind: encoder.kind, sequence: sequence, timestamp: timestamp, payload: payload)
+            let frame = MediaFrame(kind: encoder.kind, sequence: sequence, timestamp: timestamp, payload: payload)
             guard sendFrame(frame.encoded) else
             {
                 counters.update { $0.sendFailed += 1 }
@@ -189,11 +203,55 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         }
         catch
         {
-            logger.error("Failed to encode voice frame \(sequence): \(error)")
+            logger.error("Failed to encode media frame \(sequence): \(error)")
             counters.update { $0.sendFailed += 1 }
             return nil
         }
     }
+
+    /// Send one already-compressed payload, numbered in this stream's own sequence.
+    ///
+    /// The video counterpart of `send(samples:frameCount:)`: the caller brings the codec and the
+    /// clock, the stream brings the numbering and the cap. Unlike audio, the timestamp is not
+    /// derived from a sample count - a picture is placed by when it was captured.
+    ///
+    /// - Parameter timestamp: 48 kHz ticks since the stream started.
+    /// - Returns: the sequence it went out as, or nil when the payload was over its kind's cap or
+    ///   the channel refused it; both count `sendFailed` and are logged with the size that failed.
+    @discardableResult
+    public func send(payload: Data, kind: MediaFrame.Kind, timestamp: UInt32) -> UInt32?
+    {
+        // The number is spent even when the picture is not sent, so a receiver sees the gap and
+        // asks for a key instead of predicting from a reference that never arrived.
+        lock.lock()
+        let sequence = nextSequence
+        nextSequence &+= 1
+        lock.unlock()
+
+        // Refused here rather than on the wire: every receiver would count it malformed and drop
+        // it, so the sender is the only place that can say which frame was too big.
+        guard payload.count + MediaFrame.headerSize <= kind.maximumFrameBytes else
+        {
+            counters.update { $0.sendFailed += 1 }
+            logger.error("Refusing to send \(kind) frame of \(payload.count) bytes: cap is \(kind.maximumFrameBytes) including a \(MediaFrame.headerSize) byte header")
+            return nil
+        }
+
+        let frame = MediaFrame(kind: kind, sequence: sequence, timestamp: timestamp, payload: payload)
+        guard sendFrame(frame.encoded) else
+        {
+            counters.update { $0.sendFailed += 1 }
+            return nil
+        }
+        counters.update { $0.sent += 1 }
+        return sequence
+    }
+
+    /// Bytes this stream has handed to its channel that are still queued for the wire. `send` and
+    /// `forward` never block and never report congestion, so this is the only sign that a sender
+    /// is outrunning the link: a video sender reads it before every encode and spends less
+    /// bitrate when it climbs. Zero on a stream with no channel under it.
+    public var bufferedBytes: Int { bufferedAmount() }
 
     /// Send an already-encoded frame verbatim. The server's forwarding path: the bytes are
     /// opaque, so nothing is decoded, re-encoded or renumbered.
@@ -341,7 +399,7 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
             }
             catch
             {
-                logger.error("Failed to decode voice frame: \(error)")
+                logger.error("Failed to decode media frame: \(error)")
                 return
             }
 
