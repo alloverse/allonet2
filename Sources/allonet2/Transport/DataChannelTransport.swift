@@ -73,13 +73,18 @@ public class DataChannelTransport: Transport
         }
     }
     public static var version: String { LibdatachannelVersion() }
-    
+
+    /// Advertised as `a=max-message-size`, and obeyed by whichever peer is sending, so both ends
+    /// must agree: a keyframe up to `MediaFrame.Kind.h264Key.maximumFrameBytes` has to fit in one
+    /// message, and libdatachannel's own default of 256 KiB would refuse it.
+    static let maximumMessageSize = 2 * 1024 * 1024
+
     public init(with connectionOptions: TransportConnectionOptions, status: ConnectionStatus)
     {
         if(!Self.initialized) { Self.initialize() }
         
         self.connectionStatus = status
-        peer = AlloWebRTCPeer(portRange: connectionOptions.portRange, ipOverride: connectionOptions.ipOverride?.adc, bindAddress: connectionOptions.bindAddress)
+        peer = AlloWebRTCPeer(portRange: connectionOptions.portRange, ipOverride: connectionOptions.ipOverride?.adc, bindAddress: connectionOptions.bindAddress, maxMessageSize: Self.maximumMessageSize)
         
         // Both capture lists are load-bearing. An inner `[weak self]` alone leaves the closure
         // Combine stores holding self strongly, and its publisher lives in `peer`, which this
@@ -352,7 +357,13 @@ public class DataChannelTransport: Transport
         }
         // Captured by value: this closure runs on whichever thread produced the frame.
         let logger = self.logger
-        let stream = DataChannelMediaStream(mediaId: mediaId, direction: .sendonly, kind: kind, closeChannel: { [weak channel] in channel?.close() }) { [weak channel] data in
+        let stream = DataChannelMediaStream(
+            mediaId: mediaId,
+            direction: .sendonly,
+            kind: kind,
+            closeChannel: { [weak channel] in channel?.close() },
+            bufferedAmount: { [weak channel] in channel?.bufferedAmount ?? 0 }
+        ) { [weak channel] data in
             guard let channel, channel.isOpen else { return false }
             do { try channel.send(data: data); return true }
             catch
@@ -377,7 +388,12 @@ public class DataChannelTransport: Transport
     {
         guard let label = DataChannelLabel(rawValue: channel.label), case .media(let kind, let mediaId) = label else { return }
 
-        let stream = DataChannelMediaStream(mediaId: mediaId, direction: .recvonly, kind: kind) { [weak channel] data in
+        let stream = DataChannelMediaStream(
+            mediaId: mediaId,
+            direction: .recvonly,
+            kind: kind,
+            bufferedAmount: { [weak channel] in channel?.bufferedAmount ?? 0 }
+        ) { [weak channel] data in
             guard let channel, channel.isOpen else { return false }
             do { try channel.send(data: data); return true }
             catch { return false }

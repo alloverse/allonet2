@@ -28,6 +28,7 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
 
     private let sendFrame: (Data) -> Bool
     private let closeChannel: () -> Void
+    private let bufferedAmount: () -> Int
     private let monotonicNow: () -> Double
     private let observers = FrameObservers()
     private let lock = NSLock()
@@ -47,6 +48,8 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
     ///   frame is lost.
     /// - Parameter monotonicNow: seconds on a clock that only moves forward, used to measure
     ///   arrival jitter. Override it to drive the jitter buffer from a test's own clock.
+    /// - Parameter bufferedAmount: bytes `sendFrame` has taken but the transport has not yet put
+    ///   on the wire; see `bufferedBytes`. The default reports a stream with nothing behind it.
     public init(
         mediaId: MediaStreamId,
         direction: MediaStreamDirection,
@@ -55,9 +58,11 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         jitterBuffer: JitterBuffer? = nil,
         monotonicNow: @escaping () -> Double = { Double(DispatchTime.now().uptimeNanoseconds) / 1e9 },
         closeChannel: @escaping () -> Void = {},
+        bufferedAmount: @escaping () -> Int = { 0 },
         sendFrame: @escaping (Data) -> Bool
     )
     {
+        self.bufferedAmount = bufferedAmount
         self.mediaId = mediaId
         self.streamDirection = direction
         self.kind = kind
@@ -203,6 +208,12 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
             return nil
         }
     }
+
+    /// Bytes this stream has handed to its channel that are still queued for the wire. `send` and
+    /// `forward` never block and never report congestion, so this is the only sign that a sender
+    /// is outrunning the link: a video sender reads it before every encode and spends less
+    /// bitrate when it climbs. Zero on a stream with no channel under it.
+    public var bufferedBytes: Int { bufferedAmount() }
 
     /// Send an already-encoded frame verbatim. The server's forwarding path: the bytes are
     /// opaque, so nothing is decoded, re-encoded or renumbered.
