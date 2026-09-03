@@ -294,11 +294,14 @@ struct AssetHTTPTests
     /// A place's asset endpoint on an ephemeral port, torn down when `body` returns.
     private func withAssetServer(
         maxUploadBytes: Int = PlaceServerAssets.defaultMaxUploadBytes,
+        ephemeralTimeToLive: TimeInterval = PlaceServerAssets.defaultEphemeralTimeToLive,
+        ephemeralMaxBytes: Int = PlaceServerAssets.defaultEphemeralMaxBytes,
         _ body: (URL, PlaceServerAssets) async throws -> Void
     ) async throws
     {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        let assets = PlaceServerAssets(directory: directory, maxUploadBytes: maxUploadBytes)
+        let assets = PlaceServerAssets(directory: directory, maxUploadBytes: maxUploadBytes,
+                                       ephemeralTimeToLive: ephemeralTimeToLive, ephemeralMaxBytes: ephemeralMaxBytes)
         await assets.publishers.admit(Self.token)
         let http = HTTPServer(port: 0, timeout: PlaceServerHTTP.requestTimeout)
         await assets.register(on: http)
@@ -320,12 +323,14 @@ struct AssetHTTPTests
     /// Every server made by `withAssetServer` admits this one; publishing needs a session token.
     static let token = "test-publisher-token"
 
-    private func post(_ bytes: Data, contentType: String, to base: URL, token: String? = AssetHTTPTests.token) async throws -> (HTTPURLResponse, Data)
+    private func post(_ bytes: Data, contentType: String, to base: URL, token: String? = AssetHTTPTests.token,
+                      headers: [String: String] = [:]) async throws -> (HTTPURLResponse, Data)
     {
         var request = URLRequest(url: base.appendingPathComponent("assets"))
         request.httpMethod = "POST"
         request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
         let (data, response) = try await URLSession.shared.upload(for: request, from: bytes)
         return (response as! HTTPURLResponse, data)
     }
@@ -498,6 +503,95 @@ struct AssetHTTPTests
                 let declared = response.value(forHTTPHeaderField: "Content-Length")
                 #expect(declared == nil || declared == "0", "HEAD \(path) declared a \(declared ?? "?") byte body")
             }
+        }
+    }
+
+    /// The lease is the whole point: an ephemeral asset fetches like any other while it lives, is
+    /// never written down, and stops existing on its own.
+    @Test func anEphemeralAssetIsServedFromMemoryUntilItExpires() async throws
+    {
+        try await withAssetServer(ephemeralTimeToLive: 0.6) { base, assets in
+            let bytes = Data("a thumbnail nobody will want twice".utf8)
+            let (posted, body) = try await post(bytes, contentType: "image/png", to: base,
+                                                headers: [PlaceServerAssets.ephemeralHeader: "1"])
+            #expect(posted.statusCode == 201)
+            let id = try JSONDecoder().decode(AssetUploadResponse.self, from: body).id
+            #expect(id == AssetID(hashing: bytes))
+
+            let (got, fetched) = try await get(id.description, from: base)
+            #expect(got.statusCode == 200)
+            #expect(fetched == bytes)
+            #expect(got.value(forHTTPHeaderField: "Content-Type") == "image/png")
+            #expect(got.value(forHTTPHeaderField: "Cache-Control") == "no-store")
+
+            let (headed, _) = try await get(id.description, from: base, method: "HEAD")
+            #expect(headed.statusCode == 200)
+            #expect(headed.value(forHTTPHeaderField: "Content-Length") == String(bytes.count))
+
+            // Nothing on disk: not the blob, not a sidecar, not an incoming temporary.
+            let onDisk = (try? FileManager.default.contentsOfDirectory(atPath: assets.store.directory.path)) ?? []
+            #expect(onDisk.isEmpty, "an ephemeral asset must not touch the assets directory: \(onDisk)")
+            #expect(try await assets.store.contains(id) == false)
+
+            try await Task.sleep(for: .seconds(1))
+            let (expired, _) = try await get(id.description, from: base)
+            #expect(expired.statusCode == 404)
+            #expect(await assets.ephemeral.byteCount == 0, "the sweeper left the bytes resident")
+        }
+    }
+
+    /// The store is memory, so its cap is the only thing between a publisher and the place's RAM.
+    @Test func aFullEphemeralStoreRefusesAndSaysByHowMuch() async throws
+    {
+        try await withAssetServer(ephemeralMaxBytes: 1024) { base, assets in
+            let ephemeral = [PlaceServerAssets.ephemeralHeader: "1"]
+            let (small, _) = try await post(Data(repeating: 0x01, count: 900), contentType: "image/png",
+                                            to: base, headers: ephemeral)
+            #expect(small.statusCode == 201)
+
+            let (refused, reason) = try await post(Data(repeating: 0x02, count: 900), contentType: "image/png",
+                                                   to: base, headers: ephemeral)
+            #expect(refused.statusCode == 507)
+            let said = String(data: reason, encoding: .utf8) ?? ""
+            #expect(said.contains("900") && said.contains("1024"), "the refusal must name the size and the cap: '\(said)'")
+
+            // Refusing one publish must not break the endpoint for the next.
+            let (stored, _) = try await post(Data("on disk as usual".utf8), contentType: "image/png", to: base)
+            #expect(stored.statusCode == 201)
+            #expect(try await assets.store.contains(AssetID(hashing: Data("on disk as usual".utf8))))
+        }
+    }
+
+    /// An ephemeral publish caches nothing anywhere: not on the place's disk, not on the
+    /// publisher's, which is what makes republishing a thumbnail every few seconds affordable.
+    @MainActor
+    @Test func clientPublishesEphemerallyWithoutCachingAnything() async throws
+    {
+        try await withAssetServer { base, assets in
+            let client = TestAlloClient(
+                url: URL(string: "alloplace2://localhost:\(base.port!)")!,
+                identity: Identity.none,
+                avatarDescription: EntityDescription()
+            )
+            let cache = AssetStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+            client.assetCache = cache
+            client.assetToken = Self.token
+
+            let bytes = Data((0..<4000).map { UInt8($0 % 251) })
+            let id = try await client.publish(asset: bytes, contentType: "image/png", ephemeral: true)
+            #expect(id == AssetID(hashing: bytes))
+            #expect(try await assets.store.contains(id) == false)
+            #expect(try await cache.contains(id) == false)
+            #expect(await assets.ephemeral.byteCount == bytes.count)
+
+            // And a consumer with a cold cache gets exactly those bytes back.
+            let consumer = TestAlloClient(
+                url: URL(string: "alloplace2://localhost:\(base.port!)")!,
+                identity: Identity.none,
+                avatarDescription: EntityDescription()
+            )
+            consumer.assetCache = AssetStore(directory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+            #expect(try await consumer.fetchAsset(id) == bytes)
         }
     }
 
