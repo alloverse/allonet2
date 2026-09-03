@@ -123,7 +123,8 @@ public struct Model: Component
 ///
 /// For surfaces that change often and are too small to be worth an asset round trip - a thumbnail,
 /// a status glyph. The bytes ride every changeset the entity appears in, so the cap is small and
-/// anything bigger belongs in the asset store.
+/// anything bigger belongs in the asset store. Renderers cap the picture as well as the bytes -
+/// 512 px a side - because a PNG this small can still declare tens of thousands of pixels.
 public struct InlineImage: Component
 {
     /// The most PNG this component will carry. 16 KiB is a legible thumbnail and a changeset

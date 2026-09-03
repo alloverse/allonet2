@@ -269,9 +269,11 @@ public class RealityViewMapper
             return
         }
 
-        guard let cgImage = Self.decodePNG(png) else
+        let cgImage: CGImage
+        do { cgImage = try Self.decodePNG(png) }
+        catch
         {
-            complainAboutInlineImage(on: entity.name, bytes: png.count)
+            complainAboutInlineImage(on: entity.name, error)
             return
         }
         state.inlineImageTask = Task {
@@ -308,16 +310,30 @@ public class RealityViewMapper
     /// component as fast as it likes, so the log is bounded the way `Text`'s is.
     private var complainedAboutInlineImage: Set<EntityID> = []
 
-    private func complainAboutInlineImage(on eid: EntityID, bytes: Int)
+    private func complainAboutInlineImage(on eid: EntityID, _ refusal: InlineImageRefusal)
     {
         guard complainedAboutInlineImage.insert(eid).inserted else { return }
-        print("Entity \(eid) has an InlineImage of \(bytes) bytes that is not a readable image; drawing its Model instead")
+        print("Entity \(eid) has an unusable InlineImage: \(refusal); drawing its Model instead")
     }
 
-    private static func decodePNG(_ png: Data) -> CGImage?
+    /// The widest and tallest an `InlineImage` may be. It is a thumbnail or a glyph by definition,
+    /// and the cost of a bigger one is paid in texture memory, not in the 16 KiB it arrived as.
+    public static let maximumInlineImagePixels = 512
+
+    /// - Throws: `InlineImageRefusal`, naming what was wrong with these bytes. The size is read
+    ///   from the header first: a peer's 16 KiB PNG can declare 30000x30000, and decoding it to
+    ///   find that out is exactly the allocation worth avoiding.
+    static func decodePNG(_ png: Data) throws(InlineImageRefusal) -> CGImage
     {
-        guard let source = CGImageSourceCreateWithData(png as CFData, nil) else { return nil }
-        return CGImageSourceCreateImageAtIndex(source, 0, nil)
+        guard let source = CGImageSourceCreateWithData(png as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int
+        else { throw .unreadable(bytes: png.count) }
+        guard width <= Self.maximumInlineImagePixels, height <= Self.maximumInlineImagePixels
+        else { throw .tooManyPixels(width: width, height: height) }
+        guard let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { throw .unreadable(bytes: png.count) }
+        return image
     }
 
     /// Load `.builtin`/`.asset` meshes, which draw through a child subtree instead of the entity's
@@ -663,6 +679,24 @@ public class RealityViewMapper
 private func ifNoOverflow(_ result: (partialValue: Int, overflow: Bool)) -> Int?
 {
     result.overflow ? nil : result.partialValue
+}
+
+/// Why an `InlineImage` won't be drawn. A peer wrote these bytes, so both cases are things to
+/// expect rather than bugs; the entity falls back to its `Model`'s own material.
+public enum InlineImageRefusal: Error, Equatable, CustomStringConvertible
+{
+    case unreadable(bytes: Int)
+    case tooManyPixels(width: Int, height: Int)
+
+    public var description: String
+    {
+        switch self
+        {
+        case .unreadable(let bytes): "\(bytes) bytes that are not a readable image"
+        case .tooManyPixels(let width, let height):
+            "a \(width)x\(height) picture, over the \(RealityViewMapper.maximumInlineImagePixels) px an inline image may be"
+        }
+    }
 }
 
 /// Why a fetched asset couldn't become a visual. The bytes are on disk and hash-checked by now, so
