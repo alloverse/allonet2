@@ -28,6 +28,11 @@ public final class ScreenReceiver: @unchecked Sendable
     /// rate-limited there. Called on the delivering thread, so hop before touching isolated
     /// state, and assign it before frames flow - it is read without synchronisation.
     public var needsKeyframe: (() -> Void)?
+    {
+        get { lock.lock(); defer { lock.unlock() }; return _needsKeyframe }
+        set { lock.lock(); _needsKeyframe = newValue; lock.unlock() }
+    }
+    private var _needsKeyframe: (() -> Void)?
 
     private let stream: any MediaStream
     private let decoder = H264Decoder()
@@ -36,7 +41,9 @@ public final class ScreenReceiver: @unchecked Sendable
     private var token: FrameObservers.Token?
     private var lastSequence: UInt32?
 
-    public init(stream: any MediaStream, counters: ScreenCountersBox = ScreenCountersBox())
+    /// - Parameter needsKeyframe: installed before the first frame is observed, so a stream
+    ///   that arrives mid-GOP asks for its key at once rather than after the first gap.
+    public init(stream: any MediaStream, needsKeyframe: (() -> Void)? = nil, counters: ScreenCountersBox = ScreenCountersBox())
     {
         self.stream = stream
         self.counters = counters
@@ -45,6 +52,7 @@ public final class ScreenReceiver: @unchecked Sendable
         // ones: a screen share has no value in a frame nobody could show in time.
         samples = AsyncStream(bufferingPolicy: .bufferingNewest(4)) { continuation = $0 }
         self.continuation = continuation
+        _needsKeyframe = needsKeyframe
         token = stream.observeFrames { [weak self] data in self?.receive(data) }
     }
 
