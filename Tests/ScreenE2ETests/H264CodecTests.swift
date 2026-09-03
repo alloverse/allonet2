@@ -63,6 +63,21 @@ import allonet2
         #expect(kinds.dropFirst().allSatisfy { $0 == .h264Delta }, "got \(kinds)")
     }
 
+    @Test func timestampsAdvanceInTicksOfTheVoiceClock() async throws
+    {
+        let encoder = try H264Encoder(width: Self.width, height: Self.height, bitrate: 2_000_000)
+        var timestamps: [UInt32] = []
+        for index in 0..<3
+        {
+            let picture = CapturedFrame(pixels: PatternSource.picture(frame: index, width: Self.width, height: Self.height),
+                                        capturedAt: 100 + Double(index) / 15)
+            if let encoded = try await encoder.encode(picture, forceKeyframe: false) { timestamps.append(encoded.timestamp) }
+        }
+        #expect(timestamps.count == 3, "got \(timestamps)")
+        // 1/15 s at 48 kHz is 3200 ticks, the same unit a voice frame's samples count in.
+        #expect(timestamps[1] &- timestamps[0] == 3200 && timestamps[2] &- timestamps[1] == 3200, "got \(timestamps)")
+    }
+
     @Test func aKeyframeCarriesItsOwnParameterSets() async throws
     {
         let encoder = try H264Encoder(width: Self.width, height: Self.height, bitrate: 2_000_000)
