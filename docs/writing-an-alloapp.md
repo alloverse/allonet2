@@ -73,6 +73,13 @@ client.responders["custom"] = { request async -> Interaction in
 }
 ```
 
+- A request is for answers a machine gives at once. The place answers any forwarded request
+  itself after `PlaceServer.InteractionTimeout` (10 s) with "Recipient didn't respond in
+  time", and that is a liveness guard, not a budget to raise: a dead responder should be
+  found in seconds by every caller. Anything a person answers — "may I see your screen?" —
+  is state, not a reply: send it oneway, answer it oneway, keep the pending entry and its
+  expiry on each end, and send a cancel when the asker gives up, so it survives a reconnect
+  and never waits on a continuation the place would have dropped.
 - Custom payloads ride `.custom(value: AnyValue)`; define your own `Component` types with
   `MyComponent.register()` if you want structured shared state instead.
 
