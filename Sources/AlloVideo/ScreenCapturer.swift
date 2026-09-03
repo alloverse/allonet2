@@ -153,6 +153,16 @@ public final class ScreenCapturer: NSObject, VideoSource
             streamConfiguration.minimumFrameInterval = CMTime(seconds: configuration.frameInterval, preferredTimescale: 600)
             streamConfiguration.queueDepth = 3
 
+            // The picker can pick again while a capture is running; that means "share this
+            // instead", so the running stream changes what it points at. A second SCStream would
+            // leave the first one capturing the window the user just stopped sharing.
+            if let stream
+            {
+                try await stream.updateContentFilter(filter)
+                try await stream.updateConfiguration(streamConfiguration)
+                return
+            }
+
             let stream = SCStream(filter: filter, configuration: streamConfiguration, delegate: output)
             try stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: queue)
             try await stream.startCapture()
