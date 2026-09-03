@@ -96,7 +96,8 @@ bundles several.
 `README.md`, which still describes voice as SRTP tracks and is stale.
 
 **media frame** (`MediaFrame`) — one message on a media data channel: the nine-byte header
-(kind, sequence, timestamp) and its payload. The unit the place copies without decoding.
+(kind, sequence, timestamp) and its payload. Media frames are forwarded by the place without
+decoding them first.
 *Discouraged: voice frame*, which is what the tree called it while audio was the only kind.
 
 **stream kind** (`MediaStreamKind`) — `voice` or `screen`: what a media stream carries. It is
