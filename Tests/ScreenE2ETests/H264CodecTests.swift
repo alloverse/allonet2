@@ -143,7 +143,7 @@ import allonet2
     }
 }
 
-enum CodecTestError: Error { case noFrame, decodeFailed(OSStatus) }
+enum CodecTestError: Error { case decodeFailed(OSStatus) }
 
 /// A `VTDecompressionSession` the tests use to look at pictures. The product decodes through
 /// `AVSampleBufferDisplayLayer` instead, which takes the same compressed samples.
