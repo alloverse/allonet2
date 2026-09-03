@@ -540,6 +540,30 @@ struct AssetHTTPTests
         }
     }
 
+    /// The same bytes can arrive both ways. The stored copy outlives the lease, so it is the one a
+    /// fetch must describe; an ephemeral publish beside it must not make a permanent asset look
+    /// like something that expires.
+    @Test func anEphemeralPublishDoesNotShadowAStoredAsset() async throws
+    {
+        try await withAssetServer { base, _ in
+            let bytes = Data("a picture worth keeping".utf8)
+            let (stored, body) = try await post(bytes, contentType: "image/png", to: base)
+            #expect(stored.statusCode == 201)
+            let id = try JSONDecoder().decode(AssetUploadResponse.self, from: body).id
+
+            let (held, _) = try await post(bytes, contentType: "image/png", to: base,
+                                           headers: [PlaceServerAssets.ephemeralHeader: "1"])
+            #expect(held.statusCode == 201)
+
+            let (got, fetched) = try await get(id.description, from: base)
+            #expect(got.statusCode == 200)
+            #expect(fetched == bytes)
+            #expect(got.value(forHTTPHeaderField: "Cache-Control") == "public, max-age=31536000, immutable",
+                    "the lease described the stored asset")
+            #expect(got.value(forHTTPHeaderField: "Accept-Ranges") == "bytes")
+        }
+    }
+
     /// The store is memory, so its cap is the only thing between a publisher and the place's RAM.
     @Test func aFullEphemeralStoreRefusesAndSaysByHowMuch() async throws
     {

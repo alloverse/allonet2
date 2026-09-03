@@ -181,12 +181,16 @@ public final class PlaceServerAssets: Sendable
             return Self.problem(.badRequest, AssetError.malformedID(request.routeParameters["id"] ?? request.path))
         }
 
-        if let held = await ephemeral.entry(for: id) { return Self.respond(id, with: held, to: request) }
-
+        // Durable first: the same bytes can be published both ways, and an ephemeral lease must
+        // not shadow a stored asset's metadata - or expire out from under it.
         let found: AssetStore.Entry?
         do { found = try await store.entry(for: id) }
         catch { return Self.problem(.internalServerError, "\(error)") }
-        guard let entry = found else { return Self.problem(.notFound, AssetError.notFound(id)) }
+        guard let entry = found else
+        {
+            guard let held = await ephemeral.entry(for: id) else { return Self.problem(.notFound, AssetError.notFound(id)) }
+            return Self.respond(id, with: held, to: request)
+        }
 
         // Content-addressed, so the bytes behind an id can never change: cache them forever.
         var headers: HTTPHeaders = [
