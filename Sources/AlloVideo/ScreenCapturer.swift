@@ -77,6 +77,7 @@ public final class ScreenCapturer: NSObject, VideoSource
     private var stream: SCStream?
     private var streamConfiguration = SCStreamConfiguration()
     private var picking: CheckedContinuation<Void, Error>?
+    private var stopped = false
 
     public init(configuration: Configuration = .init())
     {
@@ -92,11 +93,13 @@ public final class ScreenCapturer: NSObject, VideoSource
     ///
     /// - Returns: once the first frame has been captured, so a caller that returns from this
     ///   has a stream that is actually producing pictures.
-    /// - Throws: `ScreenCaptureError.cancelled` when the user dismisses the picker,
-    ///   `.pickerFailed` when it cannot open, and whatever `SCStream` throws when starting the
-    ///   capture fails - a missing screen-recording permission comes out here.
+    /// - Throws: `ScreenCaptureError.cancelled` when the user dismisses the picker or `stop()`
+    ///   interrupts it - a stopped capturer is spent and throws that at once - `.pickerFailed`
+    ///   when it cannot open, and whatever `SCStream` throws when starting the capture fails: a
+    ///   missing screen-recording permission comes out here.
     public func pickAndStart() async throws
     {
+        guard !stopped else { throw ScreenCaptureError.cancelled }
         let picker = SCContentSharingPicker.shared
         picker.add(self)
         picker.isActive = true
@@ -122,18 +125,24 @@ public final class ScreenCapturer: NSObject, VideoSource
         }
     }
 
+    /// Stop capturing and finish `frames`. A `pickAndStart()` still waiting on the picker throws
+    /// `ScreenCaptureError.cancelled`, and anything the user picks after this is ignored.
     public nonisolated func stop()
     {
         Task { @MainActor in
+            stopped = true
+            finishPicking(with: ScreenCaptureError.cancelled)
             guard let stream else { return output.finish() }
             self.stream = nil
-            try? await stream.stopCapture()
+            do { try await stream.stopCapture() }
+            catch { print("ScreenCapturer: the capture did not stop cleanly: \(error)") }
             output.finish()
         }
     }
 
     private func start(with filter: SCContentFilter) async
     {
+        guard !stopped else { return }
         do
         {
             let size = Self.fit(filter.contentRect.size, scale: CGFloat(filter.pointPixelScale), into: configuration.maxPixelSize)
@@ -147,6 +156,9 @@ public final class ScreenCapturer: NSObject, VideoSource
             let stream = SCStream(filter: filter, configuration: streamConfiguration, delegate: output)
             try stream.addStreamOutput(output, type: .screen, sampleHandlerQueue: queue)
             try await stream.startCapture()
+            // `stop()` can land in the middle of this; the capture it could not see must not
+            // outlive it.
+            guard !stopped else { return try await stream.stopCapture() }
             self.stream = stream
         }
         catch
