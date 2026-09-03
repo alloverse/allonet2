@@ -209,6 +209,41 @@ public final class DataChannelMediaStream: MediaStream, @unchecked Sendable
         }
     }
 
+    /// Send one already-compressed payload, numbered in this stream's own sequence.
+    ///
+    /// The video counterpart of `send(samples:frameCount:)`: the caller brings the codec and the
+    /// clock, the stream brings the numbering and the cap. Unlike audio, the timestamp is not
+    /// derived from a sample count - a picture is placed by when it was captured.
+    ///
+    /// - Parameter timestamp: 48 kHz ticks since the stream started.
+    /// - Returns: the sequence it went out as, or nil when the payload was over its kind's cap or
+    ///   the channel refused it; both count `sendFailed` and are logged with the size that failed.
+    @discardableResult
+    public func send(payload: Data, kind: MediaFrame.Kind, timestamp: UInt32) -> UInt32?
+    {
+        // Refused here rather than on the wire: every receiver would count it malformed and drop
+        // it, so the sender is the only place that can say which frame was too big.
+        guard payload.count + MediaFrame.headerSize <= kind.maximumFrameBytes else
+        {
+            counters.update { $0.sendFailed += 1 }
+            logger.error("Refusing to send \(kind) frame of \(payload.count) bytes: cap is \(kind.maximumFrameBytes) including a \(MediaFrame.headerSize) byte header")
+            return nil
+        }
+        lock.lock()
+        let sequence = nextSequence
+        nextSequence &+= 1
+        lock.unlock()
+
+        let frame = MediaFrame(kind: kind, sequence: sequence, timestamp: timestamp, payload: payload)
+        guard sendFrame(frame.encoded) else
+        {
+            counters.update { $0.sendFailed += 1 }
+            return nil
+        }
+        counters.update { $0.sent += 1 }
+        return sequence
+    }
+
     /// Bytes this stream has handed to its channel that are still queued for the wire. `send` and
     /// `forward` never block and never report congestion, so this is the only sign that a sender
     /// is outrunning the link: a video sender reads it before every encode and spends less

@@ -35,6 +35,17 @@ Hard-won non-obvious facts. Fold a new one in here when it doesn't fit a topic d
   then fails to link with an undefined symbol spelling out the *old* signature. `touch` the
   file named in the "referenced from" line and build again; the sources are fine.
 
+## Video
+
+- `kVTVideoEncoderSpecification_EnableLowLatencyRateControl` makes `VTCompressionSessionCreate`
+  build a VideoProcessing *reaction* observer, which enumerates capture devices through
+  CoreMediaIO — a synchronous XPC round trip to the camera extension host. In a process with no
+  camera access it can never return, and every later session creation queues behind the same
+  `dispatch_once`: measured as a whole `swift test` run hung indefinitely with several threads
+  parked in `VCPReactionObserverCreate`, while the identical calls in a small standalone process
+  took 0.27 s. `H264Encoder` therefore asks only for hardware acceleration; `RealTime` plus
+  `DataRateLimits` gives the same pacing with nothing to do with a camera.
+
 ## Connection lifecycle and trust
 
 - A place can't tell a dead client from a live one until ICE gives up (tens of seconds). Anything

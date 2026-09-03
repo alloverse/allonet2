@@ -83,9 +83,12 @@ public final class H264Encoder: @unchecked Sendable
     {
         currentBitrate = bitrate
         var session: VTCompressionSession?
+        // No EnableLowLatencyRateControl: on macOS 26 that path builds a VideoProcessing
+        // reaction observer, which enumerates capture devices over CoreMediaIO and can block
+        // forever in a process with no camera access. RealTime plus DataRateLimits is the same
+        // pacing without the camera dependency. See docs/gotchas.md.
         let specification: [CFString: Any] = [
             kVTVideoEncoderSpecification_EnableHardwareAcceleratedVideoEncoder: true,
-            kVTVideoEncoderSpecification_EnableLowLatencyRateControl: true,
         ]
         let status = VTCompressionSessionCreate(
             allocator: nil,
@@ -143,10 +146,11 @@ public final class H264Encoder: @unchecked Sendable
     /// - Throws: `VideoEncodeError.encodeFailed`, `.unreadableSample` or `.missingParameterSets`.
     public func encode(_ frame: CapturedFrame, forceKeyframe: Bool) async throws -> EncodedFrame?
     {
-        lock.lock()
-        if origin == nil { origin = frame.capturedAt }
-        let ticks = UInt32(truncatingIfNeeded: Int64(((frame.capturedAt - origin!) * 48000).rounded()))
-        lock.unlock()
+        let ticks = lock.withLock
+        {
+            if origin == nil { origin = frame.capturedAt }
+            return UInt32(truncatingIfNeeded: Int64(((frame.capturedAt - origin!) * 48000).rounded()))
+        }
 
         let properties: CFDictionary? = forceKeyframe
             ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary
