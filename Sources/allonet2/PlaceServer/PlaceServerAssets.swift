@@ -243,7 +243,7 @@ public final class PlaceServerAssets: Sendable
             .contentType: held.contentType,
             .eTag: "\"\(id)\"",
             // It disappears from under the fetcher, so nothing downstream may keep a copy of it.
-            .cacheControl: "no-store",
+            HTTPHeader("Cache-Control"): "no-store",
         ]
         guard request.method != .HEAD else
         {
