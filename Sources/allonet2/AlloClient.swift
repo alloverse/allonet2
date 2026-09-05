@@ -228,10 +228,20 @@ open class AlloClient : AlloSessionDelegate, ObservableObject, Identifiable, Ent
             throw AlloverseError(
                 domain: AlloverseErrorCode.domain,
                 code: AlloverseErrorCode.failedSignalling.rawValue,
-                description: "HTTP error \(http.statusCode): \(String(data: data, encoding: .utf8) ?? "(no data)")"
+                description: "HTTP error \(http.statusCode): \(String(data: data, encoding: .utf8) ?? "(no data)")",
+                overrideIsFatal: Self.signallingRefusalIsPermanent(status: http.statusCode)
             )
         }
         return try JSONDecoder().decode(SignallingPayload.self, from: data)
+    }
+
+    /// Whether a non-2xx signalling status is worth retrying. A server answered, so the network is
+    /// up and the request itself was refused; sending the same offer to the same URL again changes
+    /// nothing, and a wrong address would otherwise spin forever. The exceptions are the statuses a
+    /// proxy sends while the place behind it restarts, and throttling.
+    static func signallingRefusalIsPermanent(status: Int) -> Bool
+    {
+        ![408, 425, 429, 502, 503, 504].contains(status)
     }
 
     private func connect() async

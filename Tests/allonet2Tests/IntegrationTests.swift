@@ -144,6 +144,27 @@ final class AlloClientIntegrationTests: XCTestCase {
         client.disconnect()
     }
 
+    // 4b. A place (or the proxy in front of it) refusing the offer outright — a 404 for a
+    //    misspelled place name, a 500 — won't go better on a retry either.
+    func testPermanentSignallingRefusalDisconnects() async {
+        XCTAssertTrue(AlloClient.signallingRefusalIsPermanent(status: 404))
+        XCTAssertTrue(AlloClient.signallingRefusalIsPermanent(status: 500))
+        XCTAssertFalse(AlloClient.signallingRefusalIsPermanent(status: 503))
+
+        let client = makeTestClient()
+        client.signallingError = AlloverseError(
+            code: AlloverseErrorCode.failedSignalling,
+            description: "HTTP error 404",
+            overrideIsFatal: true
+        )
+
+        client.stayConnected()
+
+        await awaitClientState(client, { !$0.isStayingConnected })
+        XCTAssertEqual(client.connectionStatus.reconnection, .idle)
+        XCTAssertEqual((client.connectionStatus.lastError as? AlloverseError)?.description, "HTTP error 404")
+    }
+
     // 5. An announce the place calls fatal — wrong protocol version, rejected credentials —
     //    won't go better on a retry, so give up and surface it.
     func testFatalAnnounceFailureDisconnects() async {
