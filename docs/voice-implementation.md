@@ -132,10 +132,17 @@ so the pin stays: without it, starting capture silences Spotify and every other 
 - The engine touches `inputNode` only when capture is asked for: that first touch is what
   prompts for microphone access, and tone-mode `voicedemo` and a silent listener must not
   prompt.
-- Mute is `isVoiceProcessingInputMuted` *plus* dropping what the frame accumulator has queued -
-  never stopping the engine, which would take playout's echo reference away. So unmuting never
-  flushes audio captured while muted, and the OS microphone indicator stays lit (voice.md,
-  Known limitations).
+- Mute drops what the tap captured and tears the voice processor down, since it buys nothing
+  without uplink and ducks every other app while it runs; unmuting on speakers re-opens it. So
+  unmuting never flushes audio captured while muted. The microphone itself stays open, and the
+  OS indicator lit, unless `muteReleaseDelay` is set: then a mute that outlasts the delay
+  disables input on the I/O unit, which needs a stopped engine, and the processor stays up
+  until that same restart so a quick mute and unmute swaps nothing.
+- Removing the tap does not release the microphone. Input comes on with the first touch of
+  `inputNode` and stays on, indicator and all, until `auAudioUnit.isInputEnabled` is cleared
+  on a stopped engine; `Scripts/mic-indicator-probe.swift` walks the states and prints what
+  macOS counts. Stopping capture clears it, so a listener who stops speaking shows no
+  indicator either.
 - Apple's voice processor hands the input tap a `DiscreteInOrder` layout - on a Mac mini with
   a USB webcam microphone, four identical channels at 16 kHz - and `AVAudioConverter` has no
   downmix rule for discrete channels: without an explicit `channelMap` it maps none and emits

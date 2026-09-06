@@ -117,7 +117,7 @@ final class MicrophoneTrack: AudioTrack
         connected = false
     }
 
-    /// Muting leaves capture running so playout keeps the echo canceller's reference; a
+    /// Muting is the engine's to apply - it decides whether the microphone stays open; a
     /// microphone that was never turned on is never opened at all.
     private func apply()
     {
