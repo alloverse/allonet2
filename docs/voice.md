@@ -141,10 +141,10 @@ channel are a trust boundary and both are bounded:
   with a USB webcam microphone: device output is stereo but 16 kHz while capture is on, so
   playback is band-limited to 8 kHz for the speaker's own ears. Spatialisation is unaffected.
   `voicedemo` logs the formats at `Engine running:`.
-- **The microphone indicator stays on while muted.** Muting sets
-  `isVoiceProcessingInputMuted` rather than stopping capture, so the voice processor keeps
-  rendering the reference playout needs for echo cancellation. The OS therefore reports the
-  microphone as in use, as it does in FaceTime.
+- **The microphone indicator stays on while muted, unless the client asks otherwise.** By
+  default muting drops the captured audio and keeps the microphone open, as FaceTime does, so
+  the OS reports it in use. `VoiceEngine.muteReleaseDelay` releases the input that long into a
+  mute instead, at the cost of an engine restart on unmute.
 - **Catching up shifts the pitch a little.** The rate node is `AVAudioUnitVarispeed`, which
   resamples, so a stream correcting its depth plays up to 2 % (34 cents) off pitch until it is
   back on target. The pitch-preserving `AVAudioUnitTimePitch` measured 85 ms of added pipeline

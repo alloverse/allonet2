@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import AVFoundation
+import CoreAudio
 import simd
 @testable import AlloAudio
 import allonet2
@@ -208,6 +209,57 @@ import allonet2
         // The next buffer, recorded after the unmute, goes as normal.
         engine.accept(buffer, capturedAt: Date(), generation: generation, capturedWhileMuted: false)
         #expect(stream.counters.snapshot.captured == 1)
+    }
+}
+
+/// What macOS counts against this process for the menu bar microphone indicator.
+private var processIsRunningInput: Bool
+{
+    var pid = getpid(), process = AudioObjectID(0), size = UInt32(MemoryLayout<AudioObjectID>.size)
+    var address = AudioObjectPropertyAddress(mSelector: kAudioHardwarePropertyTranslatePIDToProcessObject, mScope: kAudioObjectPropertyScopeGlobal, mElement: kAudioObjectPropertyElementMain)
+    precondition(AudioObjectGetPropertyData(AudioObjectID(kAudioObjectSystemObject), &address, UInt32(MemoryLayout<pid_t>.size), &pid, &size, &process) == noErr)
+    var value = UInt32(0)
+    size = UInt32(MemoryLayout<UInt32>.size)
+    address.mSelector = kAudioProcessPropertyIsRunningInput
+    precondition(AudioObjectGetPropertyData(process, &address, 0, nil, &size, &value) == noErr)
+    return value == 1
+}
+
+private func waitUntil(_ condition: @autoclosure () -> Bool, within seconds: Double = 3) async throws -> Bool
+{
+    let deadline = Date(timeIntervalSinceNow: seconds)
+    while !condition(), Date() < deadline { try await Task.sleep(for: .milliseconds(50)) }
+    return condition()
+}
+
+/// Opens the real microphone, so it runs only on request: `ALLO_DEVICE_TESTS=1 swift test
+/// --filter MicrophoneReleaseTests`, from a terminal with microphone access.
+@Suite(.enabled(if: ProcessInfo.processInfo.environment["ALLO_DEVICE_TESTS"] != nil))
+@MainActor struct MicrophoneReleaseTests
+{
+    /// Removing the tap does not turn the indicator off; only the release does, and the
+    /// microphone has to come back for the unmute.
+    @Test func releasesTheMicrophoneOnlyAfterAMuteOutlastsTheDelay() async throws
+    {
+        let engine = VoiceEngine(voiceProcessing: false)
+        let stream = DataChannelMediaStream(mediaId: "voice-mic", direction: .sendonly) { _ in true }
+        try await engine.startCapture(sending: stream)
+        #expect(try await waitUntil(processIsRunningInput), "capture did not open the microphone")
+
+        engine.muteReleaseDelay = 0.5
+        engine.isMuted = true
+        engine.isMuted = false
+        try await Task.sleep(for: .seconds(0.7))
+        #expect(processIsRunningInput, "a mute shorter than the delay released the microphone")
+
+        engine.isMuted = true
+        #expect(try await waitUntil(!processIsRunningInput), "the microphone stayed open past the delay")
+
+        engine.isMuted = false
+        #expect(try await waitUntil(processIsRunningInput), "unmuting did not re-open the microphone")
+
+        engine.stopCapture()
+        #expect(try await waitUntil(!processIsRunningInput), "stopping capture left the microphone open")
     }
 }
 

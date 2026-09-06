@@ -203,6 +203,12 @@ public final class VoiceEngine
     /// would prompt for microphone access.
     private var tapInstalled = false
 
+    /// The I/O unit's input. It comes on the moment `inputNode` is first touched and stays on
+    /// until explicitly disabled - removing the tap alone leaves the microphone running and
+    /// the OS indicator lit. Scripts/mic-indicator-probe.swift walks the states.
+    private enum InputState { case untouched, on, off }
+    private var input = InputState.untouched
+
     /// The format the installed tap was created with; a reconcile that finds the input
     /// format unchanged leaves the tap alone.
     private var tapFormat: AVAudioFormat?
@@ -218,12 +224,12 @@ public final class VoiceEngine
     /// Sequence and capture time of every frame sent, for latency correlation.
     public var onFrameSent: ((UInt32, Date) -> Void)?
 
-    /// Muting keeps the engine and the microphone running - the OS indicator stays lit while
-    /// connected and muted, as in FaceTime - and drops what is captured instead. The voice
-    /// processor, though, is torn down while muted: it buys nothing without uplink, and on
-    /// macOS it ducks every other app's audio the whole time it runs. Unmuting on speakers
-    /// re-opens it, off the main thread; nothing is sent until it is up, so no uncancelled
-    /// audio ever leaves.
+    /// Muting drops what is captured instead of sending it. With `muteReleaseDelay` nil the
+    /// microphone stays open - the OS indicator stays lit while muted, as in FaceTime - but
+    /// the voice processor is torn down at once: it buys nothing without uplink, and on macOS
+    /// it ducks every other app's audio the whole time it runs. Unmuting on speakers re-opens
+    /// it, off the main thread; nothing is sent until it is up, so no uncancelled audio ever
+    /// leaves.
     public var isMuted = false
     {
         didSet
@@ -235,6 +241,21 @@ public final class VoiceEngine
         }
     }
 
+    /// How long a mute may last before the microphone is released, or nil to keep it open
+    /// while muted. Releasing disables input on the I/O unit, which is what turns the OS
+    /// microphone indicator off; playout keeps running through the restarted engine. Until
+    /// the delay passes, the voice processor stays up too, so a quick mute and unmute costs
+    /// no I/O unit swap at all. Unmuting after a release re-opens the input, a few hundred
+    /// milliseconds on headphones and the processor's seconds on speakers.
+    public var muteReleaseDelay: TimeInterval?
+    {
+        didSet { if isMuted { applyMute() } }
+    }
+
+    /// Whether a mute has lasted past `muteReleaseDelay`; capture is not wanted while true.
+    private var inputReleased = false
+    private var releaseTimer: Task<Void, Never>?
+
     /// Whether capture was muted at the moment the tap handed a buffer over. The tap runs on the
     /// audio thread and cannot read the main actor's `isMuted`; reading it after the hop instead
     /// is what let an unmute release audio recorded during the mute.
@@ -242,6 +263,19 @@ public final class VoiceEngine
 
     private func applyMute()
     {
+        releaseTimer?.cancel()
+        releaseTimer = nil
+        if !isMuted || muteReleaseDelay == nil { inputReleased = false }
+        else if let delay = muteReleaseDelay, !inputReleased
+        {
+            releaseTimer = Task
+            { [weak self] in
+                do { try await Task.sleep(for: .seconds(delay)) } catch { return }   // unmuted in time
+                guard let self else { return }
+                inputReleased = true
+                ops.launch("release input") { [self] in try await self.reconcileOp() }
+            }
+        }
         // Without capture there is no uplink and no processor; the accumulator's drop above
         // is the whole mute. With it, a mute flip can change whether the processor should
         // exist at all, so reconcile rather than poke the unit's mute flag - the reconcile
@@ -290,6 +324,9 @@ public final class VoiceEngine
         guard isCapturing else { return }
         isCapturing = false
         captureStream = nil
+        releaseTimer?.cancel()
+        releaseTimer = nil
+        inputReleased = false
         accumulator.reset()
         ops.launch("stopCapture") { [self] in try await reconcileOp() }
     }
@@ -303,16 +340,19 @@ public final class VoiceEngine
     /// converges because every pass reads the current truth.
     private func reconcileOp() async throws
     {
-        let wantTap = isCapturing && captureStream != nil
+        let wantTap = isCapturing && captureStream != nil && !inputReleased
         let wantEngine = !sources.isEmpty || isCapturing
         let allowVP = voiceProcessing
-        let muted = isMuted
+        // A mute that will release the input keeps the processor until then, so both go in
+        // one engine restart rather than two.
+        let muted = isMuted && (muteReleaseDelay == nil || inputReleased)
         let hadTap = tapInstalled
+        let hadInput = input
         let currentVP = voiceProcessingEnabled
         let hadGraph = graphReady
         let needsGraph = wantTap && claimGraphSetup()
 
-        struct IOState { let inputFormat: AVAudioFormat?; let vpOn: Bool; let route: OutputRoute; let hadPlayout: Bool; let tapRemoved: Bool }
+        struct IOState { let inputFormat: AVAudioFormat?; let vpOn: Bool; let input: InputState; let route: OutputRoute; let hadPlayout: Bool; let tapRemoved: Bool }
         let io = await ops.offMain
         { [engine, environment, logger] () -> IOState in
             let route = OutputRoute.current()
@@ -325,33 +365,42 @@ public final class VoiceEngine
             // does, so a mute flip on headphones does not cost a re-tap.
             let tapRemoved = hadTap && (wantVP != vpOn || !wantTap)
             if tapRemoved { engine.inputNode.removeTap(onBus: 0) }
-            if wantVP != vpOn
+            // The first touch of inputNode enables input by itself; only a release and the
+            // re-enable after one are explicit, and they need a stopped engine, as does
+            // swapping the processor. Neither prompts for microphone access: a release means
+            // the input is on, and the re-enable means capture is wanted.
+            var input = hadInput
+            let flipInput = wantTap ? hadInput == .off : hadInput == .on
+            if wantVP != vpOn || flipInput
             {
-                // Only a stopped engine allows the swap. Touching inputNode is safe here: a
-                // differing state means the input is or was in use, so the microphone-access
-                // prompt already happened.
                 engine.stop()
-                do
+                if wantVP != vpOn
                 {
-                    try engine.inputNode.setVoiceProcessingEnabled(wantVP)
-                    if wantVP
+                    do
                     {
-                        // Ducking is system-wide, not graph-wide: one engine stopped it ducking
-                        // our own playout, but every other app's audio still drops while voice
-                        // processing captures. Advanced ducking only ducks during voice activity.
-                        engine.inputNode.voiceProcessingOtherAudioDuckingConfiguration =
-                            .init(enableAdvancedDucking: true, duckingLevel: .min)
+                        try engine.inputNode.setVoiceProcessingEnabled(wantVP)
+                        if wantVP
+                        {
+                            // Ducking is system-wide, not graph-wide: one engine stopped it ducking
+                            // our own playout, but every other app's audio still drops while voice
+                            // processing captures. Advanced ducking only ducks during voice activity.
+                            engine.inputNode.voiceProcessingOtherAudioDuckingConfiguration =
+                                .init(enableAdvancedDucking: true, duckingLevel: .min)
+                        }
+                        vpOn = wantVP
                     }
-                    vpOn = wantVP
+                    catch { logger.warning("Could not switch voice processing to \(wantVP), continuing as \(vpOn): \(error)") }
                 }
-                catch { logger.warning("Could not switch voice processing to \(wantVP), continuing as \(vpOn): \(error)") }
+                if flipInput { engine.inputNode.auAudioUnit.isInputEnabled = wantTap; input = wantTap ? .on : .off }
             }
+            if wantTap { input = .on }   // reading the input format below touches inputNode
             // The hardware under the graph's inferred formats may be new; refresh while stopped.
             if hadGraph, !engine.isRunning { engine.connect(environment, to: engine.mainMixerNode, format: nil) }
             return IOState(inputFormat: wantTap ? engine.inputNode.outputFormat(forBus: 0) : nil,
-                           vpOn: vpOn, route: route, hadPlayout: hadPlayout, tapRemoved: tapRemoved)
+                           vpOn: vpOn, input: input, route: route, hadPlayout: hadPlayout, tapRemoved: tapRemoved)
         }
         voiceProcessingEnabled = io.vpOn
+        input = io.input
         if io.tapRemoved { tapInstalled = false; tapFormat = nil }
 
         guard let inputFormat = io.inputFormat else
