@@ -234,6 +234,7 @@ public final class VoiceEngine
     {
         didSet
         {
+            guard isMuted != oldValue else { return }   // a repeated mute must not restart the release timer
             let muted = isMuted   // the lock's closure is Sendable and cannot reach the main actor
             mutedAtTap.withLock { $0 = muted }
             accumulator.muted = isMuted
@@ -249,7 +250,11 @@ public final class VoiceEngine
     /// milliseconds on headphones and the processor's seconds on speakers.
     public var muteReleaseDelay: TimeInterval?
     {
-        didSet { if isMuted { applyMute() } }
+        didSet
+        {
+            if let delay = muteReleaseDelay { precondition(delay.isFinite && delay >= 0, "muteReleaseDelay \(delay) is not a duration") }
+            if isMuted { applyMute() }
+        }
     }
 
     /// Whether a mute has lasted past `muteReleaseDelay`; capture is not wanted while true.
@@ -324,9 +329,6 @@ public final class VoiceEngine
         guard isCapturing else { return }
         isCapturing = false
         captureStream = nil
-        releaseTimer?.cancel()
-        releaseTimer = nil
-        inputReleased = false
         accumulator.reset()
         ops.launch("stopCapture") { [self] in try await reconcileOp() }
     }
