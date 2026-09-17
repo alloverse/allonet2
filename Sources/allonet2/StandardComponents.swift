@@ -29,6 +29,9 @@ public struct Transform: Component
         self.matrix = matrix
     }
     
+    /// Composes the matrix as translation * rotation * scale.
+    /// - Parameter scale: Applied along the entity's own axes, before `rotation`. Each factor must be
+    ///   positive: `matrix.scale` reads back magnitudes, and a zero factor loses the rotation.
     public init(
         translation: SIMD3<Float> = [0,0,0],
         rotation: simd_quatf = .identity,
@@ -37,9 +40,8 @@ public struct Transform: Component
     {
         matrix = float4x4.identity
         matrix.translation = translation
-        // TODO: Fix the math in the float4x4 extension
         matrix.rotation = rotation
-        //matrix.scale = scale
+        matrix.scale = scale
     }
     
     var translation: SIMD3<Float> { matrix.translation }
