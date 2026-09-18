@@ -40,8 +40,8 @@ public class PlaceServer : AlloSessionDelegate
     // The scenegraph state of the Place
     let place: PlaceState
     lazy var heartbeat: HeartbeatTimer = {
-        return HeartbeatTimer {
-            self.applyAndBroadcastState()
+        return HeartbeatTimer { [weak self] in
+            await self?.applyAndBroadcastState()
         }
     }()
     internal var outstandingPlaceChanges: [PlaceChange] = []

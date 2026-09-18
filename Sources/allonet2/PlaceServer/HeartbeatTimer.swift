@@ -48,15 +48,18 @@ actor HeartbeatTimer
     
     public func awaitNextSync() async
     {
+        guard !stopped else { return }
         for await _ in syncStream { break }
     }
     
-    /// Fires no more beats, including the one a sync in flight would have scheduled.
+    /// Fires no more beats, including the one a sync in flight would have scheduled, and
+    /// releases everyone in `awaitNextSync()`.
     public func stop()
     {
         stopped = true
         timer?.cancel()
         timer = nil
+        syncContinuation?.finish() // nobody is left waiting for a beat that will not come
     }
     
     private func setupTimer(delay: Int)

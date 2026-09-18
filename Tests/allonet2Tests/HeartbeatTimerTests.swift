@@ -47,6 +47,18 @@ struct HeartbeatTimerTests
         try await Task.sleep(for: .milliseconds(100))
         #expect(await syncs.current <= countAtStop + 1)
     }
+
+    /// A disconnecting client's cleanup waits for the next beat; stopping the place must not
+    /// leave it waiting forever.
+    @Test func stopReleasesThoseWaitingForTheNextSync() async throws
+    {
+        let timer = HeartbeatTimer(coalesceDelay: 5_000_000, keepaliveDelay: 10_000_000_000) {}
+        let waiter = Task { await timer.awaitNextSync() }
+        try await Task.sleep(for: .milliseconds(50))
+        await timer.stop()
+        await waiter.value
+        await timer.awaitNextSync() // and nobody starts waiting afterwards
+    }
 }
 
 /// Counts syncAction invocations, and can re-enter markChanged from inside one.
