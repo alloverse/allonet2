@@ -20,17 +20,20 @@ public final class TestPlace
 
     public init() async throws
     {
-        // A fixed range per process would collide between test cases; ask the OS instead.
-        port = try Self.freePort()
-        server = PlaceServer(
+        // A fixed range per process would collide between test cases; let the OS pick one, and
+        // read back what it picked once the listener is bound.
+        let server = PlaceServer(
             name: "Voice E2E",
-            httpPort: port,
+            httpPort: 0,
             // Loopback only: this host gathers no candidates otherwise.
             options: TransportConnectionOptions(routing: .direct, bindAddress: "127.0.0.1"),
             alloAppAuthToken: ""
         )
+        self.server = server
         Task { try await server.start() }
-        try await waitUntil(timeout: 10) { Self.isListening(on: self.port) }
+        try await waitUntil(timeout: 10) { await server.listeningPort != nil }
+        guard let port = await server.listeningPort else { throw TestPlaceError.noFreePort }
+        self.port = port
     }
 
     public func connectClient(named name: String) async throws -> TestClient
@@ -47,42 +50,6 @@ public final class TestPlace
         clients.removeAll()
         await server.stop()
         try? await Task.sleep(nanoseconds: 300_000_000)
-    }
-
-    private static func freePort() throws -> UInt16
-    {
-        let handle = socket(AF_INET, SOCK_STREAM, 0)
-        defer { close(handle) }
-        var address = sockaddr_in()
-        address.sin_family = sa_family_t(AF_INET)
-        address.sin_addr.s_addr = INADDR_ANY
-        address.sin_port = 0
-        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
-        let bound = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(handle, $0, length) }
-        }
-        guard bound == 0 else { throw TestPlaceError.noFreePort }
-        let named = withUnsafeMutablePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(handle, $0, &length) }
-        }
-        guard named == 0 else { throw TestPlaceError.noFreePort }
-        return UInt16(bigEndian: address.sin_port)
-    }
-
-    private static func isListening(on port: UInt16) -> Bool
-    {
-        let handle = socket(AF_INET, SOCK_STREAM, 0)
-        defer { close(handle) }
-        var address = sockaddr_in()
-        address.sin_family = sa_family_t(AF_INET)
-        address.sin_addr.s_addr = inet_addr("127.0.0.1")
-        address.sin_port = port.bigEndian
-        let connected = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                connect(handle, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
-            }
-        }
-        return connected == 0
     }
 }
 

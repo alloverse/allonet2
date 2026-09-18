@@ -97,10 +97,18 @@ public class PlaceServer : AlloSessionDelegate
         FileManager.default.temporaryDirectory.appendingPathComponent("alloplace-assets", isDirectory: true)
     }
     
+    /// The TCP port the HTTP listener (signalling, assets, dashboard) is bound to, or nil until
+    /// `start()` has bound it. Pass `httpPort: 0` to let the OS pick a free port, and read it
+    /// here; the port an embedder hands its clients cannot be known any other way.
+    public var listeningPort: UInt16? {
+        get async { await web.listeningPort }
+    }
+
     public func start() async throws
     {
         let myIp = options.ipOverride?.to ?? "localhost"
-        logger.notice("Serving '\(name)' at http://\(myIp):\(httpPort)/ and UDP ports \(options.portRange)")
+        let address = httpPort == 0 ? "a port the OS picks (see listeningPort)" : "http://\(myIp):\(httpPort)/"
+        logger.notice("Serving '\(name)' at \(address) and UDP ports \(options.portRange)")
 
         try await self.web.start()
     }

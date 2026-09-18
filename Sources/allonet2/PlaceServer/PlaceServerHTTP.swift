@@ -7,6 +7,7 @@
 
 import Foundation
 import FlyingFox
+import FlyingSocks
 import Version
 
 public struct AppDescription
@@ -53,6 +54,18 @@ class PlaceServerHTTP
         self.appDescription = appDescription
         self.assets = PlaceServerAssets(directory: assetsDirectory)
     }
+
+    /// The port the listening socket is bound to, or nil before `start()` has bound it.
+    var listeningPort: UInt16? {
+        get async {
+            switch await http?.listeningAddress
+            {
+            case .ip4(_, port: let port), .ip6(_, port: let port): return port
+            case .unix, .none: return nil
+            }
+        }
+    }
+
     func start() async throws
     {
         self.http = HTTPServer(port: port, timeout: Self.requestTimeout)
