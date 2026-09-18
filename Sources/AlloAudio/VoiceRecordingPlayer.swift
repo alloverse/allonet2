@@ -17,6 +17,9 @@ import allonet2
 ///
 /// Thread-safe. The player owns the recordings it is given and pulls frames on its own queue,
 /// which is the one queue a `VoiceRecording` may be used from.
+///
+/// A voice codec must be installed before `start()` (`Opus.install()` from AlloOpus, which a
+/// `VoiceEngine` also does); without one every frame is refused and the stream logs why.
 public final class VoiceRecordingPlayer
 {
     /// Frames one tick may send per recording. Past this the backlog is dropped: it is audio
@@ -25,7 +28,8 @@ public final class VoiceRecordingPlayer
 
     /// Called on the player's own queue for every frame that reached the wire, with the sequence
     /// `DataChannelMediaStream.send(samples:frameCount:)` gave it. For measuring latency; leave
-    /// it nil otherwise.
+    /// it nil otherwise. Set it before `start()`, and do not call `start()` or `stop()` from it:
+    /// both wait for the queue the callback runs on.
     public var onFrameSent: ((DataChannelMediaStream, UInt32, Date) -> Void)?
 
     private static let frameInterval = Double(VoiceRecording.frameCount) / DataChannelMediaStream.sampleRate

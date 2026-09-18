@@ -122,6 +122,7 @@ receiver's jitter buffer anyway. `start()` sends the first frame before it retur
 idempotent, and starting again restarts the clock while each recording carries on where it was.
 
 ```swift
+Opus.install() // once per process; without a codec every frame is refused
 let player = VoiceRecordingPlayer()
 player.add(try VoiceRecording(url: url), to: stream)
 player.start()
