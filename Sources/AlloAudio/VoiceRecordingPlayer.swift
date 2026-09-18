@@ -7,9 +7,8 @@ import Foundation
 import Logging
 import allonet2
 
-/// Sends recordings into voice streams from one 20 ms clock, so several recordings stay in step
-/// with each other for as long as the player runs - six demo avatars talking in two groups sound
-/// like one room, not six independent timers drifting apart.
+/// Sends recordings into voice streams from one 20 ms clock, so that several recordings stay in
+/// step with each other for as long as the player runs.
 ///
 /// Each tick works out how many frames are due since `start()` from elapsed monotonic time, and
 /// sends every recording the frames it still owes, in that same tick. A late tick therefore
