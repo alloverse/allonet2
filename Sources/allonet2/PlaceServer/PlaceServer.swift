@@ -120,6 +120,7 @@ public class PlaceServer : AlloSessionDelegate
             client.session.disconnect()
         }
         sfu.stop()
+        await heartbeat.stop()
     }
     
     public func session(didConnect sess: AlloSession)

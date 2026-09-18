@@ -17,6 +17,7 @@ actor HeartbeatTimer
     private let timerQueue = DispatchQueue(label: "HeartbeatTimerQueue")
     private var timer: DispatchSourceTimer?
     private var pendingChanges = false
+    private var stopped = false
     
     // This stream must not buffer events; otherwise any awaitNextSync() will trigger immediately based on an outdated heartbeat,
     // not the latest one it's actually waiting for.
@@ -50,8 +51,10 @@ actor HeartbeatTimer
         for await _ in syncStream { break }
     }
     
+    /// Fires no more beats, including the one a sync in flight would have scheduled.
     public func stop()
     {
+        stopped = true
         timer?.cancel()
         timer = nil
     }
@@ -59,6 +62,7 @@ actor HeartbeatTimer
     private func setupTimer(delay: Int)
     {
         timer?.cancel()
+        guard !stopped else { return }
         
         let newTimer = DispatchSource.makeTimerSource(queue: timerQueue)
         newTimer.setEventHandler { [weak self] in

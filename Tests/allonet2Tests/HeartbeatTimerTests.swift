@@ -27,12 +27,33 @@ struct HeartbeatTimerTests
 
         await timer.stop()
     }
+
+    /// The timer re-arms itself after every sync, so a stop that only cancelled the pending
+    /// timer let a sync in flight schedule the next beat, and the owner never went away.
+    @Test func firesNothingAfterStop() async throws
+    {
+        let syncs = Syncs()
+        let timer = HeartbeatTimer(coalesceDelay: 5_000_000, keepaliveDelay: 20_000_000)
+        {
+            await syncs.record()
+        }
+        try await syncs.waitForCount(1, within: .seconds(2))
+
+        await timer.stop()
+        let countAtStop = await syncs.current
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(await syncs.current <= countAtStop + 1) // one sync may already have been in flight
+        await timer.markChanged()
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(await syncs.current <= countAtStop + 1)
+    }
 }
 
 /// Counts syncAction invocations, and can re-enter markChanged from inside one.
 private actor Syncs
 {
     private var count = 0
+    var current: Int { count }
     private var markNext: HeartbeatTimer?
 
     func record() async
