@@ -116,9 +116,9 @@ short. It is not thread-safe: one queue pulls from it.
 `VoiceRecordingPlayer` drives one or more of them from a single 20 ms clock. Each tick works out
 how many frames are due since `start()` from elapsed monotonic time and sends every recording
 the frames it owes in that same tick, which is what keeps several recordings in step with each
-other - six avatars talking in two groups sound like one room. A tick later than
-`maximumCatchUp` frames sends that many and drops the rest, since a burst is discarded by the
-receiver's jitter buffer anyway. `start()` sends the first frame before it returns; `stop()` is
+other. A tick later than `maximumCatchUp` frames sends that many and forgives the rest, since a
+burst is discarded by the receiver's jitter buffer anyway: every recording pauses for the same
+moment and carries on from where it was, so no speech is skipped. `start()` sends the first frame before it returns; `stop()` is
 idempotent, and starting again restarts the clock while each recording carries on where it was.
 
 ```swift

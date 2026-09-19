@@ -12,8 +12,9 @@ import allonet2
 ///
 /// Each tick works out how many frames are due since `start()` from elapsed monotonic time, and
 /// sends every recording the frames it still owes, in that same tick. A late tick therefore
-/// catches up instead of slowing the room down, and a tick later than `maximumCatchUp` frames
-/// drops the excess rather than bursting it at a receiver whose jitter buffer would discard it.
+/// catches up instead of slowing the room down. A tick later than `maximumCatchUp` frames sends
+/// that many and forgives the rest of the debt: every recording pauses for the same moment and
+/// carries on from where it was, so no speech is skipped and the recordings stay in step.
 ///
 /// Thread-safe. The player owns the recordings it is given and pulls frames on its own queue,
 /// which is the one queue a `VoiceRecording` may be used from.
@@ -22,8 +23,8 @@ import allonet2
 /// `VoiceEngine` also does); without one every frame is refused and the stream logs why.
 public final class VoiceRecordingPlayer
 {
-    /// Frames one tick may send per recording. Past this the backlog is dropped: it is audio
-    /// whose moment has gone, and a burst is discarded at the far end regardless.
+    /// Frames one tick may send per recording. A longer backlog is forgiven, not sent: a burst
+    /// is discarded by the receiver's jitter buffer regardless.
     public static let maximumCatchUp = 5
 
     /// Called on the player's own queue for every frame that reached the wire, with the sequence
