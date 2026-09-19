@@ -103,6 +103,33 @@ libwebrtc never retransmitted voice either; this keeps the same two tools, both 
   decoder is told so and extrapolates 20 ms from what it last decoded, instead of playing
   silence.
 
+## Sending a file instead of a microphone
+
+A demo avatar, a test that needs speech to localise, or a headless sender an agent can run: all
+of them want a file on a stream rather than a capture device. `AlloAudio` has the two pieces.
+
+`VoiceRecording(url:)` opens anything `AVAudioFile` reads and converts it on demand into the
+960-sample 48 kHz mono Float32 frames `DataChannelMediaStream.send(samples:frameCount:)` takes.
+It loops inside the same conversion pass, so the seam is sample-continuous and no frame is ever
+short. It is not thread-safe: one queue pulls from it.
+
+`VoiceRecordingPlayer` drives one or more of them from a single 20 ms clock. Each tick works out
+how many frames are due since `start()` from elapsed monotonic time and sends every recording
+the frames it owes in that same tick, which is what keeps several recordings in step with each
+other. A tick later than `maximumCatchUp` frames sends that many and forgives the rest, since a
+burst is discarded by the receiver's jitter buffer anyway: every recording pauses for the same
+moment and carries on from where it was, so no speech is skipped. `start()` sends the first frame before it returns; `stop()` is
+idempotent, and starting again restarts the clock while each recording carries on where it was.
+
+```swift
+Opus.install() // once per process; without a codec every frame is refused
+let player = VoiceRecordingPlayer()
+player.add(try VoiceRecording(url: url), to: stream)
+player.start()
+```
+
+`voicedemo` uses both for `VOICEDEMO_WAV`.
+
 ## Counters
 
 `VoiceCounters` are values tests assert on, not log lines. On a receiver every `received`

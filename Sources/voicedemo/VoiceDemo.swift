@@ -37,10 +37,10 @@ struct VoiceDemo
 
         // Decode before connecting: a bad path should fail as itself, not as a client that joins
         // the place and then says nothing.
-        var recording: Recording?
+        var recording: VoiceRecording?
         if let path = ProcessInfo.processInfo.environment["VOICEDEMO_WAV"]
         {
-            do { recording = try Recording(path: path) }
+            do { recording = try VoiceRecording(url: URL(fileURLWithPath: path)) }
             catch
             {
                 FileHandle.standardError.write(Data("VOICEDEMO_WAV: \(error)\n".utf8))
@@ -85,9 +85,10 @@ final class VoiceDemoClient: AlloClient
     private let engine = VoiceEngine(voiceProcessing: ProcessInfo.processInfo.environment["VOICEDEMO_NO_VPIO"] == nil)
     private var outgoing: DataChannelMediaStream?
     private var incoming: [MediaStreamId: DataChannelMediaStream] = [:]
-    private var generator: DispatchSourceTimer?
+    private var tone: DispatchSourceTimer?
+    private let recordings = VoiceRecordingPlayer()
     var latency: LatencyLog?
-    var recording: Recording?
+    var recording: VoiceRecording?
     private var outgoingMediaId: MediaStreamId?
     private var lastPolled: [MediaStreamId: UInt32] = [:]
 
@@ -112,14 +113,13 @@ final class VoiceDemoClient: AlloClient
         let source: String
         if let recording
         {
-            startGenerating(into: stream) {
-                do { return Array(try recording.nextFrame()) }
-                catch
-                {
-                    FileHandle.standardError.write(Data("Stopped sending: \(error)\n".utf8))
-                    return nil
-                }
+            // LatencyLog only appends, so the player's own queue may note captures directly.
+            if let latency, let mediaId = outgoingMediaId
+            {
+                recordings.onFrameSent = { _, sequence, at in latency.note(capture: mediaId, sequence: sequence, at: at) }
             }
+            recordings.add(recording, to: stream)
+            recordings.start()
             source = String(format: "recording, %.0f s looping", recording.duration)
         }
         else if let hz = ProcessInfo.processInfo.environment["VOICEDEMO_TONE"].flatMap(Double.init)
@@ -147,33 +147,18 @@ final class VoiceDemoClient: AlloClient
         let frameCount = DataChannelMediaStream.frameDuration
         var phase = 0.0
         let step = 2 * Double.pi * hz / DataChannelMediaStream.sampleRate
-        startGenerating(into: stream) {
-            var samples = [Float](repeating: 0, count: frameCount)
-            for i in 0..<frameCount { samples[i] = Float(sin(phase)) * 0.25; phase += step }
-            return samples
-        }
-    }
-
-    /// Send one frame every 20 ms from `nextFrame`, off a timer rather than an audio clock.
-    /// Returning nil stops the timer for good; the reason belongs on stderr before it does.
-    private func startGenerating(into stream: DataChannelMediaStream, _ nextFrame: @escaping () -> [Float]?)
-    {
-        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "voicedemo.generator"))
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "voicedemo.tone"))
         timer.schedule(deadline: .now(), repeating: .milliseconds(20), leeway: .milliseconds(2))
         let latency = self.latency
         let mediaId = outgoingMediaId
-        timer.setEventHandler { [weak self] in
-            guard let samples = nextFrame()
-            else
-            {
-                Task { @MainActor in self?.generator?.cancel(); self?.generator = nil }
-                return
-            }
+        timer.setEventHandler {
+            var samples = [Float](repeating: 0, count: frameCount)
+            for i in 0..<frameCount { samples[i] = Float(sin(phase)) * 0.25; phase += step }
             let at = Date()
             let sequence = samples.withUnsafeBufferPointer { stream.send(samples: $0.baseAddress!, frameCount: samples.count) }
             if let sequence, let mediaId { latency?.note(capture: mediaId, sequence: sequence, at: at) }
         }
-        generator = timer
+        tone = timer
         timer.resume()
     }
 
