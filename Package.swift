@@ -104,6 +104,8 @@ let package = Package(
             dependencies: [
                 "PotentCodables",
                 "FlyingFox",
+                // FlyingFox does not re-export it, and HTTPServer.listeningAddress is one of its types.
+                .product(name: "FlyingSocks", package: "FlyingFox"),
                 "AlloDataChannel",
                 "Version",
                 .product(name: "kvSIMD", package: "kvSIMD.swift"),
