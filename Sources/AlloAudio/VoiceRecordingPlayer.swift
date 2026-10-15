@@ -33,7 +33,7 @@ public final class VoiceRecordingPlayer
     /// both wait for the queue the callback runs on.
     public var onFrameSent: ((DataChannelMediaStream, UInt32, Date) -> Void)?
 
-    private static let frameInterval = Double(VoiceRecording.frameCount) / DataChannelMediaStream.sampleRate
+    private static let frameInterval = Double(VoiceRecording.chunkFrameCount) / DataChannelMediaStream.sampleRate
 
     private let queue = DispatchQueue(label: "allonet2.voicerecordingplayer")
     private let monotonicNow: () -> Double

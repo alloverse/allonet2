@@ -32,7 +32,7 @@ private func makeRecording(samples: Int, hz: Double = 440) throws -> VoiceRecord
         #expect(abs(recording.duration - 1000.0 / 48000.0) < 0.001)
         for _ in 0..<5
         {
-            #expect(try recording.nextFrame().count == VoiceRecording.frameCount)
+            #expect(try recording.nextFrame().count == VoiceRecording.chunkFrameCount)
         }
     }
 

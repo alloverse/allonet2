@@ -12,14 +12,13 @@ import allonet2
 /// start inside the same conversion pass, so the loop is sample-continuous at the seam and no
 /// frame is ever short.
 ///
-/// Use it to speak a file into a place - a test that needs speech to localise, or a demo avatar
-/// with something to say. `VoiceRecordingPlayer` drives one or more of them on a shared clock.
+/// `VoiceRecordingPlayer` drives one or more of these on a shared clock.
 ///
 /// Not thread-safe: hand it to one queue and pull frames only from there.
 public final class VoiceRecording
 {
-    /// Samples in one frame, the same 20 ms the wire carries.
-    public static let frameCount = DataChannelMediaStream.frameDuration
+    /// Sample frames in one chunk `nextFrame()` returns: the 20 ms the wire carries.
+    public static let chunkFrameCount = DataChannelMediaStream.frameDuration
 
     /// Why a recording could not be opened, or could not go on being decoded. Every case names
     /// the file, because CoreAudio's own errors say only what went wrong.
@@ -81,7 +80,7 @@ public final class VoiceRecording
         guard let converter = AVAudioConverter(from: source, to: target),
               let input = AVAudioPCMBuffer(pcmFormat: source, frameCapacity: 4096),
               let output = AVAudioPCMBuffer(pcmFormat: target,
-                                            frameCapacity: AVAudioFrameCount(Self.frameCount))
+                                            frameCapacity: AVAudioFrameCount(Self.chunkFrameCount))
         else { throw Failure.cannotConvert(url, source) }
         // Discrete channel layout has no downmix rule; without a map the converter emits
         // silence. See docs/voice-implementation.md, One engine.
@@ -92,7 +91,7 @@ public final class VoiceRecording
     }
 
     /// Decode the next 20 ms, wrapping to the start of the file when it runs out.
-    /// - Returns: exactly `frameCount` mono samples in the recording's own buffer, valid until
+    /// - Returns: exactly `chunkFrameCount` mono samples in the recording's own buffer, valid until
     ///   the next call. Pass it straight to `DataChannelMediaStream.send(samples:frameCount:)`.
     /// - Throws: `Failure` naming the file. Nothing recovers a decode failure mid-file; the
     ///   caller should stop pulling.
@@ -107,7 +106,7 @@ public final class VoiceRecording
             return input
         }
         if let readFailure { throw Failure.decodeFailed(url, readFailure) }
-        guard status == .haveData, output.frameLength == AVAudioFrameCount(Self.frameCount)
+        guard status == .haveData, output.frameLength == AVAudioFrameCount(Self.chunkFrameCount)
         else { throw Failure.decodeFailed(url, conversionError) }
         return UnsafeBufferPointer(start: output.floatChannelData![0], count: Int(output.frameLength))
     }

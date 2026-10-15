@@ -72,9 +72,8 @@ swift run AlloPlace -n "Local Place"
 
 * `-n <name>` — human-facing name of the place.
 * `-p <port>` — TCP port for the HTTP listener (signalling, assets, dashboard; default 9080).
-  An app embedding `PlaceServer` rather than running this CLI can pass `httpPort: 0` to let the
-  OS pick a free port, and read it back from `PlaceServer.listeningPort` once `start()` has bound
-  the listener.
+  Embedding `PlaceServer`: pass `httpPort: 0` to pick a free port, and read it back with
+  `PlaceServer.listeningPort` after `start()`.
 * `-u <min-max>` — UDP port range for WebRTC (default 10000-11000).
 * `-t <token>` — token an AlloApp must present to be granted app privileges; omitted, any app
   that asks is authenticated. It is a role credential, not a connection gate: clients

@@ -105,8 +105,7 @@ libwebrtc never retransmitted voice either; this keeps the same two tools, both 
 
 ## Sending a file instead of a microphone
 
-A demo avatar, a test that needs speech to localise, or a headless sender an agent can run: all
-of them want a file on a stream rather than a capture device. `AlloAudio` has the two pieces.
+A sender can speak a file instead of a capture device. `AlloAudio` has the two pieces.
 
 `VoiceRecording(url:)` opens anything `AVAudioFile` reads and converts it on demand into the
 960-sample 48 kHz mono Float32 frames `DataChannelMediaStream.send(samples:frameCount:)` takes.
